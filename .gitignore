@@ -1,0 +1,90 @@
+# Default ignored files
+/shelf/
+/workspace.xml
+# Ignored default folder with query files
+/queries/
+# Datasource local storage ignored files
+/dataSources/
+/dataSources.local.xml
+# Editor-based HTTP Client requests
+/httpRequests/
+
+
+
+# Reminder: .gitignore does not support comments at the end of a line.
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env/
+ENV/
+
+# Distribution / packaging / build directories
+cmake-build-*/
+build/
+bin/
+obj/
+dist/
+*.egg-info/
+.eggs/
+*.egg
+wheels/
+sdist/
+
+# Pytest cache
+.pytest_cache/
+
+# Coverage reports
+.coverage
+.coverage.*
+htmlcov/
+htmlReport/
+coverage.xml
+
+# IDEs / Editors
+#---------------------
+### IntelliJ IDEA ###
+out/
+.idea/
+*.iml
+*.iws
+*.ipr
+*.swp
+*.swo
+
+# VSCode
+.vscode/
+*.sublime-*
+nbproject/
+*~
+
+# Operating System files
+.DS_Store
+Thumbs.db
+
+
+# Secrets (use with caution, prefer dedicated secret management)
+# (add patterns for specific secret files if necessary)
+# credentials.json
+# secrets.yaml
+*.key
+*.pem
+credentials.*
+secrets.*
+*.env
+
+# Log files
+*.log
+logs/
+
+# compiled files
+*.out
+**/*.dSYM/*
+
+**/out/
