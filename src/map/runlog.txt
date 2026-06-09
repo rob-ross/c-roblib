@@ -1,0 +1,81 @@
+N = 10,000
+finished adding 10000 items to map.
+(HashMap){ .size=10000, .fill_capacity=12, .load=625, .num_buckets=16, .fill_factor=0.75, .free_func=0x7ff80f88ac2d }
+bucket sizes: [0]=621, [1]=641, [2]=654, [3]=671, [4]=647, [5]=629, [6]=586, [7]=640, [8]=628, [9]=594, [10]=571, [11]=609, [12]=617, [13]=615, [14]=640, [15]=637,
+total bucket items: 10000
+
+./out/test_hashmap.out  0.07s user 0.00s system 20% cpu 0.336 total
+(base) robross@Robs-MacBook-Pro map % time ./out/test_hashmap.out
+
+finished adding 10000 items to map.
+(HashMap){ .size=10000, .fill_capacity=12, .load=625, .num_buckets=16, .fill_factor=0.75, .free_func=0x7ff80f88ac2d }
+bucket sizes: [0]=621, [1]=641, [2]=654, [3]=671, [4]=647, [5]=629, [6]=586, [7]=640, [8]=628, [9]=594, [10]=571, [11]=609, [12]=617, [13]=615, [14]=640, [15]=637,
+total bucket items: 10000
+
+./out/test_hashmap.out  0.08s user 0.00s system 98% cpu 0.080 total
+(base) robross@Robs-MacBook-Pro map % time ./out/test_hashmap.out
+
+finished adding 10,000 items to map.
+(HashMap){ .size=10000, .fill_capacity=12, .load=625, .num_buckets=16, .fill_factor=0.75, .free_func=0x7ff80f88ac2d }
+bucket sizes: [0]=621, [1]=641, [2]=654, [3]=671, [4]=647, [5]=629, [6]=586, [7]=640, [8]=628, [9]=594, [10]=571, [11]=609, [12]=617, [13]=615, [14]=640, [15]=637,
+total bucket items: 10,000
+
+./out/test_hashmap.out  0.08s user 0.00s system 97% cpu 0.087 total
+
+N = 100,000
+
+(base) robross@Robs-MacBook-Pro map % time ./out/test_hashmap.out
+
+finished adding 100,000 items to map.
+(HashMap){ .size=100000, .fill_capacity=12, .load=6250, .num_buckets=16, .fill_factor=0.75, .free_func=0x7ff80f88ac2d }
+bucket sizes: [0]=6283, [1]=6511, [2]=6273, [3]=6317, [4]=6231, [5]=6314, [6]=6226, [7]=6222, [8]=6210, [9]=6241, [10]=6174, [11]=6155, [12]=6182, [13]=6237, [14]=6266, [15]=6158,
+total bucket items: 100,000
+
+./out/test_hashmap.out  7.55s user 0.02s system 99% cpu 7.576 total
+
+N = 1,000,000
+
+(base) robross@Robs-MacBook-Pro map % time ./out/test_hashmap.out
+^C
+./out/test_hashmap.out  744.57s user 1.47s system 99% cpu 12:27.47 total
+
+
+finished adding 200,000 items to map.
+(HashMap){ .size=200000, .fill_capacity=12, .load=12500, .num_buckets=16, .fill_factor=0.75, .free_func=0x7ff80f88ac2d }
+bucket sizes: [0]=12330, [1]=12806, [2]=12562, [3]=12448, [4]=12560, [5]=12693, [6]=12693, [7]=12385, [8]=12492, [9]=12414, [10]=12420, [11]=12368, [12]=12523, [13]=12595, [14]=12415, [15]=12296,
+total bucket items: 200,000
+
+./out/test_hashmap.out  41.13s user 0.07s system 99% cpu 41.581 total
+
+AFTER IMPLEMENTING REHASHING:
+---------------------------------------------
+1 Million
+finished adding 1000000 items to map.
+(HashMap){ .size=1000000, .fill_capacity=1572864, .load=0.476837, .num_buckets=2097152, .fill_factor=0.75, .free_func=0x7ff80f88ac2d }
+./out/test_hashmap.out  1.00s user 0.05s system 78% cpu 1.334 total
+
+10 Million
+finished adding 10000000 items to map.
+(HashMap){ .size=10000000, .fill_capacity=12582912, .load=0.596046, .num_buckets=16777216, .fill_factor=0.75, .free_func=0x7ff80f88ac2d }
+./out/test_hashmap.out  11.16s user 0.50s system 97% cpu 11.984 total
+
+100 Million!
+finished adding 100,000,000 items to map.
+(HashMap){ .size=100000000, .fill_capacity=100663296, .load=0.745058, .num_buckets=134217728, .fill_factor=0.75, .free_func=0x7ff80f88ac2d }
+./out/test_hashmap.out  140.81s user 7.76s system 99% cpu 2:30.03 total
+
+---------------------------------------------
+After implementing simple paging memory manager:
+
+finished adding 1,000,000 items to map.
+(HashMap){ .size=1,000,000, .fill_capacity=1,572,864, .load=0.476837, .num_buckets=2,097,152, .fill_factor=0.75, .mem_policy_type = 2}
+./out/test_hashmap.out  0.85s user 0.04s system 78% cpu 1.139 total
+
+
+finished adding 10,000,000 items to map.
+(HashMap){ .size=10,000,000, .fill_capacity=12,582,912, .load=0.596046, .num_buckets=16,777,216, .fill_factor=0.75, .mem_policy_type = 2}
+./out/test_hashmap.out  9.50s user 0.35s system 99% cpu 9.867 total
+
+finished adding 100,000,000 items to map.
+(HashMap){ .size=100,000,000, .fill_capacity=100,663,296, .load=0.745058, .num_buckets=134,217,728, .fill_factor=0.75, .mem_policy_type = 2}
+./out/test_hashmap  109.70s user 3.30s system 99% cpu 1:53.12 total
