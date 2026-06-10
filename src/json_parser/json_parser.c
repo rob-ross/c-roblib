@@ -38,6 +38,7 @@ Interface: Provide a json_parse(const char *input) function that returns a point
 #include "json_parser.h"
 #include "arena.h"
 #include "error_result.h"
+#include "../string_utils.h"
 
 typedef struct {
     const char *json;
@@ -86,42 +87,49 @@ static int match_one_pattern( const RegexPattern *rp, char const * str) {
 
 static bool parse_null(json_context *ctx, json_error *error) {
     int match_len = match_one_pattern(&REGEX_NULL_PATTERN, ctx->json);
-    if ( match_len >= 0) {
-        // debug
-        // printf("match found for %s\n",ctx->json);
-        ctx->json   += match_len;
-        ctx->column += match_len;
-        return true;
+    if (match_len < 0 ) {
+        error->column = ctx->column;
+        error->line   = ctx->line;
+        // we need a substring command so we can limit the message string to the relevant characters and not the whole string
+        error->message = sutil_concat_strings("expected 'null', got: ", ctx->json, nullptr);
+        return false;
     }
-    error->column = ctx->column;
-    error->line   = ctx->line;
-    error->message = "expected 'null', got ";
-    return false;
+    ctx->json   += match_len;
+    ctx->column += match_len;
+    return true;
 }
+
 
 
 static bool parse_true(json_context *ctx, json_error *error) {
     int match_len = match_one_pattern(&REGEX_TRUE_PATTERN, ctx->json);
-    if ( match_len >= 0) {
-        // debug
-        printf("match found for %s\n",ctx->json);
-        ctx->json += match_len;
-        ctx->column += match_len;
-        return true;
+    if (match_len < 0 ) {
+        error->column = ctx->column;
+        error->line   = ctx->line;
+        // we need a substring command so we can limit the message string to the relevant characters and not the whole string
+        error->message = sutil_concat_strings("expected 'true', got: ", ctx->json, nullptr);
+        return false;
     }
-    return false;
+    ctx->json += match_len;
+    ctx->column += match_len;
+    return true;
+
 }
 
 static bool parse_false(json_context *ctx, json_error *error) {
     int match_len = match_one_pattern(&REGEX_FALSE_PATTERN, ctx->json);
-    if ( match_len >= 0) {
-        // debug
-        printf("match found for %s\n",ctx->json);
-        ctx->json += match_len;
-        ctx->column += match_len;
-        return true;
+    if (match_len < 0 ) {
+        error->column = ctx->column;
+        error->line   = ctx->line;
+        // we need a substring command so we can limit the message string to the relevant characters and not the whole string
+        error->message = sutil_concat_strings("expected 'false', got: ", ctx->json, nullptr);
+        return false;
     }
-    return false;
+    printf("match found for %s\n",ctx->json);
+    ctx->json += match_len;
+    ctx->column += match_len;
+    return true;
+
 }
 
 constexpr char QUOTE           = 0x22;  // "
@@ -158,8 +166,10 @@ static bool parse_string(json_context *ctx, json_error *error) {
         if (*json_ptr == REVERSE_SOLIDUS) {
             json_ptr++; // Move to the escaped character
             if (*json_ptr == '\0') {
-                printf(" Unexpected EOF after backslash\n");
-
+                // printf(" Unexpected EOF after backslash\n");
+                error->column = ctx->column;
+                error->line   = ctx->line;
+                error->message = "Unexpected EOF after backslash";
                 return false; // Unexpected EOF
             }
             
@@ -173,53 +183,58 @@ static bool parse_string(json_context *ctx, json_error *error) {
                     for (int i = 0; i < 4; i++) {
                         json_ptr++;
                         if (*json_ptr == '\0') {
-                            printf(" Unexpected EOF in Unicode escape\n");
+                            // printf("Unexpected EOF in Unicode escape\n");
+                            error->column = ctx->column;
+                            error->line   = ctx->line;
+                            error->message = "Unexpected EOF in Unicode escape";
                             return false;
                         }
                         if (!isxdigit((unsigned char)*json_ptr)) {
-                            printf(" Invalid hex digit in Unicode escape: %c\n", *json_ptr);
+                            // printf("Invalid hex digit in Unicode escape: %c\n", *json_ptr);
+                            error->column = ctx->column;
+                            error->line   = ctx->line;
+                            error->message =  sutil_concat_strings("Invalid hex digit in Unicode escape: ", json_ptr, nullptr);
                             return false;
                         }
                     }
                     break;
                 default:
-                    printf(" Invalid escape sequence: \\%c\n", *json_ptr);
+                    error->column = ctx->column;
+                    error->line   = ctx->line;
+                    error->message =  sutil_concat_strings("Invalid escape sequence: \\", json_ptr, nullptr);
+                    // printf(" Invalid escape sequence: \\%c\n", *json_ptr);
                     return false;
             }
         } else if ((unsigned char)*json_ptr <= 0x1F) {
             // RFC 8259: Control characters U+0000 through U+001F MUST be escaped.
             // This means the literal bytes cannot appear here.
+            error->column = ctx->column;
+            error->line   = ctx->line;
             printf(" Unexpected unescaped control character: 0x%.2X\n", (unsigned char)*json_ptr);
             return false;
         }
 
-        switch (*json_ptr) {
-            case LEFT_BRACKET:
-            case RIGHT_BRACKET:
-            case LEFT_BRACE:
-            case RIGHT_BRACE:
-            case COLON:
-            case COMMA: {
-                // These are actually valid characters inside a JSON string
-                // unless they are outside the quotes.
-                break;
-            }
-        }
+        // switch (*json_ptr) {
+        //     case LEFT_BRACKET:
+        //     case RIGHT_BRACKET:
+        //     case LEFT_BRACE:
+        //     case RIGHT_BRACE:
+        //     case COLON:
+        //     case COMMA: {
+        //         // These are actually valid characters inside a JSON string
+        //         // unless they are outside the quotes.
+        //         break;
+        //     }
+        // }
+
         json_ptr++;
     }
 
+    error->column = ctx->column;
+    error->line   = ctx->line;
+    error->message = "No closing quote found.";
     return false;  // no closing quote found
 
-
-
-    // int match_len = match_one_pattern(&REGEX_STRING_PATTERN, ctx->json);
-    // if ( match_len >= 0) {
-    //     // debug
-    //     printf("match found for %.*s\n", match_len, ctx->json);
-    //     ctx->json += match_len;
-    //     return true;
-    // }
-    // return false;
 }
 
 
@@ -372,14 +387,15 @@ void jsonp_destroy(void) {
 }
 
 void test_parse_str(char const * str) {
-    json_error err_obj;
-    printf("Parsing json string '%s': \n", str);
+    json_error err_obj = {};
+    // printf("\nParsing json string '%s': \n", str);
     json_value *jval = json_parse(str, &err_obj);
     if (!jval) {
-        printf("  json_parse returns nullptr\n" );
+        // printf("  json_parse returns nullptr\n" );
+        printf("line:%d col:%d  %s\n", err_obj.line, err_obj.column, err_obj.message);
     }
     else {
-        printf("  json_type=%d\n", jval->type);
+        // printf("  json_type=%d\n", jval->type);
     }
 }
 
@@ -394,30 +410,32 @@ int main( ) {
     // test_parse_str("true");
     // test_parse_str("false");
     // test_parse_str("");
-    // test_parse_str("^%$the heck is this mess?");
+    test_parse_str("^%$the heck is this mess?");
     //
     // test_parse_str(nullptr);
 
-    // test_parse_str("nullington");
+    test_parse_str("nullington");
     //
     // test_parse_str("             true");
     // test_parse_str("             true           ");
 
     // test string parsing
 
-    test_parse_str(" \"This is a json string\" ");
-    test_parse_str(" \"This is a 'json' string too!\" ");
-    test_parse_str(" \"This  \\\"json\\\" string has embedded quotes\" ");
-    test_parse_str(" \"This  \\\"json\\\" string has embedded quotes but no matching closing quote ");
+    // test_parse_str(" \"This is a json string\" ");
+    // test_parse_str(" \"This is a 'json' string too!\" ");
+    // test_parse_str(" \"This  \\\"json\\\" string has embedded quotes\" ");
 
-    test_parse_str(" \"This  \\\"json\\\" string has embedded quotes but no matching closing quote [ but it has a delimeter");
-    test_parse_str(" \"This  \\\"json\\\" string has embedded quotes but no matching closing quote ] but it has a delimeter");
-    test_parse_str(" \"This  \\\"json\\\" string has embedded quotes but no matching closing quote { but it has a delimeter");
-    test_parse_str(" \"This  \\\"json\\\" string has embedded quotes but no matching closing quote } but it has a delimeter");
-    test_parse_str(" \"This  \\\"json\\\" string has embedded quotes but no matching closing quote : but it has a delimeter");
-    test_parse_str(" \"This  \\\"json\\\" string has embedded quotes but no matching closing quote , but it has a delimeter");
+    // test_parse_str(" \"This  \\\"json\\\" string has embedded quotes but no matching closing quote ");
+    //
+    // test_parse_str(" \"This  \\\"json\\\" string has embedded quotes but no matching closing quote [ but it has a delimeter");
+    // test_parse_str(" \"This  \\\"json\\\" string has embedded quotes but no matching closing quote ] but it has a delimeter");
+    // test_parse_str(" \"This  \\\"json\\\" string has embedded quotes but no matching closing quote { but it has a delimeter");
+    // test_parse_str(" \"This  \\\"json\\\" string has embedded quotes but no matching closing quote } but it has a delimeter");
+    // test_parse_str(" \"This  \\\"json\\\" string has embedded quotes but no matching closing quote : but it has a delimeter");
+    // test_parse_str(" \"This  \\\"json\\\" string has embedded quotes but no matching closing quote , but it has a delimeter");
+    //
+    // test_parse_str(" \"This  \\\"json\\\" string has no\nclosing quote , but it has a delimeter and newline");
 
-    test_parse_str(" \"This  \\\"json\\\" string has no\nclosing quote , but it has a delimeter and newline");
     test_parse_str(" \"This string has a newline here->\n that is not escaped.  \"");
 
     test_parse_str(" \"This string has a newline 0x13 here->\\\n that IS escaped.  \"");
