@@ -44,6 +44,8 @@ true  = %x74.72.75.65       ; true
 #define JSON_PARSER_H
 #include <_regex.h>
 
+#include "error_result.h"
+
 enum Token {
     TOK_TRUE,
     TOK_FALSE,
@@ -55,6 +57,7 @@ enum Token {
     TOK_COLON,
     TOK_COMMA,
     TOK_STRING, // this is actually a value not a token.... but so are true, false, and null. hmmm....???
+    TOK_NUMBER, // also not a token, a value.
 
 };
 
@@ -81,15 +84,17 @@ static const char * const REGEX_TRUE   = RSL WS_star WB_START "true"  WB_END WS_
 static const char * const REGEX_FALSE  = RSL WS_star WB_START "false" WB_END WS_star;
 static const char * const REGEX_NULL   = RSL WS_star WB_START "null"  WB_END WS_star;
 static const char * const REGEX_STRING = RSL WS_star "\x22.*\x22" WS_star;
+static const char * const REGEX_NUMBER = RSL WS_star "(-?(0|[1-9])[0-9]*(\\.[0-9]+)?([eE][-+]?[0-9]+)?)" WS_star;
 
 static const char * const REGEX_LEFT_BRACKET   = WS_star "["  WS_star;
 static const char * const REGEX_RIGHT_BRACKET  = WS_star "]"  WS_star;
 
-constexpr int NUM_REGEX_PATTERNS = 4;
+constexpr int NUM_REGEX_PATTERNS = 5;
 RegexPattern REGEX_TRUE_PATTERN    = { .pattern_string  =  REGEX_TRUE,   .name="true",   .token = TOK_TRUE  };
 RegexPattern REGEX_FALSE_PATTERN   = { .pattern_string  =  REGEX_FALSE,  .name="false",  .token = TOK_FALSE };
 RegexPattern REGEX_NULL_PATTERN    = { .pattern_string  =  REGEX_NULL,   .name="null",   .token = TOK_NULL  };
 RegexPattern REGEX_STRING_PATTERN  = { .pattern_string  =  REGEX_STRING, .name="string", .token = TOK_STRING  };
+RegexPattern REGEX_NUMBER_PATTERN  = { .pattern_string  =  REGEX_NUMBER, .name="number", .token = TOK_NUMBER  };
 
 
 // can't do this at compile time as we can in Python and Java, must do it in the init method.
@@ -139,7 +144,7 @@ typedef struct {
 
 constexpr char QUOTATION_MARK = '"';
 
-
+Error jsonp_init();
 /* Main parsing function */
 json_value *json_parse(const char *json, json_error *error);
 

@@ -20,7 +20,8 @@ add_compile_options($<$<CONFIG:Release>:-O3>)
 add_compile_options($<$<CONFIG:Release>:-march=native>)
 add_compile_options($<$<CONFIG:Release>:-DNDEBUG>)
 
-add_library(c_roblib STATIC library.c)
+add_library(c_roblib STATIC library.c
+        src/string/string_builder.h)
 
 
 
@@ -29,5 +30,6 @@ add_executable( json_parse
         src/json_parser/arena.c
         src/json_parser/error_result.c
         src/string/string_utils.c
+        src/string/string_builder.c
 )
 target_compile_options(json_parse PRIVATE -Wno-unused-function)
