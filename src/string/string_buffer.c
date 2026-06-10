@@ -8,7 +8,7 @@
 #include <string.h>
 #include <stdarg.h>
 
-#include "string_buffer.h"
+#include "../string_buffer.h"
 
 #include "string_utils.h"
 

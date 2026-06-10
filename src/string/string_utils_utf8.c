@@ -8,7 +8,7 @@
 #include <stdio.h>
 #include <stdint.h>
 
-#include "string_utils_utf8.h"
+#include "../string_utils_utf8.h"
 
 // Returns the Unicode code point at the given logical character index.
 // Returns UINT32_MAX if index is out of bounds or string is invalid.

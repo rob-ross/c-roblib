@@ -38,7 +38,7 @@ Interface: Provide a json_parse(const char *input) function that returns a point
 #include "json_parser.h"
 #include "arena.h"
 #include "error_result.h"
-#include "../string_utils.h"
+#include "../string/string_utils.h"
 
 typedef struct {
     const char *json;
