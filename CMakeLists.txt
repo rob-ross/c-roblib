@@ -12,7 +12,7 @@ endif()
 # Helpful for debugging (CLion usually does this in Debug, but explicit is fine)
 # -fsanitize=address -fsanitize=leak
 set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -O0 -g -fno-omit-frame-pointer -fsanitize=address -fsanitize=leak \
--Wall -Werror -Wno-unknown-attributes")
+-Wall -Werror -Wno-unknown-attributes -Wno-unused-const-variable")
 
 # Use add_compile_options with generator expressions to robustly add release flags
 # This ensures they are applied even if the cache has old values.
@@ -28,5 +28,6 @@ add_executable( json_parse
         src/json_parser/json_parser.c
         src/json_parser/arena.c
         src/json_parser/error_result.c
+        src/string_utils.c
 )
 target_compile_options(json_parse PRIVATE -Wno-unused-function)
