@@ -41,9 +41,9 @@ static const size_t SB_MAX_ARGS = 1024;  // max number of variadic arguments pro
 
 /**
  *
- * Return a new StringBuffer with argument string centered in a string of length width.
+ * Return a new StringBuffer with the argument string centered in a string of length `width`.
  * Padding is done using the specified fill_char.
- * The argument StringBuffer is returned if width is less than or equal to len(s).
+ * The original argument StringBuffer is returned if `width` is less than or equal to len(s).
  */
 StringBuffer * sb_centered(const StringBuffer *sb, int width, char fill_char);
 

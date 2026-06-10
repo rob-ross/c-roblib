@@ -63,7 +63,7 @@ bool sutil_char_in(uint32_t c, const char *chars);
  *
  * @param str1 first const char* to concat
  * @param ... const char* zero or more additional strings
- * @return a newly allocated string concatenation of the argument list.
+ * @return a newly allocated string concatenation of the argument list. Caller is responsible for freeing the string.
  */
 char * sutil_concat_strings(const char *str1, ...);
 /**
