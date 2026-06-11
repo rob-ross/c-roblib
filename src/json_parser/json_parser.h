@@ -56,6 +56,7 @@ enum Token {
     TOK_RIGHT_BRACE,
     TOK_COLON,
     TOK_COMMA,
+    // We are lexing and parsing at the same time in this parser, so these "tokens" really represent a type of AST node
     TOK_STRING, // this is actually a value not a token.... but so are true, false, and null. hmmm....???
     TOK_NUMBER, // also not a token, a value.
 
@@ -101,26 +102,35 @@ RegexPattern REGEX_NUMBER_PATTERN  = { .pattern_string  =  REGEX_NUMBER, .name="
 // patterns = {REGEX_TRUE_PATTERN, REGEX_FALSE_PATTERN, REGEX_NULL_PATTERN};
 RegexPattern *patterns[NUM_REGEX_PATTERNS];
 
-typedef enum {
+typedef enum json_type{
     JSON_NULL,
     JSON_BOOLEAN,
+
+    // We need to be able to distinguish ints from floats when we parse and write values.
     JSON_NUMBER,
+    JSON_INT,
+    JSON_FLOAT,
+
     JSON_STRING,
     JSON_ARRAY,
     JSON_OBJECT
 } json_type;
 
-typedef struct json_value json_value;
+typedef struct json_value_s JsonValue;
 typedef struct json_object_entry json_object_entry;
 
-struct json_value {
+struct json_value_s {
     json_type type;
     union {
         int boolean;
-        double number;
+        union {
+            long   n_long;
+            double n_double;
+            double n_number;
+        };
         const char *string;
         struct {
-            json_value **elements;
+            JsonValue **elements;
             size_t count;
         } array;
         struct {
@@ -132,24 +142,29 @@ struct json_value {
 
 struct json_object_entry {
     char *key;
-    json_value *value;
+    JsonValue *value;
 };
 
-typedef struct {
+typedef struct json_error_t {
     const char *message;
     int line;
     int column;
-} json_error;
+    int parse_start;
+    int parse_end;
+} JsonError;
 
 
 constexpr char QUOTATION_MARK = '"';
 
 Error jsonp_init();
 /* Main parsing function */
-json_value *json_parse(const char *json, json_error *error);
+JsonValue *json_parse(const char *json, JsonError *error);
 
 /* Recursive cleanup */
-void json_value_free(json_value *value);
+void json_value_free(JsonValue *value);
+
+
+void json_repr(JsonValue *value);
 
 #endif // JSON_PARSER_H
 

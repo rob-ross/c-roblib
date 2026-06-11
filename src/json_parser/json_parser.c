@@ -41,26 +41,31 @@ Interface: Provide a json_parse(const char *input) function that returns a point
 #include "../string/string_utils.h"
 #include "../string/string_builder.h"
 
-typedef struct {
-    const char *json;
+typedef struct json_context_t {
+    const char *current_text;  // The current text being parsed, advances through the JSON text
+    const char *json; // full original JSON text string
     int line;
     int column;
-} json_context;
+    int parse_start;
+    int parse_end;
+} JsonContext;
 
 
 
 
-static void skip_whitespace(json_context *ctx) {
-    while (*ctx->json && isspace(*ctx->json)) {
-        if (*ctx->json == '\n') {
-            ctx->line++;
-            ctx->column = 1;
+static void skip_whitespace(JsonContext *context) {
+    while (*context->current_text && isspace(*context->current_text)) {
+        if (*context->current_text == '\n') {
+            context->line++;
+            context->column = 1;
         } else {
-            ctx->column++;
+            context->column++;
         }
-        ctx->json++;
+        context->current_text++;
     }
 }
+
+
 
 static Arena arena = {};
 constexpr uint32_t ERROR_MSG_BUFFER_SIZE = 1024;
@@ -86,50 +91,93 @@ static int match_one_pattern( const RegexPattern *rp, char const * str) {
     }
 }
 
-static bool parse_null(json_context *ctx, json_error *error) {
-    int match_len = match_one_pattern(&REGEX_NULL_PATTERN, ctx->json);
-    if (match_len < 0 ) {
-        error->column = ctx->column;
-        error->line   = ctx->line;
-        // we need a substring command so we can limit the message string to the relevant characters and not the whole string
-        error->message = sutil_concat_strings("expected 'null', got: ", ctx->json, nullptr);
-        return false;
+static inline int max_int(const int a, const int b) {
+    return a > b ? a : b;
+}
+
+static inline int min_int(const int a, const int b) {
+    return a < b ? a : b;
+}
+
+// advance the parser state based on the current parse window
+static void advance(JsonContext *context, const int char_count) {
+    context->current_text += char_count;
+    context->column       += char_count;
+    context->parse_end    = context->parse_start + char_count;
+}
+
+static void record_error(const JsonContext *context, JsonError *error, const int char_count, const char *msg) {
+    error->column = context->column;
+    error->line   = context->line;
+    error->parse_end = error->parse_start + min_int(char_count, (int)strlen(context->current_text));
+    if (context->current_text[error->parse_end ] != '\0') {
+        error->parse_end++; // so we can display the character after the parse failure
     }
-    ctx->json   += match_len;
-    ctx->column += match_len;
-    return true;
+    error->message = msg;
+}
+
+
+static JsonValue * parse_null(JsonContext *context, JsonError *error) {
+    JsonValue *value = nullptr;
+
+    int match_len = match_one_pattern(&REGEX_NULL_PATTERN, context->current_text);
+    if (match_len < 0 ) {
+        // we need a substring command so we can limit the message string to the relevant characters and not the whole string
+        record_error(context, error,  4, "");
+        const int substr_len = error->parse_end - error->parse_start;
+        snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE, "expected 'null', got: %.*s",
+            substr_len, context->current_text);
+        error->message = error_msg_buffer;
+        return value;
+    }
+
+    value = arena_alloc(&arena, sizeof(JsonValue) );
+    value->type = JSON_NULL;
+    advance(context, match_len);
+    return value;
 }
 
 
 
-static bool parse_true(json_context *ctx, json_error *error) {
-    int match_len = match_one_pattern(&REGEX_TRUE_PATTERN, ctx->json);
+static JsonValue *  parse_true(JsonContext *context, JsonError *error) {
+    JsonValue *value = nullptr;
+
+    int match_len = match_one_pattern(&REGEX_TRUE_PATTERN, context->current_text);
     if (match_len < 0 ) {
-        error->column = ctx->column;
-        error->line   = ctx->line;
-        // we need a substring command so we can limit the message string to the relevant characters and not the whole string
-        error->message = sutil_concat_strings("expected 'true', got: ", ctx->json, nullptr);
-        return false;
+        record_error(context, error, 4, "");
+        const int substr_len = error->parse_end - error->parse_start;
+        snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE, "expected 'true', got: %.*s",
+            substr_len, context->current_text);
+        error->message = error_msg_buffer;
+        return value;
     }
-    ctx->json += match_len;
-    ctx->column += match_len;
-    return true;
+
+    value = arena_alloc(&arena, sizeof(JsonValue) );
+    value->type = JSON_BOOLEAN;
+    value->u.boolean = true;
+    advance(context, match_len);
+    return value;
 
 }
 
-static bool parse_false(json_context *ctx, json_error *error) {
-    int match_len = match_one_pattern(&REGEX_FALSE_PATTERN, ctx->json);
+static JsonValue *  parse_false(JsonContext *context, JsonError *error) {
+    JsonValue *value = nullptr;
+
+    int match_len = match_one_pattern(&REGEX_FALSE_PATTERN, context->current_text);
     if (match_len < 0 ) {
-        error->column = ctx->column;
-        error->line   = ctx->line;
-        // we need a substring command so we can limit the message string to the relevant characters and not the whole string
-        error->message = sutil_concat_strings("expected 'false', got: ", ctx->json, nullptr);
-        return false;
+        record_error(context, error, 5, "");
+        const int substr_len = error->parse_end - error->parse_start;
+        snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE, "expected 'false', got: %.*s",
+            substr_len, context->current_text);
+        error->message = error_msg_buffer;
+        return value;
     }
-    // printf("match found for %s\n",ctx->json);
-    ctx->json += match_len;
-    ctx->column += match_len;
-    return true;
+
+    value = arena_alloc(&arena, sizeof(JsonValue) );
+    value->type = JSON_BOOLEAN;
+    value->u.boolean = false;
+    advance(context, match_len);
+    return value;
 
 }
 
@@ -142,7 +190,7 @@ constexpr char RIGHT_BRACE     = '}';
 constexpr char COLON           = ':';
 constexpr char COMMA           = ',';
 
-static bool parse_string(json_context *ctx, json_error *error) {
+static JsonValue * parse_string(JsonContext *context, JsonError *error) {
     // the standard regex C library doesn't provide look-arounds. so simple regex matching with escaped quotes
     // causes the string to terminate early when there's not a closing, non-escaped quote.
     // E.g., ' "This  \"json\" string has embedded quotes but no matching closing quote ':
@@ -153,25 +201,34 @@ static bool parse_string(json_context *ctx, json_error *error) {
     // 1. a closing quote, which is a quote not preceeded by the backlash (reverse solidus)
     // 2. EOF, AKA null terminator, \x00
     // 3. any of the delimiter chars bracket, brace, colon, comma.
+    JsonValue *value = nullptr;
 
-    const char *json_ptr = ctx->json + 1; // Skip the opening quote
+    const char *json_ptr = context->current_text + 1; // Skip the opening quote
     while (*json_ptr) {
         if (*json_ptr == QUOTE) {
             // happy case. We found the terminating quote
-            int match_len = (int)((json_ptr + 1) - ctx->json);
-            ctx->json   += match_len;
-            ctx->column += match_len;
-            return true;
+            int match_len = (int)((json_ptr + 1) - context->current_text);
+
+
+            value = arena_alloc(&arena, sizeof(JsonValue) );
+            value->type = JSON_STRING;
+
+            size_t n = snprintf(nullptr, 0, "%.*s", match_len, context->current_text);
+
+            value->u.string = arena_alloc(&arena, n + 1);
+            // todo error checking
+            snprintf((char *)value->u.string, n + 1, "%.*s", match_len, context->current_text);
+
+            advance(context, match_len);
+            return value;
         }
 
         if (*json_ptr == REVERSE_SOLIDUS) {
             json_ptr++; // Move to the escaped character
             if (*json_ptr == '\0') {
                 // printf(" Unexpected EOF after backslash\n");
-                error->column = ctx->column;
-                error->line   = ctx->line;
-                error->message = "Unexpected EOF after backslash";
-                return false; // Unexpected EOF
+                record_error(context, error, 2, "Unexpected EOF after backslash");
+                return nullptr; // Unexpected EOF
             }
             
             // Validate escape sequence
@@ -185,34 +242,31 @@ static bool parse_string(json_context *ctx, json_error *error) {
                         json_ptr++;
                         if (*json_ptr == '\0') {
                             // printf("Unexpected EOF in Unicode escape\n");
-                            error->column = ctx->column;
-                            error->line   = ctx->line;
-                            error->message = "Unexpected EOF in Unicode escape";
-                            return false;
+                            record_error(context, error, 6, "Unexpected EOF after Unicode escape");
+                            return nullptr;
                         }
                         if (!isxdigit((unsigned char)*json_ptr)) {
                             // printf("Invalid hex digit in Unicode escape: %c\n", *json_ptr);
-                            error->column = ctx->column;
-                            error->line   = ctx->line;
-                            error->message =  sutil_concat_strings("Invalid hex digit in Unicode escape: ", json_ptr, nullptr);
-                            return false;
+                            snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE, "Invalid hex digit in Unicode escape: %c", *json_ptr);
+                            // error->message =  sutil_concat_strings("Invalid hex digit in Unicode escape: ", json_ptr, nullptr);
+                            record_error(context, error, 2, error_msg_buffer);
+                            return nullptr;
                         }
                     }
                     break;
                 default:
-                    error->column = ctx->column;
-                    error->line   = ctx->line;
-                    error->message =  sutil_concat_strings("Invalid escape sequence: \\", json_ptr, nullptr);
-                    // printf(" Invalid escape sequence: \\%c\n", *json_ptr);
-                    return false;
+
+                    snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE, "Invalid escape sequence: \\%c", *json_ptr);
+                    record_error(context, error, 2, error_msg_buffer);
+
+                    return nullptr;
             }
         } else if ((unsigned char)*json_ptr <= 0x1F) {
             // RFC 8259: Control characters U+0000 through U+001F MUST be escaped.
             // This means the literal bytes cannot appear here.
-            error->column = ctx->column;
-            error->line   = ctx->line;
-            printf(" Unexpected unescaped control character: 0x%.2X\n", (unsigned char)*json_ptr);
-            return false;
+            snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE, "Unexpected unescaped control character: 0x%.2X\n", (unsigned char)*json_ptr);
+            record_error(context, error, 2, error_msg_buffer);
+            return nullptr;
         }
 
         // switch (*json_ptr) {
@@ -231,35 +285,34 @@ static bool parse_string(json_context *ctx, json_error *error) {
         json_ptr++;
     }
 
-    error->column = ctx->column;
-    error->line   = ctx->line;
-    error->message = "No closing quote found.";
-    return false;  // no closing quote found
+    record_error(context, error, ERROR_MSG_BUFFER_SIZE, "No closing quote found.");
+    return nullptr;  // no closing quote found
 
 }
 
-static bool parse_number(json_context *ctx, json_error *error) {
+static JsonValue * parse_number(JsonContext *context, JsonError *error) {
+    JsonValue *value = nullptr;
+
     constexpr size_t max_groups = 4;
     // The first element (0) is the entire match, subsequent elements are capture groups
     regmatch_t pmatch[max_groups] = {}; // Assuming max_groups - 1 capture groups + full match
-    const int result = regexec( &REGEX_NUMBER_PATTERN.compiled_regex, ctx->json, max_groups, pmatch, 0);
+    const int result = regexec( &REGEX_NUMBER_PATTERN.compiled_regex, context->current_text, max_groups, pmatch, 0);
     int match_len =  (int)pmatch[0].rm_eo;
     if (result != MATCH_FOUND || match_len < 0) {
-        error->column = ctx->column;
-        error->line   = ctx->line;
-        error->message = sutil_concat_strings("expected number, got: ", ctx->json, nullptr);
-        return false;
+        snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE, "expected number, got: %.*s", 100 ,context->current_text);
+        record_error(context, error, ERROR_MSG_BUFFER_SIZE, error_msg_buffer);
+        return nullptr;
     }
     auto start = pmatch[1].rm_so;
     auto end = pmatch[1].rm_eo;
     bool is_double = false;
     for (regoff_t i = start; i < end; ++i) {
-        // printf(" , %lld:%c", i, ctx->json[i]);
-        if (ctx->json[i]=='.') {
+        // printf(" , %lld:%c", i, context->json[i]);
+        if (context->current_text[i]=='.') {
             is_double = true;
+            break;
         }
     }
-    printf("\n");
     if (is_double) {
         printf("the number is a double.\n");
     } else {
@@ -271,83 +324,63 @@ static bool parse_number(json_context *ctx, json_error *error) {
 
     printf("pmatch[1].rm_so=%lld, pmatch[1].rm_eo=%lld\n", pmatch[1].rm_so ,pmatch[1].rm_eo);
 
-    printf("number match found for %s\n",ctx->json);
-    ctx->json += match_len;
-    ctx->column += match_len;
-    return true;
+    printf("number match found for %s\n",context->current_text);
+
+    value = arena_alloc(&arena, sizeof(JsonValue) );
+    value->type = JSON_NUMBER;
+    if (is_double) {
+        value->type = JSON_FLOAT;
+        value->u.n_double = strtod(context->current_text, nullptr);
+    } else {
+        value->type = JSON_INT;
+        value->u.n_long = strtol(context->current_text, nullptr, 10);
+
+    }
+    advance(context, match_len);
+    return value;
 
 
 }
 
+
+
+
 // todo (rob) we have to rework the parse functions. They need to return the json_value
-static json_value *parse_value(json_context *ctx, json_error *error) {
-    skip_whitespace(ctx);
-    json_value *value = nullptr;
-    switch (*ctx->json) {
+static JsonValue *parse_value(JsonContext *context, JsonError *error) {
+    skip_whitespace(context);
+    JsonValue *value = nullptr;
+    context->parse_start = context->parse_end;
+    switch (*context->current_text) {
         case 'n': /* Handle null */ {
-            if (parse_null(ctx, error)) {
-                // do something here.
-                value = arena_alloc(&arena, sizeof(json_value) );
-                value->type = JSON_NULL;
-                printf("We matched a 'null' in the input string.\n");
-            }
+            value = parse_null(context, error) ;
             break;
         }
         case 't': /* Handle true */ {
-            if (parse_true(ctx, error)) {
-                // do something here.
-                value = arena_alloc(&arena, sizeof(json_value) );
-                value->type = JSON_BOOLEAN;
-                value->u.boolean = true;
-                printf("We matched a 'true' in the input string.\n");
-
-            }
+                value = parse_true(context, error);
             break;
         }
         case 'f': /* Handle false */ {
-            if (parse_false(ctx, error)) {
-                // do something here.
-                value = arena_alloc(&arena, sizeof(json_value) );
-                value->type = JSON_BOOLEAN;
-                value->u.boolean = false;
-                printf("We matched a 'false' in the input string.\n");
-            }
+            value = parse_false(context, error);
             break;
         }
-        case '"': /* Handle string */
-            if ( parse_string(ctx, error) ) {
-                value = arena_alloc(&arena, sizeof(json_value) );
-                value->type = JSON_STRING;
-                value->u.string = ctx->json; // we need to know how big the str is so we can copy it here.
-                printf("We matched a json string in the input string.\n");
-            }
+        case '"': /* Handle string */ {
+            value = parse_string(context, error);
             break;
+        }
         case '[': /* Handle array */
             break;
         case '{': /* Handle object */
             break;
         case '-': case '0': case '1': case '2': case '3':
         case '4': case '5': case '6': case '7': case '8': case '9':
-            /* Handle number */
-            char const * start = ctx->json;
-            if ( parse_number(ctx,error)) {
-                value = arena_alloc(&arena, sizeof(json_value) );
-                value->type = JSON_NUMBER;
-                value->u.number = strtod(start, nullptr); // we need to know how big the str is so we can copy it here.
-                printf("We matched a json string in the input string.\n");
+            /* Handle number */ {
+                value = parse_number(context,error);
             }
             break;
         default:
             if (error) {
-                StringBuilder sb = {};
-                sb_append_char(sb_init(&sb, 0, "unexpected character: '"), *ctx->json);
-                sb_append_str(&sb, "'");
-                sb_copy_to(&sb, ERROR_MSG_BUFFER_SIZE, error_msg_buffer);
-                sb_destroy(&sb);
-
-                error->message = (char const*)&error_msg_buffer;
-                error->line = ctx->line;
-                error->column = ctx->column;
+                snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE, "unexpected character:'%c'", *context->current_text);
+                record_error(context, error, ERROR_MSG_BUFFER_SIZE, error_msg_buffer);
             }
             return nullptr;
     }
@@ -357,23 +390,23 @@ static json_value *parse_value(json_context *ctx, json_error *error) {
 
 }
 
-json_value *json_parse(const char *json, json_error *error) {
+JsonValue *json_parse(const char *json, JsonError *error) {
     if (!json) {
-        *error = (json_error){ .message = "null json string"};
+        *error = (JsonError){ .message = "null json string"};
         return nullptr;
     }
-    json_context ctx = {json, 1, 1};
+    JsonContext context = {.current_text = json, .json=json, .line = 1, .column = 1};
     if (json[0] == '\0') {
-        *error = (json_error){.line=1, .column=1, .message = "empty json string"};
+        *error = (JsonError){.line=1, .column=1, .message = "empty json string"};
         return nullptr;
     }
 
-    json_value *value =  parse_value(&ctx, error);
+    JsonValue *value =  parse_value(&context, error);
 
     return value;
 }
 
-void json_value_free(json_value *value) {
+void json_value_free(JsonValue *value) {
     if (!value) return;
 
     switch (value->type) {
@@ -397,6 +430,61 @@ void json_value_free(json_value *value) {
             break;
     }
     free(value);
+}
+
+char const * json_typename_for_enum(const json_type type) {
+    switch (type) {
+        case JSON_NULL:
+            return "null";
+        case JSON_BOOLEAN:
+            return "boolean";
+        case JSON_NUMBER:
+            return "number";
+        case JSON_INT:
+            return("number(long)");
+        case JSON_FLOAT:
+            return("number(double)");
+        case JSON_STRING:
+            return "string";
+        case JSON_ARRAY:
+            return "array";
+        case JSON_OBJECT:
+            return "object";
+    }
+    return "unknown";
+}
+
+void json_repr(JsonValue *value) {
+    printf("(JsonValue){ type(%d)=%s, value=", value->type, json_typename_for_enum(value->type));
+    switch (value->type) {
+        case JSON_NULL:
+            printf("null");
+            break;
+        case JSON_BOOLEAN:
+            if (value->u.boolean) printf("true");
+            else printf("false");
+            break;
+        case JSON_NUMBER:
+            printf("%g", value->u.n_number);
+            break;
+        case JSON_INT:
+            printf("%ld", value->u.n_long);
+            break;
+        case JSON_FLOAT:
+            printf("%g", value->u.n_double);
+            break;
+        case JSON_STRING:
+            printf("'%s'", value->u.string);
+            break;
+        case JSON_ARRAY:
+            printf("[]");
+            break;
+        case JSON_OBJECT:
+            printf("{}");
+            break;
+    }
+    printf(" }\n");
+
 }
 
 constexpr int COMPILE_SUCCESS = 0;
@@ -454,77 +542,99 @@ void jsonp_destroy(void) {
 }
 
 void test_parse_str(char const * str) {
-    json_error err_obj = {};
+    JsonError err = {};
     printf("\nParsing json string '%s': \n", str);
-    json_value *jval = json_parse(str, &err_obj);
+    JsonValue *jval = json_parse(str, &err);
     if (!jval) {
         // printf("  json_parse returns nullptr\n" );
-        printf("line:%d col:%d  %s\n", err_obj.line, err_obj.column, err_obj.message);
+        printf("ERROR : line:%d col:%d start:%d end:%d  %s\n", err.line, err.column, err.parse_start, err.parse_end -1, err.message);
     }
     else {
-        printf("  json_type=%d", jval->type);
-        if (jval->type == JSON_NUMBER) {
-            printf(" value = %g", jval->u.number);
-        }
-        printf("\n");
+        json_repr(jval);
     }
 }
 
-int test1( ) {
-    test_parse_str(nullptr);
-    test_parse_str("");
-
+void test_literals() {
     test_parse_str(" null ");
     test_parse_str("true");
     test_parse_str("false");
 
-    test_parse_str("^%$the heck is this mess?");
-    //
-    // test_parse_str(nullptr);
+    test_parse_str("             true");
+    test_parse_str("             true           ");
 
+    test_parse_str("true false");
+    test_parse_str("falsee [\"list\"]");
+    test_parse_str("nul");
+    test_parse_str("nulll");
     test_parse_str("nullington");
-    //
-    // test_parse_str("             true");
-    // test_parse_str("             true           ");
+}
 
-    // test string parsing
+void test_strings( ) {
+    test_parse_str(nullptr);
+    test_parse_str("");
 
-    test_parse_str(" \"This is a json string\" ");
-    test_parse_str(" \"This is a 'json' string too!\" ");
+    test_parse_str("\"\"");
+    test_parse_str("\"string\"");
+
+
+    // test_parse_str("^%$the heck is this mess?");
+
+
+    test_parse_str(" \"This is a json string followed by a comma\", ");
     test_parse_str(" \"This  \\\"json\\\" string has embedded quotes\" ");
 
+
+    test_parse_str(" \"This string has no matching closing quote. ");
+    test_parse_str(" \"This  \\\"json\\\" string has embedded quotes but no matching closing quote ");
+
+
+    test_parse_str(" \"This  \\\"json\\\" string has no\nclosing quote , but it has a delimeter and newline");
+
+    test_parse_str(" \"This string has a newline here->\n that is not escaped.  \"");
+
+    test_parse_str(" \"This string has a control character 0x13 here->\\\n that IS escaped.  \"");
+
+    test_parse_str(" \"This string has an escape-n newline here->\\n that IS escaped.  \"");
+}
+
+
+void test_string_escapes(void) {
+    test_parse_str("\"\"");
     test_parse_str("\"Let's test ALL the single char escapes: \\\\ \\\" \\/ \\b \\f \\n \\r \\t\"");
 
-    // test_parse_str(" \"This  \\\"json\\\" string has embedded quotes but no matching closing quote ");
-    //
-    // test_parse_str(" \"This  \\\"json\\\" string has embedded quotes but no matching closing quote [ but it has a delimeter");
-    // test_parse_str(" \"This  \\\"json\\\" string has embedded quotes but no matching closing quote ] but it has a delimeter");
-    // test_parse_str(" \"This  \\\"json\\\" string has embedded quotes but no matching closing quote { but it has a delimeter");
-    // test_parse_str(" \"This  \\\"json\\\" string has embedded quotes but no matching closing quote } but it has a delimeter");
-    // test_parse_str(" \"This  \\\"json\\\" string has embedded quotes but no matching closing quote : but it has a delimeter");
-    // test_parse_str(" \"This  \\\"json\\\" string has embedded quotes but no matching closing quote , but it has a delimeter");
-    //
-    // test_parse_str(" \"This  \\\"json\\\" string has no\nclosing quote , but it has a delimeter and newline");
 
-    // test_parse_str(" \"This string has a newline here->\n that is not escaped.  \"");
-    //
-    // test_parse_str(" \"This string has a newline 0x13 here->\\\n that IS escaped.  \"");
-    //
-    // test_parse_str(" \"This string has an escape-n newline here->\\n that IS escaped.  \"");
+    test_parse_str(" \" backslash           \\ no character \" ");
+    test_parse_str(" \" escaped backslash \\\\ valid \" ");
 
 
+    test_parse_str(" \" backslash-z \\z not valid escape character \" ");
+    test_parse_str(" \" backslash-n \\n valid escape character \" ");
 
-    return 0;
+    test_parse_str(" \" backslash-u  \\u  invalid  \" ");
+    test_parse_str(" \" backslash-uk \\uk invalid  \" ");
+
+    test_parse_str(" \" backslash-ua  \\ua  need 4 hex digits\" ");  // need 4 digits here
+    test_parse_str(" \" backslash-uabcd  \\uabcd valid \" ");
+    test_parse_str(" \" backslash-uFEF0  \\uFEF0 valid \" ");
+
+    test_parse_str(" \" backslash-uFEF0  \\uFEF00 one too many. Parses as valid, but next character will fail parse \" ");
+
+
+
 }
 
 void test_parse_numbers(void) {
     test_parse_str("0");
+    test_parse_str("-0");
+
     test_parse_str("1");
     test_parse_str("-2");
     test_parse_str("3.333");
     test_parse_str("-122.3959");
     test_parse_str("9.99e10");
     test_parse_str("-8.88E-8");
+
+    test_parse_str("-abc"); // should fail
 
 }
 
@@ -536,14 +646,18 @@ int main( ) {
         return err.reported_err;
     }
 
-    // test1();
-    test_parse_numbers();
+    // test_literals();
 
+    // test_strings();
+    test_parse_numbers();
+    // test_string_escapes();
+
+
+
+    // temp
     StringBuilder sb = {};
     StringBuilder *sb_ptr = &sb;
     sb_init( sb_ptr, 0, "This is a string to test.");
-
-
 
     sb_destroy(sb_ptr);
     jsonp_destroy();
