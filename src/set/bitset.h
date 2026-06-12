@@ -25,6 +25,7 @@ enum SystemFlag {
 };
 
 // constants based on 64-bit chunks
+// a more concise calculation is x/y+!!(x%y)
 #define BITS_PER_WORD 64
 #define BITSET_WORDS (( FLAG_MAX_COUNT + ( BITS_PER_WORD - 1 )) / BITS_PER_WORD )
 
@@ -33,20 +34,36 @@ typedef struct bit_set_t {
 } BitSet;
 
 
-static inline void bitset_set(BitSet *set, enum SystemFlag flag) {
+static inline void bitset_set(BitSet * set, enum SystemFlag flag) {
     set->words[ flag / BITS_PER_WORD ] |=  (uint64_t)1 << (flag % BITS_PER_WORD);
 }
 
-static inline void bitset_clear(BitSet *set, enum SystemFlag flag) {
+static inline void bitset_clear(BitSet * set, enum SystemFlag flag) {
     set->words[flag / BITS_PER_WORD ] &= ~( (uint64_t)1 << (flag % BITS_PER_WORD) );
 }
 
-static inline bool bitset_test(const BitSet *set, enum SystemFlag flag) {
+static inline bool bitset_test(const BitSet * set, enum SystemFlag flag) {
     return ( set->words[ flag / BITS_PER_WORD] & ( (uint64_t)1 << ( flag % BITS_PER_WORD) ) ) != 0;
 }
 
+bool bitset_test_all(const BitSet * set,  size_t flags_len, const enum SystemFlag flags[static flags_len] );
+bool bitset_test_any(const BitSet * set,  size_t flags_len, const enum SystemFlag flags[static flags_len]);
+bool bitset_contains_mask(const BitSet * set, const BitSet * mask);
 
 
-
+// bulk set multiple flags at once using a mask
+void bit_set_mask(BitSet * set, const BitSet * mask);
+// bulk clear multiple flags at once using a mask
+void bitset_clear_mask(BitSet * set, const BitSet * mask);
+// bulk helper function using the VLA/static count parameter syntax
+void bitset_set_multiple(BitSet * set,  size_t count, const enum SystemFlag flags[static count]);
+// The Variadic macro
+// Example using the macro to set multiple flags:
+// BITSET_SET_MULTIPLE(&my_flags, FLAG_FIRST, FLAG_NETWORK_READY, FLAG_DATABASE_CONNECTED);
+#define BITSET_SET_MULTIPLE(set_ptr, ... ) \
+    do {                \
+    const enum SystemFlag _temp_flags[] = { __VA_ARGS__ }; \
+    bitset_set_multiple( (set_ptr), sizeof(_temp_flags) / sizeof (enum SystemFlag), _temp_flags ); \
+    } while (0);
 
 #endif //C_ROBLIB_BITSET_H
