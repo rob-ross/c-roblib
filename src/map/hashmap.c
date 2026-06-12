@@ -840,7 +840,7 @@ void map_repr_Node(const MapNode node[static 1]) {
     }
     printf("(MapNode){ ");
     printf(".hash=0x%-16lX", node->hash);
-    printf(", .this=%14p, .next=%14p, ", node, node->next);
+    printf(", .this=%14p, .next=%14p, ", (void*)node, (void*)node->next);
     map_repr_MapKey(node->key, false);
     printf(", ");
     map_repr_MapValue(node->value, false);
