@@ -18,7 +18,7 @@
 // Value data_policies
 // -----------------------
 
-ColValue col_policy_value_set_default(void * context, ColValue value, ColValuePolicyType value_policy, MemPolicy mem_policy ) {
+ColValue col_policy_value_set_default( [[maybe_unused]] void * context, ColValue value, ColValuePolicyType value_policy, MemPolicy mem_policy ) {
     // default add always makse a copy of a string key and we own it
     if ( value.value_type == COL_TYPE_STRING &&
         ( value_policy == COL_VALUE_POLICY_COPY || value_policy == COL_VALUE_POLICY_NONE )) {
@@ -37,7 +37,7 @@ ColValue col_policy_value_set_default(void * context, ColValue value, ColValuePo
     return value;
 }
 
-void col_policy_value_free_default(void * context, ColValue value, ColValuePolicyType value_policy, MemPolicy mem_policy ) {
+void col_policy_value_free_default( [[maybe_unused]] void * context, ColValue value, ColValuePolicyType value_policy, MemPolicy mem_policy ) {
     if ( (value.value_type == COL_TYPE_STRING || (value.value_type == COL_TYPE_REF_OBJECT && value.vref_object->data.string.length > 7 ) ) &&
         ( value_policy == COL_VALUE_POLICY_COPY || value_policy == COL_VALUE_POLICY_TAKE || value_policy == COL_VALUE_POLICY_NONE )) {
         mem_free_bytes(mem_policy, value.vstring);  //we own it.

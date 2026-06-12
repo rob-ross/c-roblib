@@ -46,7 +46,7 @@ bool sutil_char_in(const uint32_t c, const char *chars) {
     if (!chars) return false;
     const size_t chars_len = strlen(chars);
     for (size_t i = 0; i < chars_len; ++i) {
-        if (c == chars[i]) return true;
+        if (c == (uint32_t)chars[i]) return true;
     }
     return false;
 }
@@ -82,7 +82,7 @@ char * sutil_concat_strings(const char *str1, ...){
     }
 
     char *dest = new_str;
-    for (int i = 0; i < arg_list_count; i++) {
+    for (size_t i = 0; i < arg_list_count; i++) {
         memcpy(dest, arg_list[i], arg_lengths[i]);
         dest += arg_lengths[i];
     }
@@ -209,7 +209,7 @@ char * sutil_lower(const char *str) {
     size_t len = strlen(str);
     char *new_string = malloc(len + 1);
     if (!new_string) return nullptr;
-    for (int i = 0; i < len; ++i) {
+    for (size_t i = 0; i < len; ++i) {
         new_string[i] = (char)tolower((unsigned char)str[i]);
     }
     new_string[len] = '\0';
@@ -220,7 +220,7 @@ char * sutil_lower(const char *str) {
 char * sutil_pad_center(const char *str, const int width, const char fill_char) {
     if (!str) return nullptr;
     const size_t string_length = strlen(str);
-    if ( width <= 0 || width <= string_length) {
+    if ( width <= 0 || width <= (int)string_length) {
         return sutil_copy_char(str);
     }
     const size_t width_size = (size_t)width;
@@ -238,7 +238,7 @@ char * sutil_pad_center(const char *str, const int width, const char fill_char) 
 char * sutil_pad_left(const char *str, const int width, const char fill_char) {
     if (!str) return nullptr;
     const size_t string_length = strlen(str);
-    if ( width <= 0 || width <= string_length) {
+    if ( width <= 0 || width <= (int)string_length) {
         return sutil_copy_char(str);
     }
     const size_t width_size = (size_t)width;
@@ -254,7 +254,7 @@ char * sutil_pad_left(const char *str, const int width, const char fill_char) {
 char * sutil_pad_right(const char *str, const int width, const char fill_char) {
     if (!str) return nullptr;
     const size_t string_length = strlen(str);
-    if ( width <= 0 || width <= string_length) {
+    if ( width <= 0 || width <= (int)string_length) {
         return sutil_copy_char(str);
     }
     const size_t width_size = (size_t)width;
@@ -403,7 +403,7 @@ char * sutil_upper(const char *str) {
     size_t len = strlen(str);
     char *new_string = malloc(len + 1);
     if (!new_string) return nullptr;
-    for (int i = 0; i < len; ++i) {
+    for (size_t i = 0; i < len; ++i) {
         new_string[i] = (char)toupper((unsigned char)str[i]);
     }
     new_string[len] = '\0';
