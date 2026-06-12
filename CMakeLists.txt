@@ -13,7 +13,8 @@ endif()
 # Helpful for debugging (CLion usually does this in Debug, but explicit is fine)
 # -fsanitize=address -fsanitize=leak
 set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -O0 -g -fno-omit-frame-pointer -fsanitize=address -fsanitize=leak \
--Wall -Wpedantic -Wextra -Werror -Wno-unknown-attributes -Wno-unused-const-variable")
+-Wall -Wpedantic -Wextra -Werror \
+-Wno-unknown-attributes -Wno-unused-const-variable -Wno-gnu-zero-variadic-macro-arguments -Wno-gnu-include-next")
 
 # Use add_compile_options with generator expressions to robustly add release flags
 # This ensures they are applied even if the cache has old values.
