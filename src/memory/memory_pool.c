@@ -48,20 +48,20 @@ static void destroy_page(MemoryPage *page) {
 
 // standard malloc methods
 
-void * mem_mempolicy_default_malloc( void* context, const size_t num_bytes ) {
+void * mem_mempolicy_default_malloc( [[maybe_unused]] void* context, const size_t num_bytes ) {
     // return calloc( 1, num_bytes );
     return malloc( num_bytes );
 }
 
-void * mem_mempolicy_default_calloc( void* context, const size_t element_count, const size_t element_size ) {
+void * mem_mempolicy_default_calloc( [[maybe_unused]] void* context, const size_t element_count, const size_t element_size ) {
     return calloc(element_count, element_size);
 }
 
-void * mem_mempolicy_default_realloc( void* context, void * pointer, const size_t old_byte_count, const size_t new_byte_count ) {
+void * mem_mempolicy_default_realloc( [[maybe_unused]] void* context, void * pointer, [[maybe_unused]] const size_t old_byte_count, const size_t new_byte_count ) {
     return realloc( pointer, new_byte_count );
 }
 
-void mem_mempolicy_default_free( void* context, void * bytes ) {
+void mem_mempolicy_default_free( [[maybe_unused]] void* context, void * bytes ) {
     free( bytes) ;
 }
 
