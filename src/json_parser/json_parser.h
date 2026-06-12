@@ -43,6 +43,7 @@ true  = %x74.72.75.65       ; true
 #ifndef JSON_PARSER_H
 #define JSON_PARSER_H
 #include <_regex.h>
+#include <stdbool.h>
 
 #include "error_result.h"
 
