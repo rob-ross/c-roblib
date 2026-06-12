@@ -9,7 +9,7 @@
 
 
 bool bitset_test_all(const BitSet *set, const size_t flags_len, const enum SystemFlag flags[static flags_len] ) {
-    for (int i = 0; i < flags_len; ++i) {
+    for (size_t i = 0; i < flags_len; ++i) {
         if (!bitset_test(set, flags[i])) {
             return false; // Fail fast
         }
@@ -18,7 +18,7 @@ bool bitset_test_all(const BitSet *set, const size_t flags_len, const enum Syste
 }
 
 bool bitset_test_any(const BitSet * set, const size_t flags_len, const enum SystemFlag flags[static flags_len]) {
-    for (int i = 0; i < flags_len; ++i) {
+    for (size_t i = 0; i < flags_len; ++i) {
         if (!bitset_test(set, flags[i])) {
             return true;
         }
@@ -53,7 +53,7 @@ void bitset_clear_mask(BitSet * set, const BitSet * mask) {
 
 // bulk helper function using the VLA/static count parameter syntax
 void bitset_set_multiple(BitSet * set, const size_t count, const enum SystemFlag flags[static count]) {
-    for (int i = 0; i < count; ++i) {
+    for (size_t i = 0; i < count; ++i) {
         bitset_set(set, flags[i]);
     }
 }
