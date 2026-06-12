@@ -121,7 +121,7 @@ void list_clear(List list[static 1]) {
 
 bool list_contains(List list[static 1], ColValue value) {
     size_t size = list->size;
-    for (int i=0; i < size; ++i) {
+    for (size_t i=0; i < size; ++i) {
         if ( list_equals_ListValue(list->elements[i].value, value )) {
             return true;
         }
@@ -254,7 +254,7 @@ size_t list_size(const List *list) {
 }
 
 
-void list_repr_List(const List list[static 1], bool verbose, const char* type_str) {
+void list_repr_List(const List list[static 1], [[maybe_unused]] bool verbose, const char* type_str) {
     if (!type_str || type_str[0] == '\0') type_str = "ArrayList";
     if (!list) {
         printf("(%s)nullptr",type_str);
