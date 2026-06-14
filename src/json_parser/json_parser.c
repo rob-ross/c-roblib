@@ -42,7 +42,7 @@ Interface: Provide a json_parse(const char *input) function that returns a point
 #include "../string/string_builder.h"
 
 typedef struct json_context_t {
-    const char *current_text;  // The current text being parsed, advances through the JSON text
+    const char *current_ptr;  // The current text being parsed, advances through the JSON text in the json member
     const char *json; // full original JSON text string
     int line;
     int column;
@@ -51,17 +51,27 @@ typedef struct json_context_t {
 } JsonContext;
 
 
+// -----------------------------------------------------------------
+//      Forward References
+// -----------------------------------------------------------------
+static JsonValue *parse_value(JsonContext *context, JsonError *error) ;
 
+
+
+// Returns the current position of the parser as an index into context->json
+static int parse_position( const JsonContext *context) {
+    return (int)(context->current_ptr - context->json);
+}
 
 static void skip_whitespace(JsonContext *context) {
-    while (*context->current_text && isspace(*context->current_text)) {
-        if (*context->current_text == '\n') {
+    while (*context->current_ptr && isspace(*context->current_ptr)) {
+        if (*context->current_ptr == '\n') {
             context->line++;
             context->column = 1;
         } else {
             context->column++;
         }
-        context->current_text++;
+        context->current_ptr++;
     }
 }
 
@@ -101,7 +111,7 @@ static inline int min_int(const int a, const int b) {
 
 // advance the parser state based on the current parse window
 static void advance(JsonContext *context, const int char_count) {
-    context->current_text += char_count;
+    context->current_ptr += char_count;
     context->column       += char_count;
     context->parse_end    = context->parse_start + char_count;
 }
@@ -109,10 +119,14 @@ static void advance(JsonContext *context, const int char_count) {
 static void record_error(const JsonContext *context, JsonError *error, const int char_count, const char *msg) {
     error->column = context->column;
     error->line   = context->line;
-    error->parse_end = error->parse_start + min_int(char_count, (int)strlen(context->current_text));
-    if (context->current_text[error->parse_end ] != '\0') {
-        error->parse_end++; // so we can display the character after the parse failure
-    }
+    error->parse_start = context->parse_start;
+    error->parse_end = context->parse_end;
+    error->first_bad_char = parse_position(context);
+
+    // error->parse_end = error->parse_start + min_int(char_count, (int)strlen(context->current_ptr));
+    // if (context->current_ptr[error->parse_end - 1] != '\0') {
+    //     error->parse_end++; // so we can display the character after the parse failure
+    // }
     error->message = msg;
 }
 
@@ -120,13 +134,13 @@ static void record_error(const JsonContext *context, JsonError *error, const int
 static JsonValue * parse_null(JsonContext *context, JsonError *error) {
     JsonValue *value = nullptr;
 
-    int match_len = match_one_pattern(&REGEX_NULL_PATTERN, context->current_text);
+    int match_len = match_one_pattern(&REGEX_NULL_PATTERN, context->current_ptr);
     if (match_len < 0 ) {
         // we need a substring command so we can limit the message string to the relevant characters and not the whole string
         record_error(context, error,  4, "");
         const int substr_len = error->parse_end - error->parse_start;
         snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE, "expected 'null', got: %.*s",
-            substr_len, context->current_text);
+            substr_len, context->current_ptr);
         error->message = error_msg_buffer;
         return value;
     }
@@ -142,12 +156,12 @@ static JsonValue * parse_null(JsonContext *context, JsonError *error) {
 static JsonValue *  parse_true(JsonContext *context, JsonError *error) {
     JsonValue *value = nullptr;
 
-    int match_len = match_one_pattern(&REGEX_TRUE_PATTERN, context->current_text);
+    int match_len = match_one_pattern(&REGEX_TRUE_PATTERN, context->current_ptr);
     if (match_len < 0 ) {
         record_error(context, error, 4, "");
         const int substr_len = error->parse_end - error->parse_start;
         snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE, "expected 'true', got: %.*s",
-            substr_len, context->current_text);
+            substr_len, context->current_ptr);
         error->message = error_msg_buffer;
         return value;
     }
@@ -163,12 +177,12 @@ static JsonValue *  parse_true(JsonContext *context, JsonError *error) {
 static JsonValue *  parse_false(JsonContext *context, JsonError *error) {
     JsonValue *value = nullptr;
 
-    int match_len = match_one_pattern(&REGEX_FALSE_PATTERN, context->current_text);
+    int match_len = match_one_pattern(&REGEX_FALSE_PATTERN, context->current_ptr);
     if (match_len < 0 ) {
         record_error(context, error, 5, "");
         const int substr_len = error->parse_end - error->parse_start;
         snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE, "expected 'false', got: %.*s",
-            substr_len, context->current_text);
+            substr_len, context->current_ptr);
         error->message = error_msg_buffer;
         return value;
     }
@@ -203,21 +217,21 @@ static JsonValue * parse_string(JsonContext *context, JsonError *error) {
     // 3. any of the delimiter chars bracket, brace, colon, comma.
     JsonValue *value = nullptr;
 
-    const char *json_ptr = context->current_text + 1; // Skip the opening quote
+    const char *json_ptr = context->current_ptr + 1; // Skip the opening quote
     while (*json_ptr) {
         if (*json_ptr == QUOTE) {
             // happy case. We found the terminating quote
-            int match_len = (int)((json_ptr + 1) - context->current_text);
+            int match_len = (int)((json_ptr + 1) - context->current_ptr);
 
 
             value = arena_alloc(&arena, sizeof(JsonValue) );
             value->type = JSON_STRING;
 
-            size_t n = snprintf(nullptr, 0, "%.*s", match_len, context->current_text);
+            size_t n = snprintf(nullptr, 0, "%.*s", match_len, context->current_ptr);
 
             value->u.string = arena_alloc(&arena, n + 1);
             // todo error checking
-            snprintf((char *)value->u.string, n + 1, "%.*s", match_len, context->current_text);
+            snprintf((char *)value->u.string, n + 1, "%.*s", match_len, context->current_ptr);
 
             advance(context, match_len);
             return value;
@@ -296,10 +310,10 @@ static JsonValue * parse_number(JsonContext *context, JsonError *error) {
     constexpr size_t max_groups = 4;
     // The first element (0) is the entire match, subsequent elements are capture groups
     regmatch_t pmatch[max_groups] = {}; // Assuming max_groups - 1 capture groups + full match
-    const int result = regexec( &REGEX_NUMBER_PATTERN.compiled_regex, context->current_text, max_groups, pmatch, 0);
+    const int result = regexec( &REGEX_NUMBER_PATTERN.compiled_regex, context->current_ptr, max_groups, pmatch, 0);
     int match_len =  (int)pmatch[0].rm_eo;
     if (result != MATCH_FOUND || match_len < 0) {
-        snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE, "expected number, got: %.*s", 100 ,context->current_text);
+        snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE, "expected number, got: %.*s", 100 ,context->current_ptr);
         record_error(context, error, ERROR_MSG_BUFFER_SIZE, error_msg_buffer);
         return nullptr;
     }
@@ -308,32 +322,32 @@ static JsonValue * parse_number(JsonContext *context, JsonError *error) {
     bool is_double = false;
     for (regoff_t i = start; i < end; ++i) {
         // printf(" , %lld:%c", i, context->json[i]);
-        if (context->current_text[i]=='.') {
+        if (context->current_ptr[i]=='.') {
             is_double = true;
             break;
         }
     }
-    if (is_double) {
-        printf("the number is a double.\n");
-    } else {
-        printf("the number is an integer.\n");
-    }
+    // if (is_double) {
+    //     printf("the number is a double.\n");
+    // } else {
+    //     printf("the number is an integer.\n");
+    // }
 
 
     // capture group 1 should have our number string
 
-    printf("pmatch[1].rm_so=%lld, pmatch[1].rm_eo=%lld\n", pmatch[1].rm_so ,pmatch[1].rm_eo);
+    // printf("pmatch[1].rm_so=%lld, pmatch[1].rm_eo=%lld\n", pmatch[1].rm_so ,pmatch[1].rm_eo);
 
-    printf("number match found for %s\n",context->current_text);
+    // printf("number match found for %s\n",context->current_ptr);
 
     value = arena_alloc(&arena, sizeof(JsonValue) );
     value->type = JSON_NUMBER;
     if (is_double) {
         value->type = JSON_FLOAT;
-        value->u.n_double = strtod(context->current_text, nullptr);
+        value->u.n_double = strtod(context->current_ptr, nullptr);
     } else {
         value->type = JSON_INT;
-        value->u.n_long = strtol(context->current_text, nullptr, 10);
+        value->u.n_long = strtol(context->current_ptr, nullptr, 10);
 
     }
     advance(context, match_len);
@@ -342,15 +356,77 @@ static JsonValue * parse_number(JsonContext *context, JsonError *error) {
 
 }
 
+typedef struct json_value_node_s {
+    JsonValue *value;
+    struct json_value_node_s *next;
+} JsonValueNode;
+
+// add a node to the linked list headed by first_node.
+// adds nodes to the front of the linked list. If first_node is null, will be the head node of a new linked list.
+// Returns the new first_node.
+static JsonValueNode * add_json_value_node(JsonValueNode * first_node, JsonValue *value) {
+    if (!value) return nullptr;
+    JsonValueNode * new_node = (JsonValueNode*) arena_alloc(&arena, sizeof(JsonValueNode) );
+    new_node->value = value;
+    new_node->next = first_node;
+    return new_node;
+}
+
+
+static JsonValue * parse_array(JsonContext *context, JsonError *error) {
+    // we recursively parse elements of this array until we see end-of-array ']' char
+    JsonValue *array =  arena_alloc(&arena, sizeof(JsonValue) );
+
+    size_t num_elements = 0;
+    array->type = JSON_ARRAY;
+    array->u.array.count = num_elements;
+    array->u.array.elements = nullptr;
+
+
+    JsonValueNode *elements = nullptr;
+    advance(context, 1);  // consume '['
+    while ( *context->current_ptr && *context->current_ptr != ']' ) {
+        skip_whitespace(context);
+        JsonValue *value = parse_value(context, error);
+        if (!value) return nullptr;  // error out immediately
+        num_elements++;
+        elements = add_json_value_node(elements, value);
+        skip_whitespace(context);
+        if (*context->current_ptr == ',' ) {
+            // comma is expected delimiter between array elements
+            advance(context, 1);  // consume ','
+        }
+        // context->current_ptr++;
+    }
+
+    if (*context->current_ptr != ']' ) {
+        char const *msg = "unterminated array";
+        record_error(context, error, (int)strlen(msg), msg);
+        return nullptr;
+    }
+
+    advance(context, 1);  // consume ']'
+    JsonValue **element_array = arena_alloc(&arena, sizeof(JsonValue) *  num_elements);
+    // copy linked list elements into new array in reverse order so the list maintains the order from the json file.
+
+    for (size_t i = num_elements; i--> 0 ; ) {
+        element_array[i] = elements->value;
+        elements = elements->next;
+    }
+    array->u.array.count = num_elements;
+    array->u.array.elements = element_array;
+
+    return array;
+
+}
 
 
 
-// todo (rob) we have to rework the parse functions. They need to return the json_value
 static JsonValue *parse_value(JsonContext *context, JsonError *error) {
     skip_whitespace(context);
     JsonValue *value = nullptr;
     context->parse_start = context->parse_end;
-    switch (*context->current_text) {
+    switch (*context->current_ptr) {
         case 'n': /* Handle null */ {
             value = parse_null(context, error) ;
             break;
@@ -368,6 +444,7 @@ static JsonValue *parse_value(JsonContext *context, JsonError *error) {
             break;
         }
         case '[': /* Handle array */
+            value = parse_array(context, error);
             break;
         case '{': /* Handle object */
             break;
@@ -379,7 +456,7 @@ static JsonValue *parse_value(JsonContext *context, JsonError *error) {
             break;
         default:
             if (error) {
-                snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE, "unexpected character:'%c'", *context->current_text);
+                snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE, "unexpected character:'%c'", *context->current_ptr);
                 record_error(context, error, ERROR_MSG_BUFFER_SIZE, error_msg_buffer);
             }
             return nullptr;
@@ -395,7 +472,7 @@ JsonValue *json_parse(const char *json, JsonError *error) {
         *error = (JsonError){ .message = "null json string"};
         return nullptr;
     }
-    JsonContext context = {.current_text = json, .json=json, .line = 1, .column = 1};
+    JsonContext context = {.current_ptr = json, .json=json, .line = 1, .column = 1};
     if (json[0] == '\0') {
         *error = (JsonError){.line=1, .column=1, .message = "empty json string"};
         return nullptr;
@@ -454,7 +531,54 @@ char const * json_typename_for_enum(const json_type type) {
     return "unknown";
 }
 
+void json_repr(JsonValue *value);
+
+void json_array_repr(JsonValue *array) {
+    if (!array || array->type != JSON_ARRAY) return;
+    printf("\n(array[%zd]){\n", array->u.array.count);
+    for (size_t i = 0; i < array->u.array.count; ++i) {
+        json_repr(array->u.array.elements[i]);
+    }
+    printf("}\n");
+
+
+}
+
+
 void json_repr(JsonValue *value) {
+    printf("(JsonValue:%s){ ", json_typename_for_enum(value->type));
+    switch (value->type) {
+        case JSON_NULL:
+            printf("null");
+            break;
+        case JSON_BOOLEAN:
+            if (value->u.boolean) printf("true");
+            else printf("false");
+            break;
+        case JSON_NUMBER:
+            printf("%g", value->u.n_number);
+            break;
+        case JSON_INT:
+            printf("%ld", value->u.n_long);
+            break;
+        case JSON_FLOAT:
+            printf("%g", value->u.n_double);
+            break;
+        case JSON_STRING:
+            printf("'%s'", value->u.string);
+            break;
+        case JSON_ARRAY:
+            // printf("[%zd]", value->u.array.count);
+            json_array_repr(value);
+            break;
+        case JSON_OBJECT:
+            printf("{}");
+            break;
+    }
+    printf("}\n");
+}
+
+void json_value_repr(JsonValue *value) {
     printf("(JsonValue){ type(%d)=%s, value=", value->type, json_typename_for_enum(value->type));
     switch (value->type) {
         case JSON_NULL:
@@ -477,13 +601,13 @@ void json_repr(JsonValue *value) {
             printf("'%s'", value->u.string);
             break;
         case JSON_ARRAY:
-            printf("[]");
+            // printf("[%zd]", value->u.array.count);
+            json_array_repr(value);
             break;
         case JSON_OBJECT:
             printf("{}");
             break;
     }
-    printf(" }\n");
 
 }
 
@@ -542,12 +666,13 @@ void jsonp_destroy(void) {
 }
 
 void test_parse_str(char const * str) {
-    JsonError err = {};
+    JsonError err = {.json = str};
     printf("\nParsing json string '%s': \n", str);
     JsonValue *jval = json_parse(str, &err);
     if (!jval) {
         // printf("  json_parse returns nullptr\n" );
-        printf("ERROR : line:%d col:%d start:%d end:%d  %s\n", err.line, err.column, err.parse_start, err.parse_end -1, err.message);
+        printf("ERROR : line:%d col:%d start:%d end:%d  %s\n",
+            err.line, err.column, err.parse_start, err.parse_end -1, err.message);
     }
     else {
         json_repr(jval);
@@ -635,6 +760,17 @@ void test_parse_numbers(void) {
     test_parse_str("-8.88E-8");
 
     test_parse_str("-abc"); // should fail
+}
+
+void test_parse_arrays(void) {
+    test_parse_str("[]");   // empty list is fine by the spec
+    test_parse_str("[ null ]");
+    test_parse_str("[ null, true, false ]");
+
+    test_parse_str("[ null, true, false, \"string\", 3, 3.333 ]");
+
+    // array of 3 arrays with string elementss
+    test_parse_str("[ [\"list1:one\", \"list1:two\"], [\"list2:one\", \"list2:two\"], [\"list3:one\", \"list3:two\"]]");
 
 }
 
@@ -649,9 +785,10 @@ int main( ) {
     // test_literals();
 
     // test_strings();
-    test_parse_numbers();
+    // test_parse_numbers();
     // test_string_escapes();
 
+    test_parse_arrays();
 
 
     // temp
@@ -662,5 +799,6 @@ int main( ) {
     sb_destroy(sb_ptr);
     jsonp_destroy();
 
+    // Another Crappy Json Parser = ACJP
 
 }

@@ -148,6 +148,8 @@ struct json_object_entry {
 
 typedef struct json_error_t {
     const char *message;
+    const char *json;
+    int first_bad_char; // position where parsing failed
     int line;
     int column;
     int parse_start;
@@ -165,7 +167,7 @@ JsonValue *json_parse(const char *json, JsonError *error);
 void json_value_free(JsonValue *value);
 
 
-void json_repr(JsonValue *value);
+void json_value_repr(JsonValue *value);
 
 #endif // JSON_PARSER_H
 

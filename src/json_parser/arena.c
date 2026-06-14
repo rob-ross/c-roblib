@@ -75,7 +75,7 @@ void * arena_alloc(Arena * arena, const size_t size) {
     // Check if it fits in the current block
     if (arena->offset + aligned_size > arena->capacity) {
 
-        // Esure that the requested size isn't larger than the standard block capacity
+        // Ensure that the requested size isn't larger than the standard block capacity
         if (aligned_size > arena->capacity) {
             return nullptr; // Payload too massive for standard block capacity
         }

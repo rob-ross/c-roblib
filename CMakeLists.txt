@@ -14,7 +14,9 @@ endif()
 # -fsanitize=address -fsanitize=leak
 set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -O0 -g -fno-omit-frame-pointer -fsanitize=address -fsanitize=leak \
 -Wall -Wpedantic -Wextra -Werror \
--Wno-unknown-attributes -Wno-unused-const-variable -Wno-gnu-zero-variadic-macro-arguments -Wno-gnu-include-next")
+-Wno-unknown-attributes -Wno-unused-const-variable -Wno-gnu-zero-variadic-macro-arguments -Wno-gnu-include-next \
+-Wno-unused-parameter \
+")
 
 # Use add_compile_options with generator expressions to robustly add release flags
 # This ensures they are applied even if the cache has old values.
@@ -43,6 +45,8 @@ add_executable( json_parse
         src/json_parser/json_parser.c
         src/json_parser/arena.c
         src/json_parser/error_result.c
+        src/json_parser/lookup_table.c
+        src/json_parser/lookup_table.h
 )
 target_link_libraries(json_parse PRIVATE c_roblib)
 target_compile_options(json_parse PRIVATE -Wno-unused-function)
