@@ -216,12 +216,12 @@ static JsonValue * parse_string(JsonContext *context, JsonError *error) {
     // 2. EOF, AKA null terminator, \x00
     // 3. any of the delimiter chars bracket, brace, colon, comma.
     JsonValue *value = nullptr;
-
-    const char *json_ptr = context->current_ptr + 1; // Skip the opening quote
+    advance(context, 1); // Skip the opening quote
+    const char *json_ptr = context->current_ptr;
     while (*json_ptr) {
         if (*json_ptr == QUOTE) {
             // happy case. We found the terminating quote
-            int match_len = (int)((json_ptr + 1) - context->current_ptr);
+            int match_len = (int)((json_ptr) - context->current_ptr);
 
 
             value = arena_alloc(&arena, sizeof(JsonValue) );
@@ -233,7 +233,7 @@ static JsonValue * parse_string(JsonContext *context, JsonError *error) {
             // todo error checking
             snprintf((char *)value->u.string, n + 1, "%.*s", match_len, context->current_ptr);
 
-            advance(context, match_len);
+            advance(context, match_len + 1); // we add 1 to consume the terminating quote
             return value;
         }
 
@@ -382,15 +382,16 @@ static JsonValue * parse_array(JsonContext *context, JsonError *error) {
     array->u.array.count = num_elements;
     array->u.array.elements = nullptr;
 
-
     JsonValueNode *elements = nullptr;
     advance(context, 1);  // consume '['
+    skip_whitespace(context);
+
     while ( *context->current_ptr && *context->current_ptr != ']' ) {
         skip_whitespace(context);
         JsonValue *value = parse_value(context, error);
         if (!value) return nullptr;  // error out immediately
-        num_elements++;
         elements = add_json_value_node(elements, value);
+        num_elements++;
         skip_whitespace(context);
         if (*context->current_ptr == ',' ) {
             // comma is expected delimiter between array elements
@@ -409,7 +410,7 @@ static JsonValue * parse_array(JsonContext *context, JsonError *error) {
     JsonValue **element_array = arena_alloc(&arena, sizeof(JsonValue) *  num_elements);
     // copy linked list elements into new array in reverse order so the list maintains the order from the json file.
 
-    for (size_t i = num_elements; i--> 0 ; ) {
+    for (size_t i = num_elements; i--> 0; ) {
         element_array[i] = elements->value;
         elements = elements->next;
     }
@@ -420,7 +421,87 @@ static JsonValue * parse_array(JsonContext *context, JsonError *error) {
 
 }
 
+typedef struct json_object_entry_node_s {
+    JsonObjectEntry *object_entry;
+    struct json_object_entry_node_s *next;
+} JsonObjectEntryNode;
 
+static JsonObjectEntryNode * add_json_object_entry_node(JsonObjectEntryNode * first_node, JsonObjectEntry *object_entry) {
+    if (!object_entry) return nullptr;
+    JsonObjectEntryNode * new_node = (JsonObjectEntryNode*) arena_alloc(&arena, sizeof(JsonObjectEntryNode) );
+    new_node->object_entry = object_entry;
+    new_node->next = first_node;
+    return new_node;
+}
+
+static JsonValue * parse_object(JsonContext *context, JsonError *error) {
+    // we recursively parse elements of this object until we see end-of-object '}' char
+    JsonValue *object =  arena_alloc(&arena, sizeof(JsonValue) );
+
+    size_t num_entries = 0;
+    object->type = JSON_OBJECT;
+    object->u.object.count   = num_entries;
+    object->u.object.entries = nullptr;
+
+    JsonObjectEntryNode *entries = nullptr;
+    advance(context, 1);  // consume '{'
+    skip_whitespace(context);
+
+    while ( *context->current_ptr && *context->current_ptr != '}' ) {
+        skip_whitespace(context);
+        JsonValue *key = parse_string(context, error);
+        if (!key) return nullptr;  // error out immediately
+        skip_whitespace(context);
+
+        // need to parse a colon ":" here:
+        if (*context->current_ptr != ':' ) {
+            char const *msg = "expected name-separator ':'";
+            record_error(context, error, (int)strlen(msg), msg);
+            return nullptr;
+        }
+        advance(context, 1);  // consume ':'
+
+        JsonValue *value = parse_value(context, error);
+        if (!value) return nullptr;  // error out immediately
+
+        JsonObjectEntry *joe = (JsonObjectEntry*)arena_alloc(&arena, sizeof(JsonObjectEntry));
+        if (!joe) {
+            fprintf(stderr, "parse_object(): arena alloc failed for JsonObjectEntry *joe\n");
+            return nullptr;
+        }
+
+        joe->key = key->u.string;
+        joe->value = value;
+        entries = add_json_object_entry_node(entries, joe);
+        num_entries++;
+
+        skip_whitespace(context);
+        if (*context->current_ptr == ',' ) {
+            // comma is expected delimiter between key:value elements
+            advance(context, 1);  // consume ','
+        }
+    }
+
+    if (*context->current_ptr != '}' ) {
+        char const *msg = "unterminated object";
+        record_error(context, error, (int)strlen(msg), msg);
+        return nullptr;
+    }
+
+    advance(context, 1);  // consume '}'
+    JsonObjectEntry **entries_array = arena_alloc(&arena, sizeof(JsonObjectEntry) *  num_entries);
+    // copy linked list elements into new array in reverse order so the object entries maintain
+    // the order from the JSON file.
+
+    for (size_t i = num_entries; i--> 0; ) {
+        entries_array[i] = entries->object_entry;
+        entries = entries->next;
+    }
+    object->u.object.count = num_entries;
+    object->u.object.entries = entries_array;
+
+    return object;
+}
 
 static JsonValue *parse_value(JsonContext *context, JsonError *error) {
     skip_whitespace(context);
@@ -447,6 +528,7 @@ static JsonValue *parse_value(JsonContext *context, JsonError *error) {
             value = parse_array(context, error);
             break;
         case '{': /* Handle object */
+            value = parse_object(context, error);
             break;
         case '-': case '0': case '1': case '2': case '3':
         case '4': case '5': case '6': case '7': case '8': case '9':
@@ -483,32 +565,6 @@ JsonValue *json_parse(const char *json, JsonError *error) {
     return value;
 }
 
-void json_value_free(JsonValue *value) {
-    if (!value) return;
-
-    switch (value->type) {
-        case JSON_STRING:
-            free((void*)value->u.string);
-            break;
-        case JSON_ARRAY:
-            for (size_t i = 0; i < value->u.array.count; i++) {
-                json_value_free(value->u.array.elements[i]);
-            }
-            free(value->u.array.elements);
-            break;
-        case JSON_OBJECT:
-            for (size_t i = 0; i < value->u.object.count; i++) {
-                free(value->u.object.entries[i].key);
-                json_value_free(value->u.object.entries[i].value);
-            }
-            free(value->u.object.entries);
-            break;
-        default:
-            break;
-    }
-    free(value);
-}
-
 char const * json_typename_for_enum(const json_type type) {
     switch (type) {
         case JSON_NULL:
@@ -532,6 +588,7 @@ char const * json_typename_for_enum(const json_type type) {
 }
 
 void json_repr(JsonValue *value);
+void json_value_str(JsonValue *value);
 
 void json_array_repr(JsonValue *array) {
     if (!array || array->type != JSON_ARRAY) return;
@@ -541,6 +598,18 @@ void json_array_repr(JsonValue *array) {
     }
     printf("}\n");
 
+
+}
+
+void json_object_repr(JsonValue *object) {
+    if (!object || object->type != JSON_OBJECT) return;
+    printf("\n(object[%zd]){\n", object->u.object.count);
+    for (size_t i = 0; i < object->u.object.count; ++i) {
+        printf("%s : ",object->u.object.entries[i]->key);
+        json_repr(object->u.object.entries[i]->value);
+        printf(", \n");
+    }
+    printf("}\n");
 
 }
 
@@ -572,10 +641,10 @@ void json_repr(JsonValue *value) {
             json_array_repr(value);
             break;
         case JSON_OBJECT:
-            printf("{}");
+            json_object_repr(value);
             break;
     }
-    printf("}\n");
+
 }
 
 void json_value_repr(JsonValue *value) {
@@ -609,6 +678,62 @@ void json_value_repr(JsonValue *value) {
             break;
     }
 
+}
+
+
+// -----------------------------------------------------------------
+//      Pretty-Printer like output
+// -----------------------------------------------------------------
+
+void json_array_str(JsonValue *array) {
+    if (!array || array->type != JSON_ARRAY) return;
+    printf("[ ");
+    for (size_t i = 0; i < array->u.array.count; ++i) {
+        json_value_str(array->u.array.elements[i]);
+        printf(", ");
+    }
+    printf(" ]");
+}
+
+void json_object_str(JsonValue *object) {
+    if (!object || object->type != JSON_OBJECT) return;
+    printf("{ ");
+    for (size_t i = 0; i < object->u.object.count; ++i) {
+        printf(" '%s' : ",object->u.object.entries[i]->key);
+        json_value_str(object->u.object.entries[i]->value);
+        printf(", ");
+    }
+    printf(" }");
+}
+
+void json_value_str(JsonValue *value) {
+    switch (value->type) {
+        case JSON_NULL:
+            printf("null");
+            break;
+        case JSON_BOOLEAN:
+            if (value->u.boolean) printf("true");
+            else printf("false");
+            break;
+        case JSON_NUMBER:
+            printf("%g", value->u.n_number);
+            break;
+        case JSON_INT:
+            printf("%ld", value->u.n_long);
+            break;
+        case JSON_FLOAT:
+            printf("%g", value->u.n_double);
+            break;
+        case JSON_STRING:
+            printf("'%s'", value->u.string);
+            break;
+        case JSON_ARRAY:
+            json_array_str(value);
+            break;
+        case JSON_OBJECT:
+            json_object_str(value);
+            break;
+    }
 }
 
 constexpr int COMPILE_SUCCESS = 0;
@@ -670,12 +795,12 @@ void test_parse_str(char const * str) {
     printf("\nParsing json string '%s': \n", str);
     JsonValue *jval = json_parse(str, &err);
     if (!jval) {
-        // printf("  json_parse returns nullptr\n" );
         printf("ERROR : line:%d col:%d start:%d end:%d  %s\n",
             err.line, err.column, err.parse_start, err.parse_end -1, err.message);
     }
     else {
-        json_repr(jval);
+        json_value_str(jval);
+        printf("\n");
     }
 }
 
@@ -774,6 +899,18 @@ void test_parse_arrays(void) {
 
 }
 
+void test_parse_objects(void ) {
+    test_parse_str("{}");   // empty object is fine by the spec
+
+    test_parse_str("{ \"foo\": null }");
+
+    test_parse_str("{ \"one\": \"one\", \"two\" : 2, \"three\" : 3.33 }   ");
+
+    test_parse_str("{ \"one\": \"one\", \"two\" : 2, \"three\" : 3.33, \"null\" : null, \"true\":true, \"false\":false }");
+
+    test_parse_str(" [{ \"name\": \"jelly bowl\", \"ff\": 5}, {\"name\": \"werewolf\", \"ff\": 10 }]");
+}
+
 int main( ) {
     // test string_builder
     Error err = jsonp_init();
@@ -788,8 +925,8 @@ int main( ) {
     // test_parse_numbers();
     // test_string_escapes();
 
-    test_parse_arrays();
-
+    // test_parse_arrays();
+    test_parse_objects();
 
     // temp
     StringBuilder sb = {};

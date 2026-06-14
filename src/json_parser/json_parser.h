@@ -118,7 +118,7 @@ typedef enum json_type{
 } json_type;
 
 typedef struct json_value_s JsonValue;
-typedef struct json_object_entry json_object_entry;
+typedef struct json_object_entry JsonObjectEntry;
 
 struct json_value_s {
     json_type type;
@@ -135,14 +135,14 @@ struct json_value_s {
             size_t count;
         } array;
         struct {
-            json_object_entry *entries;
+            JsonObjectEntry **entries;
             size_t count;
         } object;
     } u;
 };
 
 struct json_object_entry {
-    char *key;
+    char const *key;
     JsonValue *value;
 };
 
