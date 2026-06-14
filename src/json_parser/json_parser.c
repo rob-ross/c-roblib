@@ -51,6 +51,47 @@ typedef struct json_context_t {
 } JsonContext;
 
 
+
+// -----------------------------------------------------------------
+//      REGULAR EXPRESSION STRINGS
+// -----------------------------------------------------------------
+
+// RSL: "Regex Start of Line"
+#define RSL      "^"
+#define WB_START "[[:<:]]"
+#define WB_END   "[[:>:]]"
+#define SP       "[[:space:]]*"
+#define WS       "[\x20\x09\x0A\x0D]"
+#define WS_star  "[\x20\x09\x0A\x0D]*"
+
+static const char * const REGEX_TRUE   = RSL WS_star WB_START "true"  WB_END WS_star;
+static const char * const REGEX_FALSE  = RSL WS_star WB_START "false" WB_END WS_star;
+static const char * const REGEX_NULL   = RSL WS_star WB_START "null"  WB_END WS_star;
+static const char * const REGEX_STRING = RSL WS_star "\x22.*\x22" WS_star;
+static const char * const REGEX_NUMBER = RSL WS_star "(-?(0|[1-9])[0-9]*(\\.[0-9]+)?([eE][-+]?[0-9]+)?)" WS_star;
+
+static const char * const REGEX_LEFT_BRACKET   = WS_star "["  WS_star;
+static const char * const REGEX_RIGHT_BRACKET  = WS_star "]"  WS_star;
+
+constexpr int NUM_REGEX_PATTERNS = 5;
+RegexPattern REGEX_TRUE_PATTERN    = { .pattern_string  =  REGEX_TRUE,   .name="true",   .token = TOK_TRUE  };
+RegexPattern REGEX_FALSE_PATTERN   = { .pattern_string  =  REGEX_FALSE,  .name="false",  .token = TOK_FALSE };
+RegexPattern REGEX_NULL_PATTERN    = { .pattern_string  =  REGEX_NULL,   .name="null",   .token = TOK_NULL  };
+RegexPattern REGEX_STRING_PATTERN  = { .pattern_string  =  REGEX_STRING, .name="string", .token = TOK_STRING  };
+RegexPattern REGEX_NUMBER_PATTERN  = { .pattern_string  =  REGEX_NUMBER, .name="number", .token = TOK_NUMBER  };
+
+
+// can't do this at compile time as we can in Python and Java, must do it in the init method.
+// patterns = {REGEX_TRUE_PATTERN, REGEX_FALSE_PATTERN, REGEX_NULL_PATTERN};
+RegexPattern *patterns[NUM_REGEX_PATTERNS];
+
+static Arena arena = {};
+constexpr uint32_t ERROR_MSG_BUFFER_SIZE = 1024;
+static char error_msg_buffer[ERROR_MSG_BUFFER_SIZE] = {};
+
+constexpr int MATCH_FOUND = 0;
+constexpr char QUOTATION_MARK = '"';
+
 // -----------------------------------------------------------------
 //      Forward References
 // -----------------------------------------------------------------
@@ -77,11 +118,6 @@ static void skip_whitespace(JsonContext *context) {
 
 
 
-static Arena arena = {};
-constexpr uint32_t ERROR_MSG_BUFFER_SIZE = 1024;
-static char error_msg_buffer[ERROR_MSG_BUFFER_SIZE] = {};
-
-constexpr int MATCH_FOUND = 0;
 
 
 /* Implementation of specific parsers would go here (parse_string, parse_number, etc) */
@@ -897,6 +933,13 @@ void test_parse_arrays(void) {
     // array of 3 arrays with string elementss
     test_parse_str("[ [\"list1:one\", \"list1:two\"], [\"list2:one\", \"list2:two\"], [\"list3:one\", \"list3:two\"]]");
 
+    test_parse_str( "["\
+  "{ \"id\": 0, \"name\":  \"ELON ANDROID\", \"ff\": 1},"  \
+  "{ \"id\": 1, \"name\":  \"ELON ANDROID\", \"ff\": 5},"  \
+  "{ \"id\": 2, \"name\":  \"ELON ANDROID\", \"ff\": 10}," \
+  "{ \"id\": 3, \"name\":  \"ELON ANDROID\", \"ff\": 15}," \
+  "{ \"id\": 4, \"name\":  \"ELON ANDROID\", \"ff\": 20}"  \
+    "]" );
 }
 
 void test_parse_objects(void ) {
@@ -911,6 +954,7 @@ void test_parse_objects(void ) {
     test_parse_str(" [{ \"name\": \"jelly bowl\", \"ff\": 5}, {\"name\": \"werewolf\", \"ff\": 10 }]");
 }
 
+#ifdef JSON_PARSER_MAIN
 int main( ) {
     // test string_builder
     Error err = jsonp_init();
@@ -925,8 +969,8 @@ int main( ) {
     // test_parse_numbers();
     // test_string_escapes();
 
-    // test_parse_arrays();
-    test_parse_objects();
+    test_parse_arrays();
+    // test_parse_objects();
 
     // temp
     StringBuilder sb = {};
@@ -939,3 +983,4 @@ int main( ) {
     // Another Crappy Json Parser = ACJP
 
 }
+#endif

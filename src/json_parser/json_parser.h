@@ -70,38 +70,6 @@ typedef struct {
     enum Token token;
 } RegexPattern;
 
-// -----------------------------------------------------------------
-//      REGULAR EXPRESSION STRINGS
-// -----------------------------------------------------------------
-
-// RSL: "Regex Start of Line"
-#define RSL      "^"
-#define WB_START "[[:<:]]"
-#define WB_END   "[[:>:]]"
-#define SP       "[[:space:]]*"
-#define WS       "[\x20\x09\x0A\x0D]"
-#define WS_star  "[\x20\x09\x0A\x0D]*"
-
-static const char * const REGEX_TRUE   = RSL WS_star WB_START "true"  WB_END WS_star;
-static const char * const REGEX_FALSE  = RSL WS_star WB_START "false" WB_END WS_star;
-static const char * const REGEX_NULL   = RSL WS_star WB_START "null"  WB_END WS_star;
-static const char * const REGEX_STRING = RSL WS_star "\x22.*\x22" WS_star;
-static const char * const REGEX_NUMBER = RSL WS_star "(-?(0|[1-9])[0-9]*(\\.[0-9]+)?([eE][-+]?[0-9]+)?)" WS_star;
-
-static const char * const REGEX_LEFT_BRACKET   = WS_star "["  WS_star;
-static const char * const REGEX_RIGHT_BRACKET  = WS_star "]"  WS_star;
-
-constexpr int NUM_REGEX_PATTERNS = 5;
-RegexPattern REGEX_TRUE_PATTERN    = { .pattern_string  =  REGEX_TRUE,   .name="true",   .token = TOK_TRUE  };
-RegexPattern REGEX_FALSE_PATTERN   = { .pattern_string  =  REGEX_FALSE,  .name="false",  .token = TOK_FALSE };
-RegexPattern REGEX_NULL_PATTERN    = { .pattern_string  =  REGEX_NULL,   .name="null",   .token = TOK_NULL  };
-RegexPattern REGEX_STRING_PATTERN  = { .pattern_string  =  REGEX_STRING, .name="string", .token = TOK_STRING  };
-RegexPattern REGEX_NUMBER_PATTERN  = { .pattern_string  =  REGEX_NUMBER, .name="number", .token = TOK_NUMBER  };
-
-
-// can't do this at compile time as we can in Python and Java, must do it in the init method.
-// patterns = {REGEX_TRUE_PATTERN, REGEX_FALSE_PATTERN, REGEX_NULL_PATTERN};
-RegexPattern *patterns[NUM_REGEX_PATTERNS];
 
 typedef enum json_type{
     JSON_NULL,
@@ -157,14 +125,17 @@ typedef struct json_error_t {
 } JsonError;
 
 
-constexpr char QUOTATION_MARK = '"';
+
 
 Error jsonp_init();
+void jsonp_destroy(void);
+
 /* Main parsing function */
 JsonValue *json_parse(const char *json, JsonError *error);
 
-/* Recursive cleanup */
-void json_value_free(JsonValue *value);
+
+// print a string representation of the JSON graph to the console
+void json_value_str(JsonValue *value);
 
 
 void json_value_repr(JsonValue *value);
