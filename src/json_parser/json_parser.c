@@ -36,6 +36,9 @@ Interface: Provide a json_parse(const char *input) function that returns a point
 #include <stdio.h>
 
 #include "json_parser.h"
+
+#include <assert.h>
+
 #include "arena.h"
 #include "error_result.h"
 #include "../string/string_utils.h"
@@ -115,9 +118,6 @@ static void skip_whitespace(JsonContext *context) {
         context->current_ptr++;
     }
 }
-
-
-
 
 
 /* Implementation of specific parsers would go here (parse_string, parse_number, etc) */
@@ -470,6 +470,20 @@ static JsonObjectEntryNode * add_json_object_entry_node(JsonObjectEntryNode * fi
     return new_node;
 }
 
+
+JsonObjectEntry * jsonp_entry_for_key(const JsonValue *json_obj, char const * key) {
+    assert(json_obj->type == JSON_OBJECT);
+
+    for (uint32_t i = 0; i < json_obj->u.object.count; ++i) {
+        char const * entry_key = json_obj->u.object.entries[i]->key;
+        if (strcmp(entry_key, key) == 0 ) {
+            return json_obj->u.object.entries[i];
+        }
+    }
+
+    return nullptr;
+}
+
 static JsonValue * parse_object(JsonContext *context, JsonError *error) {
     // we recursively parse elements of this object until we see end-of-object '}' char
     JsonValue *object =  arena_alloc(&arena, sizeof(JsonValue) );
@@ -539,6 +553,8 @@ static JsonValue * parse_object(JsonContext *context, JsonError *error) {
     return object;
 }
 
+
+
 static JsonValue *parse_value(JsonContext *context, JsonError *error) {
     skip_whitespace(context);
     JsonValue *value = nullptr;
@@ -549,7 +565,7 @@ static JsonValue *parse_value(JsonContext *context, JsonError *error) {
             break;
         }
         case 't': /* Handle true */ {
-                value = parse_true(context, error);
+            value = parse_true(context, error);
             break;
         }
         case 'f': /* Handle false */ {
@@ -624,7 +640,6 @@ char const * json_typename_for_enum(const json_type type) {
 }
 
 void json_repr(JsonValue *value);
-void json_value_str(JsonValue *value);
 
 void json_array_repr(JsonValue *array) {
     if (!array || array->type != JSON_ARRAY) return;
@@ -825,6 +840,14 @@ void jsonp_destroy(void) {
     arena = (Arena){};
     is_initialized = false;
 }
+
+
+//// ------------------------------------------------------------
+////
+////    TESTING
+////
+//// ------------------------------------------------------------
+
 
 void test_parse_str(char const * str) {
     JsonError err = {.json = str};

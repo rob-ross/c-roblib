@@ -86,7 +86,7 @@ typedef enum json_type{
 } json_type;
 
 typedef struct json_value_s JsonValue;
-typedef struct json_object_entry JsonObjectEntry;
+typedef struct json_object_entry_s JsonObjectEntry;
 
 struct json_value_s {
     json_type type;
@@ -109,12 +109,12 @@ struct json_value_s {
     } u;
 };
 
-struct json_object_entry {
+struct json_object_entry_s {
     char const *key;
     JsonValue *value;
 };
 
-typedef struct json_error_t {
+typedef struct json_error_s {
     const char *message;
     const char *json;
     int first_bad_char; // position where parsing failed
@@ -133,6 +133,9 @@ void jsonp_destroy(void);
 /* Main parsing function */
 JsonValue *json_parse(const char *json, JsonError *error);
 
+// Searches the entries in the JSON object `json_obj` and returns the entry whose key matches the argument `key`.
+// Returns nullptr if there is no entry with this key.
+JsonObjectEntry * jsonp_entry_for_key(const JsonValue *json_obj, char const * key) ;
 
 // print a string representation of the JSON graph to the console
 void json_value_str(JsonValue *value);
