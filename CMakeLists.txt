@@ -49,7 +49,7 @@ add_executable( json_parse
         src/json_parser/lookup_table.h
 )
 target_link_libraries(json_parse PRIVATE c_roblib)
-target_compile_options(json_parse PRIVATE -Wno-unused-function)
+target_compile_options(json_parse PRIVATE -DJSON_PARSER_MAIN -Wno-unused-function)
 
 # Dedicated executable for bitset to allow running it via CMake with C23 settings
 add_executable(bitset_test_run src/set/bitset.c)

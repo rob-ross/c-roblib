@@ -247,8 +247,11 @@ static JsonValue * parse_string(JsonContext *context, JsonError *error) {
     // this causes the matched text to be "This  \"json\", which is an unterminated string, but leaves the rest
     // of the unterminated string in the buffer.
 
+    StringBuilder sb;
+    sb_init(&sb, 16, "");
+
     // we examine chars in the stream until we find:
-    // 1. a closing quote, which is a quote not preceeded by the backlash (reverse solidus)
+    // 1. a closing quote, which is a quote not preceded by the backlash (reverse solidus)
     // 2. EOF, AKA null terminator, \x00
     // 3. any of the delimiter chars bracket, brace, colon, comma.
     JsonValue *value = nullptr;
@@ -263,13 +266,22 @@ static JsonValue * parse_string(JsonContext *context, JsonError *error) {
             value = arena_alloc(&arena, sizeof(JsonValue) );
             value->type = JSON_STRING;
 
-            size_t n = snprintf(nullptr, 0, "%.*s", match_len, context->current_ptr);
+            // previous method, extracting from the json_str
+            // size_t n = snprintf(nullptr, 0, "%.*s", match_len, context->current_ptr);
+            // value->u.string = arena_alloc(&arena, n + 1);
+            // // todo error checking
+            // snprintf((char *)value->u.string, n + 1, "%.*s", match_len, context->current_ptr);
 
-            value->u.string = arena_alloc(&arena, n + 1);
-            // todo error checking
-            snprintf((char *)value->u.string, n + 1, "%.*s", match_len, context->current_ptr);
+            void * str_value = arena_alloc(&arena, sb.length + 1);
+            memcpy(str_value, sb.buffer, sb.length + 1);
+            value->u.string = str_value;
+
 
             advance(context, match_len + 1); // we add 1 to consume the terminating quote
+
+            // printf("  returning from parse_str, StringBuilder buffer is : '%s'\n", sb.buffer);
+
+            sb_destroy(&sb);
             return value;
         }
 
@@ -278,13 +290,32 @@ static JsonValue * parse_string(JsonContext *context, JsonError *error) {
             if (*json_ptr == '\0') {
                 // printf(" Unexpected EOF after backslash\n");
                 record_error(context, error, 2, "Unexpected EOF after backslash");
+
+                sb_destroy(&sb);
                 return nullptr; // Unexpected EOF
             }
             
             // Validate escape sequence
             switch (*json_ptr) {
-                case '"': case '\\': case '/': case 'b':
-                case 'f': case 'n': case 'r': case 't':
+                case '"':
+                case '\\':
+                case '/':
+                    sb_append_char(&sb, *json_ptr);
+                    break;
+                case 'b':
+                    sb_append_char(&sb, '\b');
+                    break;
+                case 'f':
+                    sb_append_char(&sb, '\f');
+                    break;
+                case 'n':
+                    sb_append_char(&sb, '\n');
+                    break;
+                case 'r':
+                    sb_append_char(&sb, '\r');
+                    break;
+                case 't':
+                    sb_append_char(&sb, '\t');
                     break;
                 case 'u':
                     // RFC 8259: \u followed by 4 hex digits
@@ -293,6 +324,7 @@ static JsonValue * parse_string(JsonContext *context, JsonError *error) {
                         if (*json_ptr == '\0') {
                             // printf("Unexpected EOF in Unicode escape\n");
                             record_error(context, error, 6, "Unexpected EOF after Unicode escape");
+                            sb_destroy(&sb);
                             return nullptr;
                         }
                         if (!isxdigit((unsigned char)*json_ptr)) {
@@ -300,6 +332,7 @@ static JsonValue * parse_string(JsonContext *context, JsonError *error) {
                             snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE, "Invalid hex digit in Unicode escape: %c", *json_ptr);
                             // error->message =  sutil_concat_strings("Invalid hex digit in Unicode escape: ", json_ptr, nullptr);
                             record_error(context, error, 2, error_msg_buffer);
+                            sb_destroy(&sb);
                             return nullptr;
                         }
                     }
@@ -308,7 +341,7 @@ static JsonValue * parse_string(JsonContext *context, JsonError *error) {
 
                     snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE, "Invalid escape sequence: \\%c", *json_ptr);
                     record_error(context, error, 2, error_msg_buffer);
-
+                    sb_destroy(&sb);
                     return nullptr;
             }
         } else if ((unsigned char)*json_ptr <= 0x1F) {
@@ -316,7 +349,10 @@ static JsonValue * parse_string(JsonContext *context, JsonError *error) {
             // This means the literal bytes cannot appear here.
             snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE, "Unexpected unescaped control character: 0x%.2X\n", (unsigned char)*json_ptr);
             record_error(context, error, 2, error_msg_buffer);
+            sb_destroy(&sb);
             return nullptr;
+        } else {
+            sb_append_char(&sb, *json_ptr);  // capture current char into the StringBuilder
         }
 
         // switch (*json_ptr) {
@@ -336,6 +372,7 @@ static JsonValue * parse_string(JsonContext *context, JsonError *error) {
     }
 
     record_error(context, error, ERROR_MSG_BUFFER_SIZE, "No closing quote found.");
+    sb_destroy(&sb);
     return nullptr;  // no closing quote found
 
 }
@@ -909,6 +946,16 @@ void test_strings( ) {
 
 void test_string_escapes(void) {
     test_parse_str("\"\"");
+
+    test_parse_str(" \"Esc-backslash: s\\\\e  \" ");
+    test_parse_str(" \"Esc-quote:     s\\\"e  \" ");
+    test_parse_str(" \"Esc-Slash:     s\\/e  \" ");
+    test_parse_str(" \"Esc-b:          s\\be  \" ");
+    test_parse_str(" \"Esc-f:          s\\fe  \" ");
+    test_parse_str(" \"Esc-n:          s\\ne  \" ");
+    test_parse_str(" \"Esc-r:          s\\re  \" ");
+    test_parse_str(" \"Esc-t:          s\\te  \" ");
+
     test_parse_str("\"Let's test ALL the single char escapes: \\\\ \\\" \\/ \\b \\f \\n \\r \\t\"");
 
 
@@ -986,14 +1033,14 @@ int main( ) {
         return err.reported_err;
     }
 
-    // test_literals();
+    test_literals();
 
-    // test_strings();
-    // test_parse_numbers();
-    // test_string_escapes();
+    test_strings();
+    test_parse_numbers();
+    test_string_escapes();
 
     test_parse_arrays();
-    // test_parse_objects();
+    test_parse_objects();
 
     // temp
     StringBuilder sb = {};
