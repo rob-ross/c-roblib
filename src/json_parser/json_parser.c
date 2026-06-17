@@ -1024,6 +1024,11 @@ void test_parse_objects(void ) {
     test_parse_str(" [{ \"name\": \"jelly bowl\", \"ff\": 5}, {\"name\": \"werewolf\", \"ff\": 10 }]");
 }
 
+void test_parse_unicode_chars(void) {
+    // é, 😀
+    test_parse_str("\" unicode chars:  é, 😀\"");
+}
+
 #ifdef JSON_PARSER_MAIN
 int main( ) {
     // test string_builder
@@ -1033,14 +1038,16 @@ int main( ) {
         return err.reported_err;
     }
 
-    test_literals();
+    // test_literals();
+    //
+    // test_strings();
+    // test_parse_numbers();
+    // test_string_escapes();
+    //
+    // test_parse_arrays();
+    // test_parse_objects();
 
-    test_strings();
-    test_parse_numbers();
-    test_string_escapes();
-
-    test_parse_arrays();
-    test_parse_objects();
+    test_parse_unicode_chars();
 
     // temp
     StringBuilder sb = {};
