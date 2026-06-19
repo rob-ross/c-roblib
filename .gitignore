@@ -88,3 +88,6 @@ logs/
 **/*.dSYM/*
 
 **/out/
+
+# AI Agents
+.junie/
