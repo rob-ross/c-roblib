@@ -16,10 +16,19 @@
 
 #include <stdint.h>
 
+#include "arena.h"
+
+enum lkup_key_type {
+    LKUP_KEY_CHAR,
+    LKUP_KEY_LONG
+};
 
 // Simple entry structure
 typedef struct {
-    const char *key;
+    union {
+        const char *char_key;
+        long        long_key;
+    };
     void *value;
 } KVEntry;
 
@@ -28,9 +37,16 @@ typedef struct {
     KVEntry *entries;
     uint32_t length;
     uint32_t capacity;
+    enum lkup_key_type key_type;
 } SimpleMap;
 
 
-
+void lkup_map_init(SimpleMap *map, enum lkup_key_type key_type,  int initial_capacity, Arena * arena);
+void lkup_map_set_for_string_key(SimpleMap *map, const char *key, void *value, Arena * arena);
+void lkup_map_set_for_long_key(SimpleMap *map, long key, void *value, Arena * arena);
+void* lkup_map_get_for_string_key(SimpleMap *map, const char *key);
+void* lkup_map_get_for_long_key(SimpleMap *map, long key);
+void lkup_map_remove_string_key(SimpleMap *map, const char *key);
+void lkup_map_remove_long_key(SimpleMap *map, long key);
 
 #endif //C_ROBLIB_LOOKUP_TABLE_H
