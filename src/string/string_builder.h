@@ -8,6 +8,10 @@
 
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
  * A mutable sequence of characters.
  */
@@ -62,6 +66,10 @@ uint32_t sb_length( StringBuilder *sb );
 
 
 void sb_repr( StringBuilder *sb );
+
+#ifdef __cplusplus
+}
+#endif
 
 
 

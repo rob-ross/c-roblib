@@ -42,10 +42,15 @@ true  = %x74.72.75.65       ; true
 
 #ifndef JSON_PARSER_H
 #define JSON_PARSER_H
+
 #include <_regex.h>
 #include <stdbool.h>
 
 #include "error_result.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 enum Token {
     TOK_TRUE,
@@ -142,6 +147,10 @@ void json_value_str(JsonValue *value);
 
 
 void json_value_repr(JsonValue *value);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // JSON_PARSER_H
 

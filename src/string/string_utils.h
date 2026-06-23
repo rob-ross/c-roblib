@@ -7,6 +7,10 @@
 #include <stdio.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 
 
 
@@ -213,3 +217,7 @@ char * sutil_strip_right(const char *str, const char *chars);
 char * sutil_upper(const char *str);
 
 char * sutil_zfill(const char* str, int width);
+
+#ifdef __cplusplus
+}
+#endif

@@ -18,6 +18,10 @@
 
 #include "arena.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 enum lkup_key_type {
     LKUP_KEY_CHAR,
     LKUP_KEY_LONG
@@ -48,5 +52,9 @@ void* lkup_map_get_for_string_key(SimpleMap *map, const char *key);
 void* lkup_map_get_for_long_key(SimpleMap *map, long key);
 void lkup_map_remove_string_key(SimpleMap *map, const char *key);
 void lkup_map_remove_long_key(SimpleMap *map, long key);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif //C_ROBLIB_LOOKUP_TABLE_H

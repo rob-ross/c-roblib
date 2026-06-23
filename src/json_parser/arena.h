@@ -34,6 +34,10 @@
 
 #include "error_result.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct page_header_t {
     struct page_header_t * next_page;  // Links to the next OS memory block
     size_t page_capacity;           // Tracks capacity of this block for mmap
@@ -64,5 +68,9 @@ typedef struct pageheader_err_result_s {
 ArenaErrResult arena_create_arena( Arena * arena,  size_t block_capacity);
 void arena_destroy_arena( Arena * arena);
 void * arena_alloc(Arena * arena,  size_t size);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif //CS50X_ARENA_H

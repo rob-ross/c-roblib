@@ -9,6 +9,10 @@
 #ifndef CS50X_ERROR_RESULT_H
 #define CS50X_ERROR_RESULT_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 
 
 /*
@@ -62,3 +66,7 @@ typedef ERROR_BASE Error ;
 
 
 void err_print(Error err);
+
+#ifdef __cplusplus
+}
+#endif
