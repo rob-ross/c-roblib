@@ -8,9 +8,9 @@
 #include <string.h>
 #include <stdarg.h>
 
-#include "../string_buffer.h"
+#include "string_buffer.h"
 
-#include "string_utils.h"
+#include "../../include/string_utils.h"
 
 const StringBuffer NULL_STRING_BUFFER = {.type = SBTYPE_NULL, .length = 0, .buffer.as_char = NULL};
 
@@ -32,7 +32,7 @@ void sb_destroy_string_buffer(StringBuffer *sb) {
 }
 
 
-StringBuffer * sb_centered(const StringBuffer *sb, const int width, const char fill_char) {
+StringBuffer * sb_centered(const StringBuffer *sb, const size_t width, const char fill_char) {
     if (!sb) return NULL;
     if (width <=0 || width <= sb->length) {
         return sb_copy(sb);
@@ -56,7 +56,7 @@ void sb_display_StringBuffer(const StringBuffer *sb){
             break;
 
         default:
-            printf("StringBuffer(type=unknown, length=%zu, buffer address=%p)",  sb->length, &sb->buffer);
+            printf("StringBuffer(type=unknown, length=%zu, buffer address=%p)",  sb->length, (void*)&sb->buffer);
             break;
     }
 }
@@ -105,7 +105,7 @@ StringBuffer * sb_join(const char *separator, StringBuffer *sb1, ...){
             if (!new_string){
                 return NULL;
             }
-            int loop_index = 0;
+            size_t loop_index = 0;
             size_t chars_written = 0;
             for ( ; loop_index < arg_list_count - 1; ++loop_index) {
                 memcpy(&new_string[chars_written], arg_list[loop_index]->buffer.as_char, arg_list[loop_index]->length);
@@ -119,7 +119,7 @@ StringBuffer * sb_join(const char *separator, StringBuffer *sb1, ...){
             new_string[total_length] = '\0';  // terminate string (index is 0 to length-1, so length is the null slot)
 
             StringBuffer *new_string_buffer = sb_new_string_buffer_from_string(new_string);
-            
+
             free(new_string); // Free the temporary buffer, as the constructor made its own copy
             return new_string_buffer;
         }
@@ -210,7 +210,7 @@ const char * sb_type_name(const SBType type) {
  *  A leading sign prefix ('+'/'-') is handled by inserting the padding after the sign character
  *  rather than before. The original string is unchanged if width is less than or equal to len(s), or if realloc fails.
  */
-StringBuffer * sb_zfill(StringBuffer *sb, int width) {
+StringBuffer * sb_zfill(StringBuffer *sb, size_t width) {
     if (width <= sb->length) {
         return sb;
     }

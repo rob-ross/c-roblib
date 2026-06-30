@@ -86,7 +86,9 @@ void * mem_mempolicy_default_allocator_realloc( void* context, void * pointer, c
     void *bytes = pool_alloc(pool, new_byte_count);
     if (!bytes) return nullptr;
     memset(bytes, 0, new_byte_count);
-    memcpy(bytes, pointer, old_byte_count);
+    // Calculate actual bytes to copy to prevent overflow if shrinking
+    size_t copy_size = (old_byte_count < new_byte_count) ? old_byte_count : new_byte_count;
+    memcpy(bytes, pointer, copy_size);
     return bytes;
 }
 
@@ -143,7 +145,7 @@ void * mem_realloc_bytes( MemPolicy mem_policy, void * pointer,  size_t old_byte
 
 char * mem_strdup(MemPolicy mem_policy, char const * string) {
     const size_t str_len = strlen(string)+1;
-    char *dupe = mem_alloc_bytes(mem_policy, strlen(string)+1);
+    char *dupe = mem_alloc_bytes(mem_policy, str_len);
     memcpy(dupe, string, str_len);
     return dupe;
 }

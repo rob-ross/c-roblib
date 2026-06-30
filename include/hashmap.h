@@ -8,8 +8,8 @@
 
 #include <stdint.h> // For uint8_t
 
-#include "../collections.h"
-#include "../memory/memory_pool.h"
+#include "collections.h"
+#include "memory_pool.h"
 
 
 

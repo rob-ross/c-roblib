@@ -11,8 +11,8 @@
 
 #pragma once
 
-#include "../collections.h"
-#include "../memory/memory_pool.h"
+#include "collections.h"
+#include "memory_pool.h"
 
 
 // like HashMap, we first support long, double, string, and void*.

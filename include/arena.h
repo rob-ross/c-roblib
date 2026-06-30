@@ -26,8 +26,8 @@
      mmap(void *addr, size_t len, int prot, int flags, int fd, off_t offset);
  */
 
-#ifndef CS50X_ARENA_H
-#define CS50X_ARENA_H
+#ifndef ROBLIB_ARENA_H
+#define ROBLIB_ARENA_H
 
 #include <stdint.h>
 #include <sys/_types/_size_t.h>
@@ -73,4 +73,4 @@ void * arena_alloc(Arena * arena,  size_t size);
 }
 #endif
 
-#endif //CS50X_ARENA_H
+#endif //ROBLIB_ARENA_H

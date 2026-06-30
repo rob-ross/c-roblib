@@ -43,8 +43,8 @@ true  = %x74.72.75.65       ; true
 #ifndef JSON_PARSER_H
 #define JSON_PARSER_H
 
-#include <_regex.h>
-#include <stdbool.h>
+#include <regex.h>
+// #include "base_types.h"
 
 #include "error_result.h"
 
@@ -63,7 +63,7 @@ enum Token {
     TOK_COLON,
     TOK_COMMA,
     // We are lexing and parsing at the same time in this parser, so these "tokens" really represent a type of AST node
-    TOK_STRING, // this is actually a value not a token.... but so are true, false, and null. hmmm....???
+    TOK_STRING, // this is actually a value, not a token... but so are true, false, and null. hmmm...???
     TOK_NUMBER, // also not a token, a value.
 
 };

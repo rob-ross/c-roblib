@@ -35,14 +35,14 @@ Interface: Provide a json_parse(const char *input) function that returns a point
 
 #include <stdio.h>
 
-#include "json_parser.h"
+#include "../../include/json_parser.h"
 
 #include <assert.h>
 
-#include "arena.h"
-#include "error_result.h"
-#include "../string/string_utils.h"
-#include "../string/string_builder.h"
+#include "../../include/arena.h"
+#include "../../include/error_result.h"
+#include "../../include/string_utils.h"
+#include "../../include/string_builder.h"
 
 typedef struct json_context_t {
     const char *current_ptr;  // The current text being parsed, advances through the JSON text in the json member
@@ -137,13 +137,13 @@ static int match_one_pattern( const RegexPattern *rp, char const * str) {
     }
 }
 
-static inline int max_int(const int a, const int b) {
-    return a > b ? a : b;
-}
-
-static inline int min_int(const int a, const int b) {
-    return a < b ? a : b;
-}
+// static inline int max_int(const int a, const int b) {
+//     return a > b ? a : b;
+// }
+//
+// static inline int min_int(const int a, const int b) {
+//     return a < b ? a : b;
+// }
 
 // advance the parser state based on the current parse window
 static void advance(JsonContext *context, const int char_count) {
@@ -294,7 +294,7 @@ static JsonValue * parse_string(JsonContext *context, JsonError *error) {
                 sb_destroy(&sb);
                 return nullptr; // Unexpected EOF
             }
-            
+
             // Validate escape sequence
             switch (*json_ptr) {
                 case '"':

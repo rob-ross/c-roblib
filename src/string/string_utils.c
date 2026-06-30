@@ -10,7 +10,7 @@
 #include <stdlib.h>
 #include <limits.h>
 
-#include "string_utils.h"
+#include "../../include/string_utils.h"
 
 #include <assert.h>
 

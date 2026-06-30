@@ -2,7 +2,7 @@
 // Created by Rob Ross on 6/9/26.
 //
 
-#include "string_builder.h"
+#include "../../include/string_builder.h"
 
 #include <stdio.h>
 #include <stdlib.h>

@@ -4,8 +4,8 @@
 // overrides to standard munit macros to work with bootdev test runner.
 
 
-#ifndef CS50X_MUNIT_OVERRIDES_H
-#define CS50X_MUNIT_OVERRIDES_H
+#ifndef ROBLIB_MUNIT_OVERRIDES_H
+#define ROBLIB_MUNIT_OVERRIDES_H
 
 #include "munit.h"
 
@@ -39,4 +39,4 @@ MunitResult b(const MunitParameter params[], void* user_data_or_fixture) {\
 #define munit_suite( a, b) (MunitSuite){ .prefix=a, .tests=b, .suites=NULL, .iterations=1, .options=MUNIT_SUITE_OPTION_NONE }
 
 
-#endif //CS50X_MUNIT_OVERRIDES_H
+#endif //ROBLIB_MUNIT_OVERRIDES_H

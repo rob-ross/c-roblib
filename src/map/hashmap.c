@@ -8,9 +8,9 @@
 // DO NOT INCLUDE string_counter.h. There is a cyclic dependency between that header file and hashmap.h.
 // the declarations needed by both string_counter.c and hashmap.c are in hashmap_private.h.
 
-#include "hashmap.h"
+#include "../../include/hashmap.h"
 #include "hashmap_private.h"
-#include "../memory/memory_pool.h"
+#include "../../include/memory_pool.h"
 
 #include <string.h> // Required for memcpy
 // #include <math.h>
@@ -874,7 +874,7 @@ MapKey key_for_void_ptr(const void * k) {
 }
 
 
-#include "../base.h"
+#include "../../include/base.h"
 // utility methods
 void display_type_sizes() {
     print("\nhashmap.h data types");

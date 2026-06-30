@@ -9,7 +9,7 @@
 // Common objects shared by collection classes (HashMap, List)
 //
 
-#include "collections.h"
+#include "../include/collections.h"
 
 #include <math.h>
 #include <string.h>

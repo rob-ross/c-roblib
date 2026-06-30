@@ -6,8 +6,8 @@
 // Created 2026/06/08 18:11:09 PDT
 #pragma once
 
-#ifndef CS50X_ERROR_RESULT_H
-#define CS50X_ERROR_RESULT_H
+#ifndef ROBLIB__ERROR_RESULT_H
+#define ROBLIB__ERROR_RESULT_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -62,7 +62,7 @@ struct {ERROR_FIELDS}; \
 
 typedef ERROR_BASE Error ;
 
-#endif //CS50X_ERROR_RESULT_H
+#endif //ROBLIB__ERROR_RESULT_H
 
 
 void err_print(Error err);

@@ -16,7 +16,7 @@
 
 #include <stdint.h>
 
-#include "arena.h"
+#include "../../include/arena.h"
 
 #ifdef __cplusplus
 extern "C" {

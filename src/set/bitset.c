@@ -5,7 +5,7 @@
 
 #include <stdio.h>
 
-#include "bitset.h"
+#include "../../include/bitset.h"
 
 
 bool bitset_test_all(const BitSet *set, const size_t flags_len, const enum SystemFlag flags[static flags_len] ) {

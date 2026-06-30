@@ -13,7 +13,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
-#include "arena.h"
+#include "../../include/arena.h"
 
 #include <errno.h>
 #include <stdio.h>

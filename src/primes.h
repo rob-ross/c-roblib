@@ -1,6 +1,10 @@
+//  primes.h
 //
 // Created by Rob Ross on 2/27/26.
 //
+// Representative primes for every base-2 order of magnitude up to 2^64.
+// Not currently used, but now that I have these values, I want to keep them around just in case.
+
 
 #pragma once
 #include <stddef.h>
@@ -8,8 +12,7 @@
 
 // see https://db.in.tum.de/~neumann/primes.hpp for list of primes and algorithm for efficient modulo operation
 
-// These only support bucket sizes up to 1.6 trillion. Good enough for now, but for completeness we should include
-// the next 30 primes up to 2^64
+
 static constexpr size_t PRIME_BUCKET_COUNT[] = {
     13,
     37,

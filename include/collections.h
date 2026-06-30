@@ -1,6 +1,6 @@
 // collections.h
 //
-// Copyright (c) Rob Ross 2026. 
+// Copyright (c) Rob Ross 2026.
 //
 //
 // Created 2026/03/10 13:44:28 PDT
@@ -12,7 +12,7 @@
 #pragma once
 
 #include "ref_objects.h"
-#include "memory/memory_pool.h"
+#include "memory_pool.h"
 
 #include <stddef.h>
 #include <stdint.h>

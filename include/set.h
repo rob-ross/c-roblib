@@ -11,7 +11,7 @@
 #pragma once
 
 
-#include "../map/hashmap.h" // Your existing hash map
+#include "hashmap.h"
 
 typedef struct Set {
     HashMap *map;
