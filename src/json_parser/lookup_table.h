@@ -16,7 +16,7 @@
 
 #include <stdint.h>
 
-#include "../../include/arena.h"
+#include "roblib/arena.h"
 
 #ifdef __cplusplus
 extern "C" {

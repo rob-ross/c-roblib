@@ -44,7 +44,7 @@ typedef struct List {
     ListElement *elements;
     size_t size;     //the current number of elements in this list.
     size_t capacity; // max number of elements this List can hold before needed to resize
-    
+
     ListValuePolicy value_policy;
     MemPolicy       mem_policy;
     uint64_t flags; // future use

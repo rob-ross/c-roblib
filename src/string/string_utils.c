@@ -10,7 +10,7 @@
 #include <stdlib.h>
 #include <limits.h>
 
-#include "../../include/string_utils.h"
+#include "roblib/string_utils.h"
 
 #include <assert.h>
 
@@ -338,7 +338,7 @@ char * sutil_strip(const char *str, const char *chars) {
             break;
         }
     }
-    
+
     size_t new_len = str_len - left_index - end;
     char *new_str = malloc( new_len + 1 );
     if (!new_str) return nullptr;

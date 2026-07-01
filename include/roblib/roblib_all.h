@@ -1,6 +1,7 @@
 //  roblib_all.h
 // Created by Rob Ross on 6/30/26.
 //
+// Include this file to use the roblib library
 
 #pragma once
 

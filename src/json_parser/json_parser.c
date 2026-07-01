@@ -35,14 +35,14 @@ Interface: Provide a json_parse(const char *input) function that returns a point
 
 #include <stdio.h>
 
-#include "../../include/json_parser.h"
+#include "roblib/json_parser.h"
 
 #include <assert.h>
 
-#include "../../include/arena.h"
-#include "../../include/error_result.h"
-#include "../../include/string_utils.h"
-#include "../../include/string_builder.h"
+#include "roblib/arena.h"
+#include "roblib/error_result.h"
+#include "roblib/string_utils.h"
+#include "roblib/string_builder.h"
 
 typedef struct json_context_t {
     const char *current_ptr;  // The current text being parsed, advances through the JSON text in the json member

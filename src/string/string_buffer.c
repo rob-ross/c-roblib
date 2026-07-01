@@ -8,9 +8,9 @@
 #include <string.h>
 #include <stdarg.h>
 
-#include "string_buffer.h"
+#include "roblib/string_buffer.h"
 
-#include "../../include/string_utils.h"
+#include "roblib/string_utils.h"
 
 const StringBuffer NULL_STRING_BUFFER = {.type = SBTYPE_NULL, .length = 0, .buffer.as_char = NULL};
 

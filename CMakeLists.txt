@@ -52,6 +52,8 @@ add_library(c_roblib STATIC ${LIB_SOURCES})
 # PRIVATE: headers in 'src' (subfolders) are only used for building the library itself.
 target_include_directories(c_roblib
     PUBLIC
+        # This allows us to use #include "roblib_all.h" inside the library
+        # but also supports the "roblib/roblib_all.h" style if we move them
         $<BUILD_INTERFACE:${LIB_INCLUDE_DIR}>
         $<INSTALL_INTERFACE:include>
     PRIVATE

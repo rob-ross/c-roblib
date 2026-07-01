@@ -9,7 +9,7 @@
 // Common objects shared by collection classes (HashMap, List)
 //
 
-#include "../include/collections.h"
+#include "roblib/collections.h"
 
 #include <math.h>
 #include <string.h>
