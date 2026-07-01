@@ -4,6 +4,8 @@
 // utility methods useful during development
 
 
+#include "roblib/dev_utils.h"
+
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -11,14 +13,13 @@
 #include <string.h>
 #include <time.h>
 
-#include "dev_utils.h"
 
 #include <time.h>
 
 
 char const *create_string(char const *fmt, ...) {
 
-    va_list args;
+    va_list args = {};
     va_start(args, fmt);
     const int sz = vsnprintf(nullptr, 0, fmt, args);
     va_end(args);
