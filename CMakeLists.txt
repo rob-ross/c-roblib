@@ -5,6 +5,9 @@ set(CMAKE_C_STANDARD 23)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 
+# Ensure the library is usable in various contexts
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
 # Define semantic paths to avoid confusion with CMAKE_CURRENT_SOURCE_DIR
 set(LIB_ROOT_DIR    ${CMAKE_CURRENT_SOURCE_DIR})
 set(LIB_INCLUDE_DIR ${LIB_ROOT_DIR}/include)
@@ -67,8 +70,12 @@ target_compile_options(json_parse PRIVATE -DJSON_PARSER_MAIN -Wno-unused-functio
 
 # 3. Automated Installation (Solves the manual copy-paste problem)
 # You can run: cmake --install . --prefix ../other_project/libs
+# e.g.
+# cmake --install cmake-build-debug --prefix "/Users/robross/Documents/Development/CLionProjects/text_adventures/external/roblib"
 install(TARGETS c_roblib
-        ARCHIVE DESTINATION lib)
+        ARCHIVE DESTINATION lib
+        LIBRARY DESTINATION lib)
 
-install(DIRECTORY include/
-        DESTINATION include)
+install(DIRECTORY "${LIB_INCLUDE_DIR}/"
+        DESTINATION include
+        FILES_MATCHING PATTERN "*.h")
