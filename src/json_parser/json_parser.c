@@ -88,7 +88,7 @@ RegexPattern REGEX_NUMBER_PATTERN  = { .pattern_string  =  REGEX_NUMBER, .name="
 // patterns = {REGEX_TRUE_PATTERN, REGEX_FALSE_PATTERN, REGEX_NULL_PATTERN};
 RegexPattern *patterns[NUM_REGEX_PATTERNS];
 
-static Arena arena = {};
+// static Arena arena = {};
 constexpr uint32_t ERROR_MSG_BUFFER_SIZE = 1024;
 static char error_msg_buffer[ERROR_MSG_BUFFER_SIZE] = {};
 
@@ -98,7 +98,7 @@ constexpr char QUOTATION_MARK = '"';
 // -----------------------------------------------------------------
 //      Forward References
 // -----------------------------------------------------------------
-static JsonValue *parse_value(JsonContext *context, JsonError *error) ;
+static JsonValue *parse_value(JsonContext *context, JsonError *error, Arena *arena) ;
 
 
 
@@ -167,7 +167,7 @@ static void record_error(const JsonContext *context, JsonError *error, const int
 }
 
 
-static JsonValue * parse_null(JsonContext *context, JsonError *error) {
+static JsonValue * parse_null(JsonContext *context, JsonError *error, Arena *arena ) {
     JsonValue *value = nullptr;
 
     int match_len = match_one_pattern(&REGEX_NULL_PATTERN, context->current_ptr);
@@ -181,7 +181,7 @@ static JsonValue * parse_null(JsonContext *context, JsonError *error) {
         return value;
     }
 
-    value = arena_alloc(&arena, sizeof(JsonValue) );
+    value = arena_alloc(arena, sizeof(JsonValue) );
     value->type = JSON_NULL;
     advance(context, match_len);
     return value;
@@ -189,7 +189,7 @@ static JsonValue * parse_null(JsonContext *context, JsonError *error) {
 
 
 
-static JsonValue *  parse_true(JsonContext *context, JsonError *error) {
+static JsonValue *  parse_true(JsonContext *context, JsonError *error, Arena *arena ) {
     JsonValue *value = nullptr;
 
     int match_len = match_one_pattern(&REGEX_TRUE_PATTERN, context->current_ptr);
@@ -202,7 +202,7 @@ static JsonValue *  parse_true(JsonContext *context, JsonError *error) {
         return value;
     }
 
-    value = arena_alloc(&arena, sizeof(JsonValue) );
+    value = arena_alloc(arena, sizeof(JsonValue) );
     value->type = JSON_BOOLEAN;
     value->u.boolean = true;
     advance(context, match_len);
@@ -210,7 +210,7 @@ static JsonValue *  parse_true(JsonContext *context, JsonError *error) {
 
 }
 
-static JsonValue *  parse_false(JsonContext *context, JsonError *error) {
+static JsonValue *  parse_false(JsonContext *context, JsonError *error, Arena *arena ) {
     JsonValue *value = nullptr;
 
     int match_len = match_one_pattern(&REGEX_FALSE_PATTERN, context->current_ptr);
@@ -223,7 +223,7 @@ static JsonValue *  parse_false(JsonContext *context, JsonError *error) {
         return value;
     }
 
-    value = arena_alloc(&arena, sizeof(JsonValue) );
+    value = arena_alloc(arena, sizeof(JsonValue) );
     value->type = JSON_BOOLEAN;
     value->u.boolean = false;
     advance(context, match_len);
@@ -240,7 +240,7 @@ constexpr char RIGHT_BRACE     = '}';
 constexpr char COLON           = ':';
 constexpr char COMMA           = ',';
 
-static JsonValue * parse_string(JsonContext *context, JsonError *error) {
+static JsonValue * parse_string(JsonContext *context, JsonError *error, Arena *arena ) {
     // the standard regex C library doesn't provide look-arounds. so simple regex matching with escaped quotes
     // causes the string to terminate early when there's not a closing, non-escaped quote.
     // E.g., ' "This  \"json\" string has embedded quotes but no matching closing quote ':
@@ -263,7 +263,7 @@ static JsonValue * parse_string(JsonContext *context, JsonError *error) {
             int match_len = (int)((json_ptr) - context->current_ptr);
 
 
-            value = arena_alloc(&arena, sizeof(JsonValue) );
+            value = arena_alloc(arena, sizeof(JsonValue) );
             value->type = JSON_STRING;
 
             // previous method, extracting from the json_str
@@ -272,7 +272,7 @@ static JsonValue * parse_string(JsonContext *context, JsonError *error) {
             // // todo error checking
             // snprintf((char *)value->u.string, n + 1, "%.*s", match_len, context->current_ptr);
 
-            void * str_value = arena_alloc(&arena, sb.length + 1);
+            void * str_value = arena_alloc(arena, sb.length + 1);
             memcpy(str_value, sb.buffer, sb.length + 1);
             value->u.string = str_value;
 
@@ -377,7 +377,7 @@ static JsonValue * parse_string(JsonContext *context, JsonError *error) {
 
 }
 
-static JsonValue * parse_number(JsonContext *context, JsonError *error) {
+static JsonValue * parse_number(JsonContext *context, JsonError *error, Arena *arena ) {
     JsonValue *value = nullptr;
 
     constexpr size_t max_groups = 4;
@@ -413,7 +413,7 @@ static JsonValue * parse_number(JsonContext *context, JsonError *error) {
 
     // printf("number match found for %s\n",context->current_ptr);
 
-    value = arena_alloc(&arena, sizeof(JsonValue) );
+    value = arena_alloc(arena, sizeof(JsonValue) );
     value->type = JSON_NUMBER;
     if (is_double) {
         value->type = JSON_FLOAT;
@@ -437,18 +437,18 @@ typedef struct json_value_node_s {
 // add a node to the linked list headed by first_node.
 // adds nodes to the front of the linked list. If first_node is null, will be the head node of a new linked list.
 // Returns the new first_node.
-static JsonValueNode * add_json_value_node(JsonValueNode * first_node, JsonValue *value) {
+static JsonValueNode * add_json_value_node(JsonValueNode * first_node, JsonValue *value, Arena *arena ) {
     if (!value) return nullptr;
-    JsonValueNode * new_node = (JsonValueNode*) arena_alloc(&arena, sizeof(JsonValueNode) );
+    JsonValueNode * new_node = (JsonValueNode*) arena_alloc(arena, sizeof(JsonValueNode) );
     new_node->value = value;
     new_node->next = first_node;
     return new_node;
 }
 
 
-static JsonValue * parse_array(JsonContext *context, JsonError *error) {
+static JsonValue * parse_array(JsonContext *context, JsonError *error, Arena *arena ) {
     // we recursively parse elements of this array until we see end-of-array ']' char
-    JsonValue *array =  arena_alloc(&arena, sizeof(JsonValue) );
+    JsonValue *array =  arena_alloc(arena, sizeof(JsonValue) );
 
     size_t num_elements = 0;
     array->type = JSON_ARRAY;
@@ -461,9 +461,9 @@ static JsonValue * parse_array(JsonContext *context, JsonError *error) {
 
     while ( *context->current_ptr && *context->current_ptr != ']' ) {
         skip_whitespace(context);
-        JsonValue *value = parse_value(context, error);
+        JsonValue *value = parse_value(context, error, arena);
         if (!value) return nullptr;  // error out immediately
-        elements = add_json_value_node(elements, value);
+        elements = add_json_value_node(elements, value, arena);
         num_elements++;
         skip_whitespace(context);
         if (*context->current_ptr == ',' ) {
@@ -480,7 +480,7 @@ static JsonValue * parse_array(JsonContext *context, JsonError *error) {
     }
 
     advance(context, 1);  // consume ']'
-    JsonValue **element_array = arena_alloc(&arena, sizeof(JsonValue) *  num_elements);
+    JsonValue **element_array = arena_alloc(arena, sizeof(JsonValue) *  num_elements);
     // copy linked list elements into new array in reverse order so the list maintains the order from the json file.
 
     for (size_t i = num_elements; i--> 0; ) {
@@ -499,9 +499,9 @@ typedef struct json_object_entry_node_s {
     struct json_object_entry_node_s *next;
 } JsonObjectEntryNode;
 
-static JsonObjectEntryNode * add_json_object_entry_node(JsonObjectEntryNode * first_node, JsonObjectEntry *object_entry) {
+static JsonObjectEntryNode * add_json_object_entry_node(JsonObjectEntryNode * first_node, JsonObjectEntry *object_entry, Arena *arena ) {
     if (!object_entry) return nullptr;
-    JsonObjectEntryNode * new_node = (JsonObjectEntryNode*) arena_alloc(&arena, sizeof(JsonObjectEntryNode) );
+    JsonObjectEntryNode * new_node = (JsonObjectEntryNode*) arena_alloc(arena, sizeof(JsonObjectEntryNode) );
     new_node->object_entry = object_entry;
     new_node->next = first_node;
     return new_node;
@@ -521,9 +521,9 @@ JsonObjectEntry * jsonp_entry_for_key(const JsonValue *json_obj, char const * ke
     return nullptr;
 }
 
-static JsonValue * parse_object(JsonContext *context, JsonError *error) {
+static JsonValue * parse_object(JsonContext *context, JsonError *error, Arena *arena ) {
     // we recursively parse elements of this object until we see end-of-object '}' char
-    JsonValue *object =  arena_alloc(&arena, sizeof(JsonValue) );
+    JsonValue *object =  arena_alloc(arena, sizeof(JsonValue) );
 
     size_t num_entries = 0;
     object->type = JSON_OBJECT;
@@ -536,7 +536,7 @@ static JsonValue * parse_object(JsonContext *context, JsonError *error) {
 
     while ( *context->current_ptr && *context->current_ptr != '}' ) {
         skip_whitespace(context);
-        JsonValue *key = parse_string(context, error);
+        JsonValue *key = parse_string(context, error, arena);
         if (!key) return nullptr;  // error out immediately
         skip_whitespace(context);
 
@@ -548,10 +548,10 @@ static JsonValue * parse_object(JsonContext *context, JsonError *error) {
         }
         advance(context, 1);  // consume ':'
 
-        JsonValue *value = parse_value(context, error);
+        JsonValue *value = parse_value(context, error, arena);
         if (!value) return nullptr;  // error out immediately
 
-        JsonObjectEntry *joe = (JsonObjectEntry*)arena_alloc(&arena, sizeof(JsonObjectEntry));
+        JsonObjectEntry *joe = (JsonObjectEntry*)arena_alloc(arena, sizeof(JsonObjectEntry));
         if (!joe) {
             fprintf(stderr, "parse_object(): arena alloc failed for JsonObjectEntry *joe\n");
             return nullptr;
@@ -559,7 +559,7 @@ static JsonValue * parse_object(JsonContext *context, JsonError *error) {
 
         joe->key = key->u.string;
         joe->value = value;
-        entries = add_json_object_entry_node(entries, joe);
+        entries = add_json_object_entry_node(entries, joe, arena);
         num_entries++;
 
         skip_whitespace(context);
@@ -576,7 +576,7 @@ static JsonValue * parse_object(JsonContext *context, JsonError *error) {
     }
 
     advance(context, 1);  // consume '}'
-    JsonObjectEntry **entries_array = arena_alloc(&arena, sizeof(JsonObjectEntry) *  num_entries);
+    JsonObjectEntry **entries_array = arena_alloc(arena, sizeof(JsonObjectEntry) *  num_entries);
     // copy linked list elements into new array in reverse order so the object entries maintain
     // the order from the JSON file.
 
@@ -592,37 +592,37 @@ static JsonValue * parse_object(JsonContext *context, JsonError *error) {
 
 
 
-static JsonValue *parse_value(JsonContext *context, JsonError *error) {
+static JsonValue *parse_value(JsonContext *context, JsonError *error, Arena *arena ) {
     skip_whitespace(context);
     JsonValue *value = nullptr;
     context->parse_start = context->parse_end;
     switch (*context->current_ptr) {
         case 'n': /* Handle null */ {
-            value = parse_null(context, error) ;
+            value = parse_null(context, error, arena) ;
             break;
         }
         case 't': /* Handle true */ {
-            value = parse_true(context, error);
+            value = parse_true(context, error, arena);
             break;
         }
         case 'f': /* Handle false */ {
-            value = parse_false(context, error);
+            value = parse_false(context, error, arena);
             break;
         }
         case '"': /* Handle string */ {
-            value = parse_string(context, error);
+            value = parse_string(context, error, arena);
             break;
         }
         case '[': /* Handle array */
-            value = parse_array(context, error);
+            value = parse_array(context, error, arena);
             break;
         case '{': /* Handle object */
-            value = parse_object(context, error);
+            value = parse_object(context, error, arena);
             break;
         case '-': case '0': case '1': case '2': case '3':
         case '4': case '5': case '6': case '7': case '8': case '9':
             /* Handle number */ {
-                value = parse_number(context,error);
+                value = parse_number(context,error, arena);
             }
             break;
         default:
@@ -638,7 +638,7 @@ static JsonValue *parse_value(JsonContext *context, JsonError *error) {
 
 }
 
-JsonValue *json_parse(const char *json, JsonError *error) {
+JsonValue *json_parse(const char *json, JsonError *error, Arena *arena) {
     if (!json) {
         *error = (JsonError){ .message = "null json string"};
         return nullptr;
@@ -649,7 +649,7 @@ JsonValue *json_parse(const char *json, JsonError *error) {
         return nullptr;
     }
 
-    JsonValue *value =  parse_value(&context, error);
+    JsonValue *value =  parse_value(&context, error, arena);
 
     return value;
 }
@@ -856,25 +856,25 @@ Error jsonp_init() {
 
     // compile regex
     Error e = init_regex_patterns();
-    if (e.err) {
-        return e;
+    if (!e.err) {
+        is_initialized = true;
     }
-
+    return e;
     // allocate arena
-    ArenaErrResult aer = arena_create_arena( &arena, ONE_MIBIBYTE * 100);
-    if ( aer.err ) {
-        printf("arena_create_arena failed with %d, %s\n", aer.reported_err, aer.msg);
-    }
-    is_initialized = true;
-    return (Error){ .error = aer.error };
+    // ArenaErrResult aer = arena_create_arena( &arena, ONE_MIBIBYTE * 100);
+    // if ( aer.err ) {
+    //     printf("arena_create_arena failed with %d, %s\n", aer.reported_err, aer.msg);
+    // }
+
+    // return (Error){ .error = aer.error };
 }
 
 void jsonp_destroy(void) {
     regfree(&REGEX_TRUE_PATTERN.compiled_regex);
     regfree(&REGEX_FALSE_PATTERN.compiled_regex);
     regfree(&REGEX_NULL_PATTERN.compiled_regex);
-    arena_destroy_arena(&arena);
-    arena = (Arena){};
+    // arena_destroy_arena(&arena);
+    // arena = (Arena){};
     is_initialized = false;
 }
 
@@ -887,9 +887,14 @@ void jsonp_destroy(void) {
 
 
 void test_parse_str(char const * str) {
+    Arena arena = {};
+    ArenaErrResult aer = arena_create_arena( &arena, ONE_MIBIBYTE * 100);
+    if ( aer.err ) {
+        printf("arena_create_arena failed with %d, %s\n", aer.reported_err, aer.msg);
+    }
     JsonError err = {.json = str};
     printf("\nParsing json string '%s': \n", str);
-    JsonValue *jval = json_parse(str, &err);
+    JsonValue *jval = json_parse(str, &err, &arena);
     if (!jval) {
         printf("ERROR : line:%d col:%d start:%d end:%d  %s\n",
             err.line, err.column, err.parse_start, err.parse_end -1, err.message);
@@ -898,6 +903,8 @@ void test_parse_str(char const * str) {
         json_value_str(jval);
         printf("\n");
     }
+
+    arena_destroy_arena(&arena);
 }
 
 void test_literals() {

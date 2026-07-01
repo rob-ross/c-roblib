@@ -46,6 +46,7 @@ true  = %x74.72.75.65       ; true
 #include <regex.h>
 // #include "base_types.h"
 
+#include "arena.h"
 #include "error_result.h"
 
 #ifdef __cplusplus
@@ -131,12 +132,13 @@ typedef struct json_error_s {
 
 
 
-
+// Must call at application startup to initialize the parser before first use.
 Error jsonp_init();
+// call when done with parsing module, frees up resources acquired in init().
 void jsonp_destroy(void);
 
 /* Main parsing function */
-JsonValue *json_parse(const char *json, JsonError *error);
+JsonValue *json_parse(const char *json, JsonError *error, Arena *arena);
 
 // Searches the entries in the JSON object `json_obj` and returns the entry whose key matches the argument `key`.
 // Returns nullptr if there is no entry with this key.
