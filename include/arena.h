@@ -6,18 +6,18 @@
 // Created 2026/06/08 15:33:49 PDT
 #pragma once
 
-/*
+/**
  *  Terms:
- *      Payload size:  The amount of memory requested in a call to malloc, e.g. malloc(sizeof(int))
- *      Chunk Size  :  a chunk is the amount of memory requested in a malloc-like call, plus bookeeping overhead, i.e.,
+ *      Payload size:  The amount of memory requested in a call to malloc, e.g., malloc(sizeof(int))
+ *      Chunk Size:    a chunk is the amount of memory requested in a malloc-like call, plus bookkeeping overhead, i.e.,
  *                     payload size + metadata header (16 bytes in 64-bit system)
- *      Page Size : the memory size used by the memory manager to allocat system memory to an allocator.
- *                  The memory manager organizes system memory into pages. It then reserves chunks from these pags
+ *      Page Size: the memory size used by the memory manager to allocate system memory to an allocator.
+ *                  The memory manager organizes system memory into pages. It then reserves chunks from these pages
  *                  to satisfy allocation requests.
  *
  *      This is a simple arena/bump allocator. It obtains system memory via calls to mmap. It manages a pointer to the
- *      next available byte of unallocated memory, and increments this pointer based on the requested allocation size.
- *      It will pad the request to align it to 16 byte boundaries ( via _Alignof(max_align_t)). It will grow the arena
+ *      next available byte of unallocated memory and increments this pointer based on the requested allocation size.
+ *      It will pad the request to align it to 16 byte boundaries (via _Alignof(max_align_t)). It will grow the arena
  *      dynamically if a memory request is larger than the arena capacity. The entire arena is freed with the call to
  *      destroy_arena()
  *
