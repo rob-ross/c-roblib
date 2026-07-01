@@ -179,7 +179,7 @@
 #define PL printf("\n")
 
 /**
- * Prints value of argument with no newline
+ * Prints value of the argument with no newline
  * @param x scalar value, pointer, or expression. Not tested for arrays, structs, unions, or enums
  */
 #define PV(x) STATEMENT( \
@@ -193,7 +193,7 @@
 )
 
 /**
- * Prints value of argument with a newline
+ * Prints value of the argument with a newline
  * @param x scalar value, pointer, or expression. Not tested for arrays, structs, unions, or enums
  */
 #define PVL(x) STATEMENT( PV(x); printf("\n"); )
