@@ -13,7 +13,7 @@ extern "C" {
 #ifdef __cplusplus
 #define ROBLIB_STATIC_SIZE(n) n
 #else
-#define ROB_LIB_STATIC_SIZE(n) static n
+#define ROBLIB_STATIC_SIZE(n) static n
 #endif
 
 
