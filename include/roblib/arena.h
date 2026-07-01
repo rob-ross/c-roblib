@@ -50,8 +50,8 @@ typedef struct arena_s {
     PageHeader * head_page;       // Pointer to the first block
 } Arena;
 
+// todo move this to a top-level const-only header, and spell it correctly
 constexpr size_t ONE_MIBIBYTE = 1024 * 1024;
-constexpr size_t ONE_GIBIBYTE = ONE_MIBIBYTE * 1024;
 
 
 typedef struct arena_err_result_s {
