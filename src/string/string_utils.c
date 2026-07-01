@@ -3,6 +3,8 @@
 //
 // utility functions for ASCII strings.
 
+#include "roblib/string_utils.h"
+
 #include <ctype.h>
 #include <stdarg.h>
 #include <string.h>
@@ -10,7 +12,6 @@
 #include <stdlib.h>
 #include <limits.h>
 
-#include "roblib/string_utils.h"
 
 #include <assert.h>
 
@@ -272,14 +273,40 @@ bool sutil_starts_with(const char *str, const char *prefix) {
     assert(str && "str cannot be nullptr");
     assert(prefix && "prefix cannot be nullptr");
 
-    if (!str || !prefix) return false;
-    const size_t prefix_len = strlen(prefix);
-    const size_t str_len = strlen(str);
-    if (prefix_len > str_len) {
+    if ( !prefix || !str || *prefix == '\0' || *str == '\0' ) {
         return false;
     }
+    // const size_t prefix_len = strlen(prefix);
+    // const size_t str_len = strlen(str);
+    // if (prefix_len > str_len) {
+    //     return false;
+    // }
     // Use strncmp for a direct, readable, and optimized comparison.
-    return strncmp(str, prefix, prefix_len) == 0;
+    return strncmp(str, prefix, strlen(prefix)) == 0;
+}
+
+bool sutil_starts_with_ignore_case(const char *str, const char *prefix) {
+    // If `prefix` is NULL, it cannot be a prefix of anything.
+    // Empty prefix or empty string don't count as starts-with match. Some regex libs allow an empty string
+    // to "start with" an empty string.
+    if ( !prefix || !str || *prefix == '\0' || *str == '\0' ) {
+        return false;
+    }
+
+    // Now both strings are guaranteed to be non-NULL and non-empty.
+    size_t i = 0;
+    while (prefix[i] != '\0' && str[i] != '\0') {
+        // Safely convert char to unsigned char before passing to toupper
+        if (toupper((unsigned char)prefix[i]) != toupper((unsigned char)str[i])) {
+            return false; // Mismatch found
+        }
+        i++;
+    }
+
+    // If we reached the end of prefix, it means all characters in the prefix matched.
+    // So, string starts with the prefix.
+    return prefix[i] == '\0';
+
 }
 
 bool sutil_strings_equal(const char *str1, const char *str2) {

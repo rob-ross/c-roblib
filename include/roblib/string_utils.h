@@ -18,7 +18,7 @@ extern "C" {
 
 
 
-static const size_t SUTIL_MAX_ARGS = 1024;  // max number of variadic arguments processed
+static const size_t SUTIL_MAX_ARGS = 1024;  // max number of variadic arguments supported in a var args list
 
 static const char  * const SUTIL_WHITESPACE = " \t\n\r\v\f";
 
@@ -167,6 +167,9 @@ char * sutil_pad_right(const char *str,int width, char fill_char);
  * @return true if `str` starts with `prefix`, else false.
  */
 bool sutil_starts_with(const char *str, const char *prefix);
+
+// Returns true if str strats with prefix, ignoring case.
+bool sutil_starts_with_ignore_case(const char *str, const char *prefix);
 
 bool sutil_strings_equal(const char *str1, const char *str2);
 bool sutil_strings_equal_case(const char *str1, const char *str2, Case c);
