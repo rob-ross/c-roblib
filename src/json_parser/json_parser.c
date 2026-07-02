@@ -907,20 +907,6 @@ void test_parse_str(char const * str) {
     arena_destroy_arena(&arena);
 }
 
-void test_literals() {
-    test_parse_str(" null ");
-    test_parse_str("true");
-    test_parse_str("false");
-
-    test_parse_str("             true");
-    test_parse_str("             true           ");
-
-    test_parse_str("true false");
-    test_parse_str("falsee [\"list\"]");
-    test_parse_str("nul");
-    test_parse_str("nulll");
-    test_parse_str("nullington");
-}
 
 void test_strings( ) {
     test_parse_str(nullptr);
@@ -1045,7 +1031,6 @@ int main( ) {
         return err.reported_err;
     }
 
-    // test_literals();
     //
     // test_strings();
     // test_parse_numbers();

@@ -10,7 +10,10 @@ extern "C" {
 #include "roblib/json_parser.h"
 }
 
-class JsonParserTest : public testing::TestWithParam<std::string_view>{
+using str_param = std::tuple<std::string, std::string> ;
+
+
+class JsonParserTest : public testing::TestWithParam<str_param>{
 protected:
     JsonError err{};
 
@@ -79,6 +82,24 @@ TEST_F(JsonParserTest, TestLiterals) {
     EXPECT_EQ(jval, nullptr) << "expected nullptr";
 }
 
-TEST_F(JsonParserTest, TestStrings) {
+TEST_P(JsonParserTest, TestStrings) {
+    auto [input_json, expected_output] = GetParam(); // Structured binding
+    JsonValue *jval = json_parse(input_json.c_str(), &err, arena);
 
+    ASSERT_NE(jval, nullptr) << "Failed to parse: " << input_json;
+    EXPECT_EQ(jval->type, JSON_STRING);
+    if (jval->type == JSON_STRING) {
+        EXPECT_STREQ(jval->u.string, expected_output.c_str());
+    }
 }
+
+INSTANTIATE_TEST_SUITE_P(
+    StringTests,
+    JsonParserTest,
+    testing::Values(
+        str_param("\"\"", ""),
+        str_param("\"string\"", "string"),
+        str_param(" \"This is a json string followed by a comma\", ",
+                    "This is a json string followed by a comma")
+    )
+);
