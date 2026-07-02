@@ -1,0 +1,10 @@
+## Project Information
+* This is a learning project for experimenting with sfml and Imgui.
+
+## Version Information
+* This project is developed on Mac OS Sonoma Version 14.8.4 (23J319)
+* Using CLion 2026.1.3
+* Using C++23 and C23
+* Using CMake 4.2
+
+
