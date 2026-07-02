@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 4.2)
-project(c_roblib C)
+project(c_roblib C CXX)
 
 set(CMAKE_C_STANDARD 23)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -12,6 +12,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(LIB_ROOT_DIR    ${CMAKE_CURRENT_SOURCE_DIR})
 set(LIB_INCLUDE_DIR ${LIB_ROOT_DIR}/include)
 set(LIB_SRC_DIR     ${LIB_ROOT_DIR}/src)
+set(LIB_TEST_DIR    ${LIB_ROOT_DIR}/test)
 
 # Set a default build type if none is specified
 if(NOT CMAKE_BUILD_TYPE)
@@ -20,11 +21,23 @@ endif()
 
 # Helpful for debugging (CLion usually does this in Debug, but explicit is fine)
 # -fsanitize=address -fsanitize=leak
-set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -O0 -g -fno-omit-frame-pointer -fsanitize=address -fsanitize=leak \
+set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -O0 -g -fno-omit-frame-pointer \
+-fsanitize=address -fsanitize=leak \
 -Wall -Wpedantic -Wextra -Werror \
--Wno-unknown-attributes -Wno-unused-const-variable -Wno-gnu-zero-variadic-macro-arguments -Wno-gnu-include-next \
+-Wno-unknown-attributes \
+-Wno-unused-const-variable \
+-Wno-gnu-zero-variadic-macro-arguments \
+-Wno-gnu-include-next \
 -Wno-unused-parameter \
+-Wno-gnu-anonymous-struct \
+-Wno-nested-anon-types \
 ")
+
+# Synchronize C++ flags for the test runner and set standard
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG}")
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Use add_compile_options with generator expressions to robustly add release flags
 # This ensures they are applied even if the cache has old values.
@@ -79,3 +92,32 @@ install(TARGETS c_roblib
 install(DIRECTORY "${LIB_INCLUDE_DIR}/"
         DESTINATION include
         FILES_MATCHING PATTERN "*.h")
+
+
+# Gtest
+
+# 1. Automatically download and "install" GoogleTest into the project
+include(FetchContent)
+FetchContent_Declare(
+        googletest
+        URL https://github.com/google/googletest/archive/refs/heads/main.zip
+)
+
+FetchContent_MakeAvailable(googletest)
+
+# 2. Find all test source files recursively in the test directory
+file(GLOB_RECURSE TEST_SOURCES "${LIB_TEST_DIR}/*.cpp")
+
+# Define your test executable with all discovered source files
+add_executable(run_tests ${TEST_SOURCES})
+
+# 3. Link your static C library AND GoogleTest to the test executable
+target_link_libraries(run_tests
+        PRIVATE
+        gtest_main
+        c_roblib
+)
+
+# 4. Enable discovery so CMake knows this is a test suite
+include(GoogleTest)
+gtest_discover_tests(run_tests)
