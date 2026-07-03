@@ -4,36 +4,26 @@
 
 
 #include <gtest/gtest.h>
+#include "test_json_parser.h"
 
 // Wrap your C header so the C++ compiler understands it
 extern "C" {
 #include "roblib/json_parser.h"
 }
 
-using str_param = std::tuple<std::string, std::string> ;
+
+void JsonParserEnvironment::SetUp() {
+    jsonp_init();
+    arena = new Arena();
+    arena_create_arena(arena, 1024 * 1024);
+}
 
 
-class JsonParserTest : public testing::TestWithParam<str_param>{
-protected:
-    JsonError err{};
-
-    static void SetUpTestSuite() {
-        jsonp_init();
-        arena = new Arena();
-        ArenaErrResult aer = arena_create_arena( arena, 1024 * 1024);
-        ASSERT_EQ(aer.err, 0) << "arena_create_arena failed with " << aer.reported_err << ", "<< aer.msg;
-    }
-
-    // Per-test-suite tear-down.
-    // Called after the last test in this test suite.
-    static void TearDownTestSuite() {
-        arena_destroy_arena(arena);
-        delete arena;
-        jsonp_destroy();
-    }
-    // Some expensive resource shared by all tests.
-    inline static Arena *arena = nullptr;
-};
+void JsonParserEnvironment::TearDown() {
+    arena_destroy_arena(arena);
+    delete arena;
+    jsonp_destroy();
+}
 
 TEST_F(JsonParserTest, TestNullText) {
     JsonValue *jval = json_parse(nullptr, &err, arena);
@@ -82,7 +72,18 @@ TEST_F(JsonParserTest, TestLiterals) {
     EXPECT_EQ(jval, nullptr) << "expected nullptr";
 }
 
-TEST_P(JsonParserTest, TestStrings) {
+template <typename T>
+class JsonParserParamFixture : public JsonParserTest, public ::testing::WithParamInterface<T> {};
+
+using JsonParserStrings = JsonParserParamFixture<std::pair<std::string, std::string>>;
+using JsonParserStringEscapes = JsonParserParamFixture<std::pair<std::string, std::string>>;
+
+using JsonParserInts  = JsonParserParamFixture<std::pair<std::string, long>>;
+using JsonParserFloats  = JsonParserParamFixture<std::pair<std::string, double>>;
+
+
+
+TEST_P(JsonParserStrings, TestStrings) {
     auto [input_json, expected_output] = GetParam(); // Structured binding
     JsonValue *jval = json_parse(input_json.c_str(), &err, arena);
 
@@ -95,11 +96,110 @@ TEST_P(JsonParserTest, TestStrings) {
 
 INSTANTIATE_TEST_SUITE_P(
     StringTests,
-    JsonParserTest,
+    JsonParserStrings,
     testing::Values(
         str_param("\"\"", ""),
         str_param("\"string\"", "string"),
         str_param(" \"This is a json string followed by a comma\", ",
                     "This is a json string followed by a comma")
+    )
+);
+
+TEST_P(JsonParserStringEscapes, TestStringEscapes) {
+    auto [input_json, expected_output] = GetParam(); // Structured binding
+    JsonValue *jval = json_parse(input_json.c_str(), &err, arena);
+
+    ASSERT_NE(jval, nullptr) << "Failed to parse: " << input_json;
+    EXPECT_EQ(jval->type, JSON_STRING);
+    if (jval->type == JSON_STRING) {
+        EXPECT_STREQ(jval->u.string, expected_output.c_str());
+    }
+}
+
+// To run a parameterized test against a unique list of parameter values, you must create a unique
+// class to pass to each TEST_P/ INSTANTIATE_TEST_SUITE_P macro pair. If you share the class with
+// different pairs, both testing patters will be run with the same parameter values.
+
+INSTANTIATE_TEST_SUITE_P(
+    StringEscapesTests,
+    JsonParserStringEscapes,
+    testing::Values(
+        str_param(" \"Esc-backslash: s\\\\e  \" ", "Esc-backslash: s\\e  " ),
+        str_param(" \"Esc-quote:     s\\\"e  \" ", "Esc-quote:     s\"e  " ),
+        str_param(" \"Esc-Slash:     s\\/e  \" ", "Esc-Slash:     s/e  " ),
+        str_param(" \"Esc-b:          s\\be  \" ", "Esc-b:          s\be  " ),
+        str_param(" \"Esc-f:          s\\fe  \" ", "Esc-f:          s\fe  " ),
+        str_param(" \"Esc-n:          s\\ne  \" ", "Esc-n:          s\ne  " ),
+        str_param(" \"Esc-r:          s\\re  \" ", "Esc-r:          s\re  " ),
+        str_param(" \"Esc-t:          s\\te  \" ", "Esc-t:          s\te  " ),
+
+        str_param("\"Let's test ALL the single char escapes: \\\\ \\\" \\/ \\b \\f \\n \\r \\t\"",
+            "Let's test ALL the single char escapes: \\ \" / \b \f \n \r \t"),
+        // str_param(" \" backslash           \\ no character \" ", "" ),
+        str_param( " \" escaped backslash \\\\ valid \" ", " escaped backslash \\ valid " ),
+        // str_param( " \" backslash-z \\z not valid escape character \" ", "" ),
+        str_param( " \" backslash-n \\n valid escape character \" ", " backslash-n \n valid escape character " ),
+        // str_param( " \" backslash-u  \\u  invalid  \" ", "" ),
+        // str_param( " \" backslash-uk \\uk invalid  \" ", "" ),
+        // str_param( " \" backslash-ua  \\ua  need 4 hex digits\" ", "" ),
+        str_param( " \" backslash-uabcd  \\uabcd valid \" ", " backslash-uabcd   valid " ),
+        str_param( " \" backslash-uFEF0  \\uFEF0 valid \" ", " backslash-uFEF0   valid " ),
+        str_param( " \" backslash-uFEF0  \\uFEF00 one too many. Parses as valid, but next character will fail parse \" ",
+            " backslash-uFEF0  0 one too many. Parses as valid, but next character will fail parse " )
+    )
+);
+
+// --- Parameterized Test for ints ---
+
+TEST_P(JsonParserInts, TestDoubles) {
+    auto [input_json, expected_value] = GetParam();
+    JsonValue *jval = json_parse(input_json.c_str(), &err, arena);
+
+    ASSERT_NE(jval, nullptr) << "Failed to parse: " << input_json;
+    EXPECT_EQ(jval->type, JSON_INT);
+    if (jval->type == JSON_INT) {
+        EXPECT_EQ(jval->u.n_long, expected_value);
+    }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    NumberTests,
+    JsonParserInts,
+    testing::Values(
+        std::make_pair("0", 0),
+        std::make_pair("-0", 0),
+        std::make_pair("1", 1),
+        std::make_pair("-2", -2),
+        std::make_pair("4444", 4444),
+        std::make_pair("-55555", -55555)
+    )
+);
+
+// --- Parameterized Test for floats ---
+
+TEST_P(JsonParserFloats, TestDoubles) {
+    auto [input_json, expected_value] = GetParam();
+    JsonValue *jval = json_parse(input_json.c_str(), &err, arena);
+
+    ASSERT_NE(jval, nullptr) << "Failed to parse: " << input_json;
+    EXPECT_EQ(jval->type, JSON_FLOAT);
+    if (jval->type == JSON_FLOAT) {
+        EXPECT_DOUBLE_EQ(jval->u.n_double, expected_value);
+    }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    NumberTests,
+    JsonParserFloats,
+    testing::Values(
+        // floats
+        std::make_pair("1.2345", 1.2345),
+        std::make_pair("3.333", 3.333),
+        std::make_pair("-122.3959", -122.3959),
+        std::make_pair("9.99e10", 9.99e10),
+        std::make_pair("-8.88E-8", -8.88E-8),
+        //  std::make_pair(("-abc", err), // should fail
+        std::make_pair("0.0001", 0.0001),
+        std::make_pair("-42.0", -42.0)
     )
 );
