@@ -114,7 +114,7 @@ add_executable(run_tests ${TEST_SOURCES})
 # 3. Link your static C library AND GoogleTest to the test executable
 target_link_libraries(run_tests
         PRIVATE
-        gtest_main
+        gtest
         c_roblib
 )
 
