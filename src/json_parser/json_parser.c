@@ -937,54 +937,6 @@ void test_strings( ) {
 }
 
 
-void test_string_escapes(void) {
-    test_parse_str("\"\"");
-
-    test_parse_str(" \"Esc-backslash: s\\\\e  \" ");
-    test_parse_str(" \"Esc-quote:     s\\\"e  \" ");
-    test_parse_str(" \"Esc-Slash:     s\\/e  \" ");
-    test_parse_str(" \"Esc-b:          s\\be  \" ");
-    test_parse_str(" \"Esc-f:          s\\fe  \" ");
-    test_parse_str(" \"Esc-n:          s\\ne  \" ");
-    test_parse_str(" \"Esc-r:          s\\re  \" ");
-    test_parse_str(" \"Esc-t:          s\\te  \" ");
-
-    test_parse_str("\"Let's test ALL the single char escapes: \\\\ \\\" \\/ \\b \\f \\n \\r \\t\"");
-
-
-    test_parse_str(" \" backslash           \\ no character \" ");
-    test_parse_str(" \" escaped backslash \\\\ valid \" ");
-
-
-    test_parse_str(" \" backslash-z \\z not valid escape character \" ");
-    test_parse_str(" \" backslash-n \\n valid escape character \" ");
-
-    test_parse_str(" \" backslash-u  \\u  invalid  \" ");
-    test_parse_str(" \" backslash-uk \\uk invalid  \" ");
-
-    test_parse_str(" \" backslash-ua  \\ua  need 4 hex digits\" ");  // need 4 digits here
-    test_parse_str(" \" backslash-uabcd  \\uabcd valid \" ");
-    test_parse_str(" \" backslash-uFEF0  \\uFEF0 valid \" ");
-
-    test_parse_str(" \" backslash-uFEF0  \\uFEF00 one too many. Parses as valid, but next character will fail parse \" ");
-
-
-
-}
-
-void test_parse_numbers(void) {
-    test_parse_str("0");
-    test_parse_str("-0");
-
-    test_parse_str("1");
-    test_parse_str("-2");
-    test_parse_str("3.333");
-    test_parse_str("-122.3959");
-    test_parse_str("9.99e10");
-    test_parse_str("-8.88E-8");
-
-    test_parse_str("-abc"); // should fail
-}
 
 void test_parse_arrays(void) {
     test_parse_str("[]");   // empty list is fine by the spec
@@ -1033,8 +985,6 @@ int main( ) {
 
     //
     // test_strings();
-    // test_parse_numbers();
-    // test_string_escapes();
     //
     // test_parse_arrays();
     // test_parse_objects();
