@@ -81,6 +81,16 @@ add_executable(json_parse ${LIB_SRC_DIR}/json_parser/json_parser.c) # Assumes yo
 target_link_libraries(json_parse PRIVATE c_roblib)
 target_compile_options(json_parse PRIVATE -DJSON_PARSER_MAIN -Wno-unused-function)
 
+add_executable(json_parse2 ${LIB_SRC_DIR}/json_parser/json_parser_2.c ${LIB_SRC_DIR}/json_parser/arena.c)
+#target_link_libraries(json_parse2 PRIVATE c_roblib)
+target_include_directories(json_parse2
+        PUBLIC
+        PRIVATE
+        ${LIB_INCLUDE_DIR}
+        ${LIB_SRC_DIR}
+)
+target_compile_options(json_parse2 PRIVATE -DJSON_PARSER_2_MAIN -Wno-unused-function -Wno-unused-variable )
+
 # 3. Automated Installation (Solves the manual copy-paste problem)
 # You can run: cmake --install . --prefix ../other_project/libs
 # e.g.

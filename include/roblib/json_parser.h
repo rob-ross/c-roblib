@@ -120,9 +120,15 @@ struct json_object_entry_s {
     JsonValue *value;
 };
 
+enum json_error_type {
+    JSON_ERR_NONE, JSON_ERR_NULL_TEXT, JSON_ERR_EMPTY_TEXT, JSON_ERR_UNEXPECTED_TEXT,
+    JSON_ERR_UNEXPECTED_EOF, JSON_ERR_UNTERMINATED_ARRAY, JSON_ERR_MISSING_COMMA
+};
+
 typedef struct json_error_s {
     const char *message;
     const char *json;
+    enum json_error_type err_type;
     int first_bad_char; // position where parsing failed
     int line;
     int column;

@@ -88,7 +88,6 @@ RegexPattern REGEX_NUMBER_PATTERN  = { .pattern_string  =  REGEX_NUMBER, .name="
 // patterns = {REGEX_TRUE_PATTERN, REGEX_FALSE_PATTERN, REGEX_NULL_PATTERN};
 RegexPattern *patterns[NUM_REGEX_PATTERNS];
 
-// static Arena arena = {};
 constexpr uint32_t ERROR_MSG_BUFFER_SIZE = 1024;
 static char error_msg_buffer[ERROR_MSG_BUFFER_SIZE] = {};
 
@@ -435,7 +434,7 @@ typedef struct json_value_node_s {
 } JsonValueNode;
 
 // add a node to the linked list headed by first_node.
-// adds nodes to the front of the linked list. If first_node is null, will be the head node of a new linked list.
+// adds nodes to the front of the linked list. If first_node is null, it will be the head node of a new linked list.
 // Returns the new first_node.
 static JsonValueNode * add_json_value_node(JsonValueNode * first_node, JsonValue *value, Arena *arena ) {
     if (!value) return nullptr;

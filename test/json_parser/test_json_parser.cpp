@@ -77,6 +77,8 @@ class JsonParserParamFixture : public JsonParserTest, public ::testing::WithPara
 
 using JsonParserStrings = JsonParserParamFixture<std::pair<std::string, std::string>>;
 using JsonParserStringEscapes = JsonParserParamFixture<std::pair<std::string, std::string>>;
+using JsonParserUnicodeStrings = JsonParserParamFixture<std::pair<std::string, std::string>>;
+
 
 using JsonParserInts  = JsonParserParamFixture<std::pair<std::string, long>>;
 using JsonParserFloats  = JsonParserParamFixture<std::pair<std::string, double>>;
@@ -146,6 +148,26 @@ INSTANTIATE_TEST_SUITE_P(
         str_param( " \" backslash-uFEF0  \\uFEF0 valid \" ", " backslash-uFEF0   valid " ),
         str_param( " \" backslash-uFEF0  \\uFEF00 one too many. Parses as valid, but next character will fail parse \" ",
             " backslash-uFEF0  0 one too many. Parses as valid, but next character will fail parse " )
+    )
+);
+
+
+TEST_P(JsonParserUnicodeStrings, TestStrings) {
+    auto [input_json, expected_output] = GetParam(); // Structured binding
+    JsonValue *jval = json_parse(input_json.c_str(), &err, arena);
+
+    ASSERT_NE(jval, nullptr) << "Failed to parse: " << input_json;
+    EXPECT_EQ(jval->type, JSON_STRING);
+    if (jval->type == JSON_STRING) {
+        EXPECT_STREQ(jval->u.string, expected_output.c_str());
+    }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    StringUnicodeTests,
+    JsonParserUnicodeStrings,
+    testing::Values(
+        str_param("\" unicode chars:  é, 😀\"", " unicode chars:  é, 😀")
     )
 );
 
