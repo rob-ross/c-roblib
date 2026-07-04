@@ -156,6 +156,7 @@ static JsonValue * parse_array(JsonContext *context, JsonError *error, Arena *ar
         return nullptr;
     }
     advance(context, 1);  // consume ']'
+    skip_whitespace(context);
     context->parse_end = context->current_index;
     JsonValue **element_array = arena_alloc(arena, sizeof(JsonValue) *  num_elements);
     // copy linked list elements into new array in reverse order so the list maintains the order from the JSON file.
@@ -529,14 +530,14 @@ void test_array_parse(void) {
     // test_parse_str("[ 1, ");
 //[ [1,2,3], [4,5,6], [true,false,null] ]
     test_parse_str("[[1,2 ] ] ");
-    test_parse_str("[[1 ], [2 ] ] ");
-    // test_parse_str("[[1,2] ] ");
-    // test_parse_str("[[1,2],[3,4]] ");
-    // test_parse_str("[ [1,2],[3,4]] ");
-    // test_parse_str("[ [1,2], [3,4]] ");
-    // test_parse_str("[ [1,2], [3,4] ] ");
-    //
-    // test_parse_str("[ [1,2,3], [4,5,6], [true,false,null] ] ");
+    test_parse_str("[[1 ], [2] ] ");
+    test_parse_str("[[1,2] ] ");
+    test_parse_str("[[1,2],[3,4]] ");
+    test_parse_str("[ [1,2],[3,4]] ");
+    test_parse_str("[ [1,2], [3,4]] ");
+    test_parse_str("[ [1,2], [3,4] ] ");
+
+    test_parse_str("[ [1,2,3], [4,5,6], [true,false,null] ] ");
 
 }
 
