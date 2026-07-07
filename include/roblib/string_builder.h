@@ -56,8 +56,8 @@ uint32_t sb_capacity( StringBuilder *sb );
  * @param out_buffer
  */
 void sb_copy_to(StringBuilder *sb, uint32_t buf_len, char out_buffer[static buf_len + 1]);
-StringBuilder * sb_insert_char( StringBuilder *sb, char c);
-StringBuilder * sb_insert( StringBuilder *sb, int offset, char const * str);
+StringBuilder * sb_insert_char( StringBuilder *sb, char c, uint32_t index);
+StringBuilder * sb_insert_str( StringBuilder *sb, char const * str, uint32_t index);
 
 /**
  *  Returns the length (character count).

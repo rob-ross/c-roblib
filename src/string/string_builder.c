@@ -46,7 +46,6 @@ void sb_destroy(StringBuilder *sb) {
     sb->length = 0;
 }
 
-
 static bool sb_ensure_capacity(StringBuilder *sb, uint32_t capacity_wanted) {
     if (capacity_wanted <= sb->capacity) return true;
     // must grow capacity
@@ -58,21 +57,11 @@ static bool sb_ensure_capacity(StringBuilder *sb, uint32_t capacity_wanted) {
     return true;
 }
 
-void sb_copy_to(StringBuilder *sb, uint32_t buf_size, char out_buffer[static buf_size ]) {
-    uint32_t copy_len = buf_size;
-    if (sb->length < copy_len) {
-        copy_len = sb->length;
-    }
-    strncpy(out_buffer, sb->buffer, copy_len );
-    out_buffer[buf_size-1] = '\0';
-
-}
-
 StringBuilder * sb_append_char( StringBuilder *sb, char c) {
-    uint32_t new_length = sb->length + sizeof(char);
-    if (!sb_ensure_capacity(sb, new_length + 1)) return nullptr;
-
     if (c == '\0') return sb;  // adding empty string does nothing.
+    uint32_t new_length = sb->length + sizeof(char);
+    //todo (rob) why are we passing new_length + 1 here??
+    if (!sb_ensure_capacity(sb, new_length + 1)) return nullptr;
 
     sb->buffer[sb->length++] = c;
     sb->buffer[sb->length] = '\0';
@@ -82,10 +71,42 @@ StringBuilder * sb_append_char( StringBuilder *sb, char c) {
 }
 
 StringBuilder * sb_append_str(StringBuilder *sb, char const *str) {
+    if (str[0] == '\0') return sb;  // adding empty string does nothing.
     uint32_t old_len = sb->length;
     uint32_t new_length = sb->length + strlen(str);
+    //todo (rob) why are we passing new_length + 1 here??
     if (!sb_ensure_capacity(sb, new_length + 1)) return nullptr;
     strcpy(sb->buffer + old_len, str );
+    sb->length = new_length;
+    return sb;
+}
+
+void sb_copy_to(StringBuilder *sb, uint32_t buf_size, char out_buffer[static buf_size ]) {
+    uint32_t copy_len = buf_size;
+    if (sb->length < copy_len) {
+        copy_len = sb->length;
+    }
+    strncpy(out_buffer, sb->buffer, copy_len );
+    out_buffer[buf_size-1] = '\0';
+}
+
+StringBuilder * sb_insert_char( StringBuilder *sb, char c, const uint32_t index) {
+    if (c == '\0') return sb;  // inserting empty string does nothing.
+    uint32_t new_length = sb->length + sizeof(c);
+    if (!sb_ensure_capacity(sb, new_length)) return nullptr;
+    memmove((sb->buffer + index + 1), (sb->buffer + index), new_length - index);
+    sb->buffer[index] = c;
+    sb->length = new_length;
+    return sb;
+}
+
+StringBuilder * sb_insert_str( StringBuilder *sb, char const * str, const uint32_t index) {
+    if (str[0] == '\0') return sb;  // inserting empty string does nothing.
+    const uint32_t str_len = strlen(str);
+    const uint32_t new_length = sb->length + str_len;
+    if (!sb_ensure_capacity(sb, new_length)) return nullptr;
+    memmove((sb->buffer + index + str_len), (sb->buffer + index), new_length - index);
+    strncpy(sb->buffer + index, str, str_len);
     sb->length = new_length;
     return sb;
 }
