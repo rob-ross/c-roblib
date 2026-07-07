@@ -11,6 +11,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "roblib/string_builder.h"
+
 typedef struct json_context_t {
     const char *current_ptr;  // The current text being parsed, advances through the JSON text in the json member
     const char *json; // full original JSON text string
@@ -29,7 +31,7 @@ static char error_msg_buffer[ERROR_MSG_BUFFER_SIZE + 1] = {};
 //      Forward Declarations
 // -----------------------------------------------------------------
 static JsonValue *parse_value(JsonContext *context, JsonError *error, Arena *arena );
-
+static JsonValue * parse_string(JsonContext *context, JsonError *error, Arena *arena );
 
 
 
@@ -77,10 +79,95 @@ static void record_error(
 }
 
 
+typedef struct json_object_entry_node_s {
+    JsonObjectEntry *object_entry;
+    struct json_object_entry_node_s *next;
+} JsonObjectEntryNode;
+
+static JsonObjectEntryNode * add_json_object_entry_node(JsonObjectEntryNode * first_node, JsonObjectEntry *object_entry, Arena *arena ) {
+    if (!object_entry) return nullptr;
+    JsonObjectEntryNode * new_node = (JsonObjectEntryNode*) arena_alloc(arena, sizeof(JsonObjectEntryNode) );
+    new_node->object_entry = object_entry;
+    new_node->next = first_node;
+    return new_node;
+}
+
+
+JsonObjectEntry * jsonp_entry_for_key(const JsonValue *json_obj, char const * key) {
+    for (uint32_t i = 0; i < json_obj->u.object.count; ++i) {
+        char const * entry_key = json_obj->u.object.entries[i]->key;
+        if (strcmp(entry_key, key) == 0 ) {
+            return json_obj->u.object.entries[i];
+        }
+    }
+    return nullptr;
+}
+
 static JsonValue * parse_object(JsonContext *context, JsonError *error, Arena *arena ) {
     // we recursively parse members of this object until we see end-of-object '}' char or run out of text
     JsonValue *object =  arena_alloc(arena, sizeof(JsonValue) );
 
+    size_t num_entries = 0;
+    object->type = JSON_OBJECT;
+    object->u.object.count   = num_entries;
+    object->u.object.entries = nullptr;
+
+    JsonObjectEntryNode *entries = nullptr;
+    advance(context, 1);  // consume '{'
+    skip_whitespace(context);
+
+    while ( *context->current_ptr && *context->current_ptr != '}' ) {
+        skip_whitespace(context);
+        JsonValue *key = parse_string(context, error, arena);
+        if (!key) return nullptr;  // error out immediately
+        skip_whitespace(context);
+
+        // need to parse a colon ":" here:
+        if (*context->current_ptr != ':' ) {
+            char const *msg = "expected name-separator ':'";
+            record_error(context, error, (int)strlen(msg), msg);
+            return nullptr;
+        }
+        advance(context, 1);  // consume ':'
+
+        JsonValue *value = parse_value(context, error, arena);
+        if (!value) return nullptr;  // error out immediately
+
+        JsonObjectEntry *joe = (JsonObjectEntry*)arena_alloc(arena, sizeof(JsonObjectEntry));
+        if (!joe) {
+            fprintf(stderr, "parse_object(): arena alloc failed for JsonObjectEntry *joe\n");
+            return nullptr;
+        }
+
+        joe->key = key->u.string;
+        joe->value = value;
+        entries = add_json_object_entry_node(entries, joe, arena);
+        num_entries++;
+
+        skip_whitespace(context);
+        if (*context->current_ptr == ',' ) {
+            // comma is expected delimiter between key:value elements
+            advance(context, 1);  // consume ','
+        }
+    }
+
+    if (*context->current_ptr != '}' ) {
+        char const *msg = "unterminated object";
+        record_error(context, error, (int)strlen(msg), msg);
+        return nullptr;
+    }
+
+    advance(context, 1);  // consume '}'
+    JsonObjectEntry **entries_array = arena_alloc(arena, sizeof(JsonObjectEntry) *  num_entries);
+    // copy linked list elements into new array in reverse order so the object entries maintain
+    // the order from the JSON file.
+
+    for (size_t i = num_entries; i--> 0; ) {
+        entries_array[i] = entries->object_entry;
+        entries = entries->next;
+    }
+    object->u.object.count = num_entries;
+    object->u.object.entries = entries_array;
     return object;
 }
 
@@ -171,12 +258,109 @@ static JsonValue * parse_array(JsonContext *context, JsonError *error, Arena *ar
     return array;
 }
 
+constexpr char QUOTE           = 0x22;  // "
+constexpr char REVERSE_SOLIDUS = 0x5c;  // \  backslash
+
 static JsonValue * parse_string(JsonContext *context, JsonError *error, Arena *arena ) {
+    StringBuilder sb;
+    sb_init(&sb, 16, "");
 
+    // we examine chars in the stream until we find:
+    // 1. a closing quote, which is a quote not preceded by the backlash (reverse solidus)
+    // 2. EOF, AKA null terminator, \x00
     JsonValue *value = nullptr;
+    advance(context, 1); // Skip the opening quote
+    const char *json_ptr = context->current_ptr;
+    while (*json_ptr) {
+        if (*json_ptr == QUOTE) {
+            // happy case. We found the terminating quote
+            int match_len = (int)((json_ptr) - context->current_ptr);
+
+            value = arena_alloc(arena, sizeof(JsonValue) );
+            value->type = JSON_STRING;
+
+            void * str_value = arena_alloc(arena, sb.length + 1);
+            memcpy(str_value, sb.buffer, sb.length + 1);
+            value->u.string = str_value;
 
 
-    return value;
+            advance(context, match_len + 1); // we add 1 to consume the terminating quote
+            sb_destroy(&sb);
+            return value;
+        }
+
+        if (*json_ptr == REVERSE_SOLIDUS) {
+            json_ptr++; // Move to the escaped character
+            if (*json_ptr == '\0') {
+                record_error(context, error, 2, "Unexpected EOF after backslash");
+                sb_destroy(&sb);
+                return nullptr; // Unexpected EOF
+            }
+
+            // Validate escape sequence
+            switch (*json_ptr) {
+                case '"':
+                case '\\':
+                case '/':
+                    sb_append_char(&sb, *json_ptr);
+                    break;
+                case 'b':
+                    sb_append_char(&sb, '\b');
+                    break;
+                case 'f':
+                    sb_append_char(&sb, '\f');
+                    break;
+                case 'n':
+                    sb_append_char(&sb, '\n');
+                    break;
+                case 'r':
+                    sb_append_char(&sb, '\r');
+                    break;
+                case 't':
+                    sb_append_char(&sb, '\t');
+                    break;
+                case 'u':
+                    // RFC 8259: \u followed by 4 hex digits
+                    for (int i = 0; i < 4; i++) {
+                        json_ptr++;
+                        if (*json_ptr == '\0') {
+                            record_error(context, error, 6, "Unexpected EOF after Unicode escape");
+                            sb_destroy(&sb);
+                            return nullptr;
+                        }
+                        if (!isxdigit((unsigned char)*json_ptr)) {
+                            // printf("Invalid hex digit in Unicode escape: %c\n", *json_ptr);
+                            snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE, "Invalid hex digit in Unicode escape: %c", *json_ptr);
+                            // error->message =  sutil_concat_strings("Invalid hex digit in Unicode escape: ", json_ptr, nullptr);
+                            record_error(context, error, 2, error_msg_buffer);
+                            sb_destroy(&sb);
+                            return nullptr;
+                        }
+                    }
+                    break;
+                default:
+
+                    snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE, "Invalid escape sequence: \\%c", *json_ptr);
+                    record_error(context, error, 2, error_msg_buffer);
+                    sb_destroy(&sb);
+                    return nullptr;
+            }
+        } else if ((unsigned char)*json_ptr <= 0x1F) {
+            // RFC 8259: Control characters U+0000 through U+001F MUST be escaped.
+            // This means the literal bytes cannot appear here.
+            snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE, "Unexpected unescaped control character: 0x%.2X\n", (unsigned char)*json_ptr);
+            record_error(context, error, 2, error_msg_buffer);
+            sb_destroy(&sb);
+            return nullptr;
+        } else {
+            sb_append_char(&sb, *json_ptr);  // capture current char into the StringBuilder
+        }
+        json_ptr++;
+    }
+
+    record_error(context, error, ERROR_MSG_BUFFER_SIZE, "No closing quote found.");
+    sb_destroy(&sb);
+    return nullptr;  // no closing quote found
 }
 
 // RSL: "Regex Start of Line"
@@ -402,6 +586,17 @@ void jsonp_destroy(void) {
 //      Pretty-Printer like output
 // -----------------------------------------------------------------
 
+void json_object_str(JsonValue *object) {
+    if (!object || object->type != JSON_OBJECT) return;
+    printf("{ ");
+    for (size_t i = 0; i < object->u.object.count; ++i) {
+        printf(" '%s' : ",object->u.object.entries[i]->key);
+        json_value_str(object->u.object.entries[i]->value);
+        printf(", ");
+    }
+    printf(" }");
+}
+
 void json_array_str(JsonValue *array) {
     if (!array || array->type != JSON_ARRAY) return;
     if (array->u.array.count == 0 ) {
@@ -442,7 +637,7 @@ void json_value_str(JsonValue *value) {
             json_array_str(value);
             break;
         case JSON_OBJECT:
-            // json_object_str(value);
+            json_object_str(value);
             break;
     }
 }
@@ -541,6 +736,18 @@ void test_array_parse(void) {
 
 }
 
+void test_parse_objects(void ) {
+    test_parse_str("{}");   // empty object is fine by the spec
+
+    test_parse_str("{ \"foo\": null }");
+
+    test_parse_str("{ \"one\": \"one\", \"two\" : 2, \"three\" : 3.33 }   ");
+
+    test_parse_str("{ \"one\": \"one\", \"two\" : 2, \"three\" : 3.33, \"null\" : null, \"true\":true, \"false\":false }");
+
+    test_parse_str(" [{ \"name\": \"jelly bowl\", \"ff\": 5}, {\"name\": \"werewolf\", \"ff\": 10 }]");
+}
+
 #ifdef JSON_PARSER_2_MAIN
 int main( ) {
 
@@ -548,6 +755,7 @@ int main( ) {
     // test_true_parse();
     // test_false_parse();
     // test_number_parse();
-    test_array_parse();
+    // test_array_parse();
+    test_parse_objects();
 }
 #endif
