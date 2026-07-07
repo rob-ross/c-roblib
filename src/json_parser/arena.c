@@ -46,8 +46,10 @@ static PageHeaderError arena_new_os_block( const size_t capacity ) {
     const size_t page_mask = page_size - 1;
     // Round the requested size up to the nearest multiple of the system page size
     const size_t page_aligned_size = (capacity + page_mask) & ~page_mask;
-    // here we will mmap page_aligned_size bytes from the OS.
-    // Note: We use PROT_WRITE to allow allocation, and MAP_PRIVATE for a standard heap-like arena.
+    //  here we will mmap page_aligned_size bytes from the OS.
+    //  Note: We use PROT_WRITE to allow allocation, and MAP_PRIVATE for a standard heap-like arena.
+    //  When you obtain a chunk of memory from mmap using the MAP_ANON (or MAP_ANONYMOUS) flag,
+    //  the memory is guaranteed to be initialized with zeros.
     void *raw_mem = mmap(nullptr, page_aligned_size, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, MACH_NO_FLAGS, 0);
     if (raw_mem == MAP_FAILED) {
         int err_no = errno;
