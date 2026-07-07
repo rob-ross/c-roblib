@@ -81,7 +81,11 @@ add_executable(json_parse ${LIB_SRC_DIR}/json_parser/json_parser.c) # Assumes yo
 target_link_libraries(json_parse PRIVATE c_roblib)
 target_compile_options(json_parse PRIVATE -DJSON_PARSER_MAIN -Wno-unused-function)
 
-add_executable(json_parse2 ${LIB_SRC_DIR}/json_parser/json_parser_2.c ${LIB_SRC_DIR}/json_parser/arena.c)
+add_executable(json_parse2
+        ${LIB_SRC_DIR}/json_parser/json_parser_2.c
+        ${LIB_SRC_DIR}/json_parser/arena.c
+        ${LIB_SRC_DIR}/string/string_builder.c
+)
 #target_link_libraries(json_parse2 PRIVATE c_roblib)
 target_include_directories(json_parse2
         PUBLIC
@@ -111,7 +115,14 @@ include(FetchContent)
 FetchContent_Declare(
         googletest
         URL https://github.com/google/googletest/archive/refs/heads/main.zip
+        # This is the modern (CMake 3.28+) way to keep it out of your 'install' command
+        EXCLUDE_FROM_ALL
 )
+
+# Prevent GoogleTest from installing its own binaries even if EXCLUDE_FROM_ALL is missed
+set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+# Since you only link 'gtest', we can disable 'gmock' to speed up the build and avoid its install rules
+set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
 
 FetchContent_MakeAvailable(googletest)
 
