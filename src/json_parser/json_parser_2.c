@@ -258,6 +258,98 @@ static JsonValue * parse_array(JsonContext *context, JsonError *error, Arena *ar
     return array;
 }
 
+// 1. Lookup Table Method
+static int hex_lookup(unsigned char hex) {
+    static const int table[256] = {
+        ['0']=0, ['1']=1, ['2']=2, ['3']=3, ['4']=4, ['5']=5, ['6']=6, ['7']=7, ['8']=8, ['9']=9,
+        ['A']=10, ['B']=11, ['C']=12, ['D']=13, ['E']=14, ['F']=15,
+        ['a']=10, ['b']=11, ['c']=12, ['d']=13, ['e']=14, ['f']=15
+    };
+    return (table[hex] == 0 && hex != '0') ? -1 : table[hex];
+}
+
+// 2. Printing the Bit Pattern String
+static void print_bits(char hex) {
+    int val = hex_lookup(hex);
+    if (val == -1) return;
+
+    // Extract bits using bitwise masking
+    for (int i = 3; i >= 0; i--) {
+        printf("%d", (val >> i) & 1);
+    }
+    printf("\n");
+}
+
+// try to to parse 4 hex bytes from the stream. Report in error if we didn't find 4 hex bytes.
+uint16_t parse_hex4(JsonContext *context, JsonError *error) {
+    uint16_t result = 0;
+    const char *json_ptr = context->current_ptr;
+    for (int i = 0; i < 4; i++) {
+        if (*json_ptr == '\0') {
+            record_error(context, error, JSON_ERR_UNEXPECTED_EOF, "Unexpected EOF while parsing hex digit.");
+            return 0;
+        }
+        if (!isxdigit((unsigned char)*json_ptr)) {
+            snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE, "Invalid hex digit in Unicode escape: %c", *json_ptr);
+            record_error(context, error, JSON_ERR_INVALID_UNICODE_ESCAPE, error_msg_buffer);
+            return 0;
+        }
+
+        // convert hex digit to uint and shift into result.
+        int value = hex_lookup(*json_ptr);
+        result = result | ( value << ( 4 * (3 - i)) ) ;
+        //convert result into UTF-8 and write to sb
+
+        json_ptr++;
+
+    }
+    advance(context, 4);
+    return result;
+}
+
+// assumes *context->current_ptr == 'u' and the previous character was a backslash '\'
+static StringBuilder * parse_unicode_escape( JsonContext *context, JsonError *error, Arena *arena, StringBuilder *sb_out ) {
+    advance(context, 1);
+    uint16_t cp1 = parse_hex4(context, error);
+
+    if (error->err_type != JSON_ERR_NONE) {
+        return nullptr;  // we got an error in parse_hex4()
+    }
+    if ( cp1 >= 0xDC00 && cp1 <= 0xDFFF ) {
+        // A low surrogate that wasn't preceded by a high surrogate. This is an error.
+        // todo (rob) report error
+        return nullptr;
+
+    }
+    uint32_t cp = cp1;
+
+    if (cp1 >= 0xD800 && cp1 <=0XDBFF ) {
+        // this is a high surrogate. Look for its low-surrogate pair
+        const char *current_ptr = context->current_ptr;
+        uint16_t cp2 = 0;
+        if ( *current_ptr == '\\' && (*(current_ptr + 1)) == 'u' ) {
+            //we have a second Unicode escape immediately after the first.
+            //Possibly high- / low-surrogate pairs; or just a second BMP codepoint
+            cp2 = parse_hex4(context, error);
+            // todo (rob) check error
+            // combine : 0x10000 + ((cp1 - 0xD800) << 10) + (cp2 - 0xDC00).
+            cp = 0x10000 + ((cp1 - 0xD800) << 10) + (cp2 - 0xDC00);
+
+        } else {
+            // no following low surrogate.
+            // todo (rob) report error
+            return nullptr;
+        }
+    }
+
+    // cp contains the Unicode codepoint to encode as UTF-8
+    // encode to UTF-8 and write to sb.
+
+    return sb_out;
+}
+
+// todo we'll need to pass an Error record back with detailed error information. For now we return nullptr if error
+
 constexpr char QUOTE           = 0x22;  // "
 constexpr char REVERSE_SOLIDUS = 0x5c;  // \  backslash
 
@@ -283,7 +375,6 @@ static JsonValue * parse_string(JsonContext *context, JsonError *error, Arena *a
             memcpy(str_value, sb.buffer, sb.length + 1);
             value->u.string = str_value;
 
-
             advance(context, match_len + 1); // we add 1 to consume the terminating quote
             sb_destroy(&sb);
             return value;
@@ -291,6 +382,7 @@ static JsonValue * parse_string(JsonContext *context, JsonError *error, Arena *a
 
         if (*json_ptr == REVERSE_SOLIDUS) {
             json_ptr++; // Move to the escaped character
+            advance(context, 1); // Skip the backslash
             if (*json_ptr == '\0') {
                 record_error(context, error, 2, "Unexpected EOF after backslash");
                 sb_destroy(&sb);
@@ -303,48 +395,44 @@ static JsonValue * parse_string(JsonContext *context, JsonError *error, Arena *a
                 case '\\':
                 case '/':
                     sb_append_char(&sb, *json_ptr);
+                    advance(context, 1);
                     break;
                 case 'b':
                     sb_append_char(&sb, '\b');
+                    advance(context, 1);
                     break;
                 case 'f':
                     sb_append_char(&sb, '\f');
+                    advance(context, 1);
                     break;
                 case 'n':
                     sb_append_char(&sb, '\n');
+                    advance(context, 1);
                     break;
                 case 'r':
                     sb_append_char(&sb, '\r');
+                    advance(context, 1);
                     break;
                 case 't':
                     sb_append_char(&sb, '\t');
+                    advance(context, 1);
                     break;
                 case 'u':
                     // RFC 8259: \u followed by 4 hex digits
-                    for (int i = 0; i < 4; i++) {
-                        json_ptr++;
-                        if (*json_ptr == '\0') {
-                            record_error(context, error, 6, "Unexpected EOF after Unicode escape");
-                            sb_destroy(&sb);
-                            return nullptr;
-                        }
-                        if (!isxdigit((unsigned char)*json_ptr)) {
-                            // printf("Invalid hex digit in Unicode escape: %c\n", *json_ptr);
-                            snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE, "Invalid hex digit in Unicode escape: %c", *json_ptr);
-                            // error->message =  sutil_concat_strings("Invalid hex digit in Unicode escape: ", json_ptr, nullptr);
-                            record_error(context, error, 2, error_msg_buffer);
-                            sb_destroy(&sb);
-                            return nullptr;
-                        }
+                    StringBuilder *result = parse_unicode_escape(context, error, arena, &sb);
+                    if (!result) {
+                        context->parse_end = context->current_index;
+                        sb_destroy(&sb);
+                        return nullptr;
                     }
                     break;
                 default:
-
                     snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE, "Invalid escape sequence: \\%c", *json_ptr);
                     record_error(context, error, 2, error_msg_buffer);
                     sb_destroy(&sb);
                     return nullptr;
             }
+
         } else if ((unsigned char)*json_ptr <= 0x1F) {
             // RFC 8259: Control characters U+0000 through U+001F MUST be escaped.
             // This means the literal bytes cannot appear here.
@@ -354,8 +442,9 @@ static JsonValue * parse_string(JsonContext *context, JsonError *error, Arena *a
             return nullptr;
         } else {
             sb_append_char(&sb, *json_ptr);  // capture current char into the StringBuilder
+            advance(context, 1);
         }
-        json_ptr++;
+        json_ptr = context->current_ptr;
     }
 
     record_error(context, error, ERROR_MSG_BUFFER_SIZE, "No closing quote found.");
@@ -588,11 +677,17 @@ void jsonp_destroy(void) {
 
 void json_object_str(JsonValue *object) {
     if (!object || object->type != JSON_OBJECT) return;
+    if (object->u.object.count == 0 ) {
+        printf("{ }");
+        return;
+    }
+    // First entry
     printf("{ ");
-    for (size_t i = 0; i < object->u.object.count; ++i) {
-        printf(" '%s' : ",object->u.object.entries[i]->key);
+    printf("'%s' : ",object->u.object.entries[0]->key);
+    json_value_str(object->u.object.entries[0]->value);
+    for (size_t i = 1; i < object->u.object.count; ++i) {
+        printf(", '%s' : ",object->u.object.entries[i]->key);
         json_value_str(object->u.object.entries[i]->value);
-        printf(", ");
     }
     printf(" }");
 }
@@ -670,6 +765,12 @@ void test_parse_str(char const * str) {
 
     arena_destroy_arena(&arena);
     jsonp_destroy();
+}
+
+void test_parse_unicode_escapes() {
+    // test_parse_str("\"\\uCAFE \\uBABE\"");
+
+    test_parse_str("\"\\uD834\\uDD1E\"");
 }
 
 void test_null_parse(void) {
@@ -756,6 +857,7 @@ int main( ) {
     // test_false_parse();
     // test_number_parse();
     // test_array_parse();
-    test_parse_objects();
+    // test_parse_objects();
+    test_parse_unicode_escapes();
 }
 #endif
