@@ -45,6 +45,12 @@ add_compile_options($<$<CONFIG:Release>:-O3>)
 add_compile_options($<$<CONFIG:Release>:-march=native>)
 add_compile_options($<$<CONFIG:Release>:-DNDEBUG>)
 
+if (MSVC)
+    add_compile_options(/utf-8)
+else()
+    add_compile_options(-finput-charset=UTF-8 -fexec-charset=UTF-8)
+endif()
+
 # 1. Consolidate all library source files
 set(LIB_SOURCES
         ${LIB_SRC_DIR}/collections.c
