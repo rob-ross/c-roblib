@@ -40,7 +40,7 @@ StringBuilder * sb_init( StringBuilder *sb, uint32_t capacity, char const * str)
 void sb_destroy( StringBuilder *sb);
 
 
-StringBuilder * sb_append_char( StringBuilder *sb, char c);
+StringBuilder * sb_append_char( StringBuilder *sb, uint8_t c);
 StringBuilder * sb_append_str( StringBuilder *sb, char const *str);
 
 /**
@@ -56,7 +56,7 @@ uint32_t sb_capacity( StringBuilder *sb );
  * @param out_buffer
  */
 void sb_copy_to(StringBuilder *sb, uint32_t buf_len, char out_buffer[static buf_len + 1]);
-StringBuilder * sb_insert_char( StringBuilder *sb, char c, uint32_t index);
+StringBuilder * sb_insert_char( StringBuilder *sb, uint8_t c, uint32_t index);
 StringBuilder * sb_insert_str( StringBuilder *sb, char const * str, uint32_t index);
 
 /**
