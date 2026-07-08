@@ -300,8 +300,18 @@ static void print_8_bits(uint8_t bits) {
     }
 }
 
+static void decode_utf8() {
+    // what do we do here? Take 1 to 4 bytes of UTF-8 and re-constitute as Unicode codepoint?
+    // we probably need different methods to decode utf-8 to Unicode 32, or Unicode 16 (surrogate pairs?)
+    // when we save a JSON text to a JSON file, we'll be writing UTF-8, so for this we probably don't need
+    // to generate surrogates or UTF-16/32.
+
+    // But we do need to be able to validate the UTF-8 in the JSON text, so we don't necessarily need to
+    // decode, just verify/validate.
+}
+
 // GEMINI AI READ: This is my work in progress. Do not delete it. Do not modify. Ignore this function.
-static void encode_utf8(JsonContext *context, JsonError *error, const uint32_t codepoint, StringBuilder *sb) {
+static StringBuilder * encode_utf8( JsonContext *context, JsonError *error, const uint32_t codepoint, StringBuilder *sb) {
     /**
      *  Rules for encoding Unicode codepoint into UTF-8:
      *  0. Unicode points U+D800 - U+DFFF are reserved as surrogate pairs in UTF-16 and are not allowed. Error.
@@ -316,7 +326,21 @@ static void encode_utf8(JsonContext *context, JsonError *error, const uint32_t c
 
     if (codepoint >= 0xD800 && codepoint <= 0xDFFF) {
         // error, reserved for surrogate pairs
-
+        if (codepoint < 0xDC00 ) {
+            // high/leading surrogate
+            snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE,
+        "'U+%.4X' is reserved as a high/leading surrogate and cannot be used as a codepoint.", codepoint);
+            context->parse_end = context->current_index;
+            record_error(context, error, JSON_ERR_RESERVED_FOR_HIGH_SURROGATE, error_msg_buffer);
+            return nullptr;
+        } else {
+            // low/ trailing surrogate
+            snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE,
+        "'U+%.4X' is reserved as a low/trailing surrogate and cannot be used as a codepoint.", codepoint);
+            context->parse_end = context->current_index;
+            record_error(context, error, JSON_ERR_RESERVED_FOR_LOW_SURROGATE, error_msg_buffer);
+            return nullptr;
+        }
     }
 
     if (codepoint <= 127 ) {
@@ -353,7 +377,14 @@ static void encode_utf8(JsonContext *context, JsonError *error, const uint32_t c
 
     } else {
         // error, codepoint out of range
+        snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE,
+    "'U+%.4X' is out of range and cannot be used as a codepoint.", codepoint);
+        context->parse_end = context->current_index;
+        record_error(context, error, JSON_ERR_CODEPOINT_OUT_OF_RANGE, error_msg_buffer);
+        return nullptr;
     }
+
+    return sb;
 }
 
 // try to parse 4 hex bytes from the stream. Report in error if we didn't find 4 hex bytes.
@@ -404,6 +435,65 @@ static void write_utf8(JsonContext *context, JsonError *error, uint32_t codepoin
     } else {
         record_error(context, error, JSON_ERR_INVALID_UNICODE_ESCAPE, "Invalid Unicode codepoint");
     }
+}
+
+static bool validate_utf8(JsonContext *context, JsonError *error,  StringBuilder *sb) {
+    uint8_t stream_bytes[4] = {};
+    uint8_t current_byte = *context->current_ptr;
+    uint32_t num_bytes = 0;
+    stream_bytes[num_bytes++] = current_byte;
+    // if first byte is <= 0x7F add to sb and return
+    if (current_byte <= 127 ) {
+        sb_append_char(sb, current_byte);
+        return true;
+    }
+    // C0-C1 is invalid.
+    if (current_byte >= 0xC0 && current_byte <= 0xC1 ) {
+        snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE,
+    "'0x%.2X' is an invalid UTF-8 start byte.", current_byte);
+        context->parse_end = context->current_index;
+        record_error(context, error, JSON_ERR_INVALID_UTF8_START_BYTE, error_msg_buffer);
+        return false;
+    }
+    // if first byte is C2-DF, possible start of 2-byte sequence.
+    if (current_byte >= 0xC2 && current_byte <= 0xDF ) {
+        advance(context, 1);
+        // expect 0x80-BF to follow.
+        current_byte = (uint8_t)*context->current_ptr;
+        stream_bytes[num_bytes++] = current_byte;
+
+        if ( !( current_byte >= 0x80 && current_byte <= 0xBF )) {
+            snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE,
+        "'0x%.2X' is an invalid UTF-8 continuation byte after '0x%.2X'", current_byte, stream_bytes[0]);
+            context->parse_end = context->current_index;
+            record_error(context, error, JSON_ERR_INVALID_UTF8_CONTINUATION_BYTE, error_msg_buffer);
+            return false;
+        }
+        if ( current_byte >= 0x80 && current_byte <= 0xBF ) {
+            uint32_t codepoint = 0; // todo need to decode UTF-8 bytes to determine this
+            if ( codepoint < 0x80 ) {
+                snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE,
+       "'0x%.4X 0x%.4X' is an overlong sequence and an invalid UTF-8 encoding.", stream_bytes[0], stream_bytes[1]);
+                context->parse_end = context->current_index;
+                record_error(context, error, JSON_ERR_OVERLONG_SEQUENCE, error_msg_buffer);
+                return false;
+            }
+            //happy path
+            sb_append_char(sb, stream_bytes[0]);
+            sb_append_char(sb, stream_bytes[1]);
+
+        }
+    }
+
+    // if first byte is E0-EF, expect 2 following bytes 80-BF with some exceptions.
+    //      If codepoint < 800, overly long encoding, reject
+    //      EDA0+ is start of surrogate pair and not allowed
+
+
+    // if first byte is F0-F4, expect 3 following bytes 80-BF with some exceptions.
+    //      If codepoint < 0x10000, overly long encoding, reject.
+
+    return false;
 }
 
 // assumes *context->current_ptr == 'u' and the previous character was a backslash '\'
@@ -564,6 +654,8 @@ static JsonValue * parse_string(JsonContext *context, JsonError *error, Arena *a
             sb_destroy(&sb);
             return nullptr;
         } else {
+            // Here we validate a string of UTF-8 characters
+
             sb_append_char(&sb, *json_ptr);  // capture current char into the StringBuilder
             advance(context, 1);
         }
