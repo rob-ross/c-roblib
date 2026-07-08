@@ -8,6 +8,7 @@
 #include <ctype.h>
 #include <stdio.h>
 
+#include <locale.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -46,7 +47,7 @@ static char const * const WHITE_SPACE_CHARS = "\x20\x09\x0A\x0D";
 
 static void skip_whitespace(JsonContext *context) {
     //todo (rob) verify that isspace uses the same space characters as the spec (see WHITE_SPACE_CHARS0
-    while (*context->current_ptr && isspace(*context->current_ptr)) {
+    while (*context->current_ptr && isspace((unsigned char)*context->current_ptr)) {
         if (*context->current_ptr == '\n') {
             context->line++;
             context->column = 1;
@@ -66,7 +67,7 @@ static void advance(JsonContext *context, const int char_count) {
 }
 
 static void record_error(
-    const JsonContext *context, JsonError *error, enum json_error_type err_type, const char *msg) {
+    const JsonContext *context, JsonError *error, const enum json_error_type err_type, const char *msg) {
 
     error->message = msg;
     error->json = context->json;
@@ -258,19 +259,31 @@ static JsonValue * parse_array(JsonContext *context, JsonError *error, Arena *ar
     return array;
 }
 
-// 1. Lookup Table Method
-static int hex_lookup(unsigned char hex) {
-    static const int table[256] = {
-        ['0']=0, ['1']=1, ['2']=2, ['3']=3, ['4']=4, ['5']=5, ['6']=6, ['7']=7, ['8']=8, ['9']=9,
-        ['A']=10, ['B']=11, ['C']=12, ['D']=13, ['E']=14, ['F']=15,
-        ['a']=10, ['b']=11, ['c']=12, ['d']=13, ['e']=14, ['f']=15
-    };
-    return (table[hex] == 0 && hex != '0') ? -1 : table[hex];
+
+int hex_to_dec(const unsigned char hex)
+{
+    if (hex >= '0' && hex <= '9')
+        return hex - '0';
+    switch (hex) {
+        case 'a':
+        case 'A': return 10;
+        case 'b':
+        case 'B': return 11;
+        case 'c':
+        case 'C': return 12;
+        case 'd':
+        case 'D': return 13;
+        case 'e':
+        case 'E': return 14;
+        case 'f':
+        case 'F': return 15;
+        default: return -1;
+    }
 }
 
 // 2. Printing the Bit Pattern String
-static void print_bits(char hex) {
-    int val = hex_lookup(hex);
+static void print_hex_bits(unsigned char hex) {
+    int val = hex_to_dec(hex);
     if (val == -1) return;
 
     // Extract bits using bitwise masking
@@ -280,31 +293,117 @@ static void print_bits(char hex) {
     printf("\n");
 }
 
-// try to to parse 4 hex bytes from the stream. Report in error if we didn't find 4 hex bytes.
+static void print_8_bits(uint8_t bits) {
+    printf("0b");
+    for (int i = 7; i >= 0; i--) {
+        printf("%d", (bits >> i) & 1);
+    }
+}
+
+// GEMINI AI READ: This is my work in progress. Do not delete it. Do not modify. Ignore this function.
+static void encode_utf8(JsonContext *context, JsonError *error, const uint32_t codepoint, StringBuilder *sb) {
+    /**
+     *  Rules for encoding Unicode codepoint into UTF-8:
+     *  0. Unicode points U+D800 - U+DFFF are reserved as surrogate pairs in UTF-16 and are not allowed. Error.
+     *  1. If codepoint <= 127, enccode as single byte of same value:
+     *  2. If codepoint <= 0x07FF, encode as two UTF-8 bytes
+     *
+     *  The 1024 points in the range U+D800–U+DBFF are known as high-surrogate code points,
+     *  and code points in the range U+DC00–U+DFFF (1024 code points) are known as low-surrogate code points.
+     */
+    constexpr uint8_t continue_mask = 0b00111111;  // 0x3F
+    constexpr uint8_t continue_bits = 0b10000000;  // 0x80
+
+    if (codepoint >= 0xD800 && codepoint <= 0xDFFF) {
+        // error, reserved for surrogate pairs
+
+    }
+
+    if (codepoint <= 127 ) {
+        sb_append_char(sb, (uint8_t)codepoint);
+    } else if (codepoint <= 0x07FF ) {
+        // encode as two UTF-8 bytes
+        //110xxxxx 10xxxxxx
+        uint8_t first  = 0b11000000    | (uint8_t)( codepoint >> 6 );
+        uint8_t second = continue_bits | (uint8_t)( codepoint & continue_mask );
+        sb_append_char(sb, first);
+        sb_append_char(sb, second);
+
+    } else if (codepoint <= 0xFFFF) {
+        // encode as three UTF-8 bytes
+        // 1110xxxx 10xxxxxx 10xxxxxx
+        uint8_t first  = 0b11100000    | (uint8_t)( codepoint >> 12 ) ;
+        uint8_t second = continue_bits | (uint8_t)( codepoint >> 6 & continue_mask);
+        uint8_t third  = continue_bits | (uint8_t)( codepoint      & continue_mask );
+        sb_append_char(sb, first);
+        sb_append_char(sb, second);
+        sb_append_char(sb, third);
+
+    } else if (codepoint <= 0x10FFFF) {
+        // encode as four UTF-8 bytes
+        // 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
+        uint8_t first   = 0b11110000    | (uint8_t)( codepoint >> 18 ) ;
+        uint8_t second  = continue_bits | (uint8_t)( codepoint >> 12 & continue_mask);
+        uint8_t third   = continue_bits | (uint8_t)( codepoint >>  6 & continue_mask);
+        uint8_t fourth  = continue_bits | (uint8_t)( codepoint       & continue_mask );
+        sb_append_char(sb, first);
+        sb_append_char(sb, second);
+        sb_append_char(sb, third);
+        sb_append_char(sb, fourth);
+
+    } else {
+        // error, codepoint out of range
+    }
+}
+
+// try to parse 4 hex bytes from the stream. Report in error if we didn't find 4 hex bytes.
 uint16_t parse_hex4(JsonContext *context, JsonError *error) {
     uint16_t result = 0;
     const char *json_ptr = context->current_ptr;
     for (int i = 0; i < 4; i++) {
         if (*json_ptr == '\0') {
+            context->parse_end = context->current_index;
             record_error(context, error, JSON_ERR_UNEXPECTED_EOF, "Unexpected EOF while parsing hex digit.");
+            // todo temp clang/clion linter doesn't see that record_error changes this value.
+            // without this, it erroneously reports of unreachable code in calling methods
+            error->err_type = JSON_ERR_UNEXPECTED_EOF;
             return 0;
         }
         if (!isxdigit((unsigned char)*json_ptr)) {
+            context->parse_end = context->current_index;
             snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE, "Invalid hex digit in Unicode escape: %c", *json_ptr);
             record_error(context, error, JSON_ERR_INVALID_UNICODE_ESCAPE, error_msg_buffer);
             return 0;
         }
 
         // convert hex digit to uint and shift into result.
-        int value = hex_lookup(*json_ptr);
-        result = result | ( value << ( 4 * (3 - i)) ) ;
-        //convert result into UTF-8 and write to sb
-
+        const uint32_t dec_value = (uint32_t)hex_to_dec(*json_ptr);  // dec_value: 0 - F
+        // result = result | ( dec_value << ( 4 * (3 - i)) ) ;
+        result = result * 16 | dec_value;
         json_ptr++;
-
     }
     advance(context, 4);
     return result;
+}
+
+static void write_utf8(JsonContext *context, JsonError *error, uint32_t codepoint, StringBuilder *sb) {
+    if (codepoint <= 0x7F) {
+        sb_append_char(sb, (char)codepoint);
+    } else if (codepoint <= 0x7FF) {
+        sb_append_char(sb, (char)(0xC0 | (codepoint >> 6)));
+        sb_append_char(sb, (char)(0x80 | (codepoint & 0x3F)));
+    } else if (codepoint <= 0xFFFF) {
+        sb_append_char(sb, (char)(0xE0 | (codepoint >> 12)));
+        sb_append_char(sb, (char)(0x80 | ((codepoint >> 6) & 0x3F)));
+        sb_append_char(sb, (char)(0x80 | (codepoint & 0x3F)));
+    } else if (codepoint <= 0x10FFFF) {
+        sb_append_char(sb, (char)(0xF0 | (codepoint >> 18)));
+        sb_append_char(sb, (char)(0x80 | ((codepoint >> 12) & 0x3F)));
+        sb_append_char(sb, (char)(0x80 | ((codepoint >> 6) & 0x3F)));
+        sb_append_char(sb, (char)(0x80 | (codepoint & 0x3F)));
+    } else {
+        record_error(context, error, JSON_ERR_INVALID_UNICODE_ESCAPE, "Invalid Unicode codepoint");
+    }
 }
 
 // assumes *context->current_ptr == 'u' and the previous character was a backslash '\'
@@ -317,33 +416,52 @@ static StringBuilder * parse_unicode_escape( JsonContext *context, JsonError *er
     }
     if ( cp1 >= 0xDC00 && cp1 <= 0xDFFF ) {
         // A low surrogate that wasn't preceded by a high surrogate. This is an error.
-        // todo (rob) report error
+        snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE, "Expected high surrogate to precede low surrogate '\\u%4X', but none found.", cp1);
+        context->parse_end = context->current_index;
+        record_error(context, error, JSON_ERR_NO_PRECEDING_HIGH_SURROGATE, error_msg_buffer);
         return nullptr;
-
     }
     uint32_t cp = cp1;
 
-    if (cp1 >= 0xD800 && cp1 <=0XDBFF ) {
+    if (cp1 >= 0xD800 && cp1 <= 0xDBFF ) {
         // this is a high surrogate. Look for its low-surrogate pair
         const char *current_ptr = context->current_ptr;
-        uint16_t cp2 = 0;
-        if ( *current_ptr == '\\' && (*(current_ptr + 1)) == 'u' ) {
-            //we have a second Unicode escape immediately after the first.
-            //Possibly high- / low-surrogate pairs; or just a second BMP codepoint
-            cp2 = parse_hex4(context, error);
-            // todo (rob) check error
-            // combine : 0x10000 + ((cp1 - 0xD800) << 10) + (cp2 - 0xDC00).
-            cp = 0x10000 + ((cp1 - 0xD800) << 10) + (cp2 - 0xDC00);
 
-        } else {
+        // Check for enough remaining characters safely
+        if (current_ptr[0] != '\\' || current_ptr[1] != 'u') {
             // no following low surrogate.
-            // todo (rob) report error
+            snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE, "Expected low surrogate to follow '\\u%4X', but none found.", cp1);
+            context->parse_end = context->current_index;
+            record_error(context, error, JSON_ERR_NO_FOLLOWING_LOW_SURROGATE, error_msg_buffer);
             return nullptr;
         }
+        //we have a second Unicode escape immediately after the first.
+        advance(context, 2);  // consume '\u'
+        //Possibly high- / low-surrogate pair
+        uint16_t cp2 = parse_hex4(context, error);
+        if (error->err_type != JSON_ERR_NONE) {
+            return nullptr;  // we got an error in parse_hex4()
+        }
+
+        if ( !(cp2 >= 0xDC00 && cp2 <= 0xDFFF )) {
+            // no following low surrogate.
+            snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE,
+                "Expected low surrogate to follow '\\u%4X', but found '\\u%4X' instead.", cp1, cp2);
+            context->parse_end = context->current_index;
+            record_error(context, error, JSON_ERR_NO_FOLLOWING_LOW_SURROGATE, error_msg_buffer);
+            return nullptr;
+        }
+
+
+        // combine : 0x10000 + ((cp1 - 0xD800) << 10) + (cp2 - 0xDC00).
+        cp = 0x10000 + ((cp1 - 0xD800) << 10) + (cp2 - 0xDC00);
     }
 
     // cp contains the Unicode codepoint to encode as UTF-8
     // encode to UTF-8 and write to sb.
+    // write_utf8(context, error, cp, sb_out);
+    encode_utf8(context, error, cp, sb_out);
+
 
     return sb_out;
 }
@@ -371,8 +489,13 @@ static JsonValue * parse_string(JsonContext *context, JsonError *error, Arena *a
             value = arena_alloc(arena, sizeof(JsonValue) );
             value->type = JSON_STRING;
 
-            void * str_value = arena_alloc(arena, sb.length + 1);
-            memcpy(str_value, sb.buffer, sb.length + 1);
+            // Ensure the result is null-terminated from the StringBuilder
+            // before copying into the arena.
+            size_t len = sb.length;
+            char * str_value = arena_alloc(arena, len + 1);
+            memcpy(str_value, sb.buffer, len);
+            str_value[len] = '\0';
+
             value->u.string = str_value;
 
             advance(context, match_len + 1); // we add 1 to consume the terminating quote
@@ -769,8 +892,25 @@ void test_parse_str(char const * str) {
 
 void test_parse_unicode_escapes() {
     // test_parse_str("\"\\uCAFE \\uBABE\"");
+    // test_parse_str("\"\\uCAFE\\uBABE\"");
 
-    test_parse_str("\"\\uD834\\uDD1E\"");
+    // test_parse_str("\"\\uD801\\uDC01\"");   // valid high- / low-surrogate pair
+    //
+    // test_parse_str("\"\\uDC01\"");      //low surrogate without preceding high surrogate
+    // test_parse_str("\"\\uD801\"");      //high surrogate without following low surrogate
+    //
+    // test_parse_str("\"\\uDC01\\uDC02\"");      //two low surrogates in a row
+    // test_parse_str("\"\\uD801\\uD802\"");      //two high surrogates in a row
+
+
+
+    test_parse_str("\"\\u0800\"");
+
+    // test_parse_str("\"\\uD834\\uDD1E\"");
+
+    test_parse_str("\"😀  \\uD83D\\uDE00\"");
+
+    // test_parse_str("\"\\uABCDAPPLE\"");
 }
 
 void test_null_parse(void) {
@@ -849,8 +989,38 @@ void test_parse_objects(void ) {
     test_parse_str(" [{ \"name\": \"jelly bowl\", \"ff\": 5}, {\"name\": \"werewolf\", \"ff\": 10 }]");
 }
 
+// Helper to see exactly what bytes are in a string
+static void debug_dump_bytes(const char *label, const char *s) {
+    printf("%-25s: ", label);
+    while (s && *s) {
+        printf("%02X ", (unsigned char)*s++);
+    }
+    printf("\n");
+}
+
 #ifdef JSON_PARSER_2_MAIN
 int main( ) {
+    // Set locale to ensure printf doesn't mangle UTF-8 bytes based on system defaults
+    // if (!setlocale(LC_ALL, "en_US.UTF-8")) {
+    //     setlocale(LC_ALL, ""); // Fallback to system default locale
+    // }
+    //
+    // printf("--- Encoding Debug ---\n");
+    //
+    // // Simplified output to reduce terminal rendering confusion
+    // printf("UCN: '%s'\n", "\U00010401");
+    // printf("u8:  '%s'\n", (const char*)u8"\U00010401");
+    // printf("HEX: '%s'\n", "\xF0\x90\x90\x81");
+    //
+    // // Print isolated to test terminal font fallback
+    // printf("Isolated: ");
+    // printf("\U00010401");
+    // printf("\n");
+    // fflush(stdout);
+
+    printf("Pound sign: %s\n", "");
+    printf("\\u0800: \u0800\n");
+    printf("\\U+0001f600: \U0001f600\n");
 
     // test_null_parse();
     // test_true_parse();
