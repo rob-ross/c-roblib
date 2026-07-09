@@ -57,7 +57,7 @@ static bool sb_ensure_capacity(StringBuilder *sb, uint32_t capacity_wanted) {
     return true;
 }
 
-StringBuilder * sb_append_char( StringBuilder *sb, uint8_t c) {
+StringBuilder * sb_append_char( StringBuilder *sb, unsigned char c) {
     if (c == '\0') return sb;  // adding empty string does nothing.
     uint32_t new_length = sb->length + sizeof(char);
     //todo (rob) why are we passing new_length + 1 here??
@@ -90,7 +90,7 @@ void sb_copy_to(StringBuilder *sb, uint32_t buf_size, char out_buffer[static buf
     out_buffer[buf_size-1] = '\0';
 }
 
-StringBuilder * sb_insert_char( StringBuilder *sb, uint8_t c, const uint32_t index) {
+StringBuilder * sb_insert_char( StringBuilder *sb, unsigned char c, const uint32_t index) {
     if (c == '\0') return sb;  // inserting empty string does nothing.
     uint32_t new_length = sb->length + sizeof(c);
     if (!sb_ensure_capacity(sb, new_length)) return nullptr;
