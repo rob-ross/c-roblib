@@ -986,7 +986,7 @@ void test_parse_unicode_escapes() {
     // test_parse_str("\"\\uCAFE \\uBABE\"");
     // test_parse_str("\"\\uCAFE\\uBABE\"");
 
-    // test_parse_str("\"\\uD801\\uDC01\"");   // valid high- / low-surrogate pair
+    // test_parse_str("\"\\uD801\\uDC01\"");   // valid high- / low-surrogate pair=
     //
     // test_parse_str("\"\\uDC01\"");      //low surrogate without preceding high surrogate
     // test_parse_str("\"\\uD801\"");      //high surrogate without following low surrogate
@@ -1000,7 +1000,10 @@ void test_parse_unicode_escapes() {
 
     // test_parse_str("\"\\uD834\\uDD1E\"");
 
-    test_parse_str("\"😀  \\uD83D\\uDE00\"");
+    // test_parse_str("\"😀  \\uD83D\\uDE00\"");
+
+    // the code that renders glyphs combines them into one glyph!!
+    test_parse_str("\" combining character: C with tail: \\u0043\\u0327\"");
 
     // test_parse_str("\"\\uABCDAPPLE\"");
 }
