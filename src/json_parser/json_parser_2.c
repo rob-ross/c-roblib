@@ -300,15 +300,49 @@ static void print_8_bits(uint8_t bits) {
     }
 }
 
-static void decode_utf8() {
-    // what do we do here? Take 1 to 4 bytes of UTF-8 and re-constitute as Unicode codepoint?
-    // we probably need different methods to decode utf-8 to Unicode 32, or Unicode 16 (surrogate pairs?)
-    // when we save a JSON text to a JSON file, we'll be writing UTF-8, so for this we probably don't need
-    // to generate surrogates or UTF-16/32.
+constexpr uint8_t continue_mask = 0b00111111;  // 0x3F
+constexpr uint8_t continue_bits = 0b10000000;  // 0x80
 
-    // But we do need to be able to validate the UTF-8 in the JSON text, so we don't necessarily need to
-    // decode, just verify/validate.
+// what do we do here? Take 1 to 4 bytes of UTF-8 and re-constitute as Unicode codepoint?
+// we probably need different methods to decode utf-8 to Unicode 32, or Unicode 16 (surrogate pairs?)
+// when we save a JSON text to a JSON file, we'll be writing UTF-8, so for this we probably don't need
+// to generate surrogates or UTF-16/32.
+
+// But we do need to be able to validate the UTF-8 in the JSON text, so we don't necessarily need to
+// decode, just verify/validate.
+
+// assumes the UTF-8 bytes are correct and well-ordered. No error checking is done here.
+static uint32_t decode_utf8(const uint32_t num_bytes, uint8_t utf8_bytes[]) {
+    uint32_t codepoint = 0;
+    switch  (num_bytes) {
+        case 1:
+            codepoint = utf8_bytes[0];
+            break;
+        case 2:
+            codepoint = codepoint | ( ~0b11000000    & utf8_bytes[0]) << 6;
+            codepoint = codepoint | ( continue_mask & utf8_bytes[1]);
+            break;
+        case 3:
+            codepoint = codepoint | ( ~0b11100000    & utf8_bytes[0]) << 12;
+            codepoint = codepoint | ( continue_mask & utf8_bytes[1]) << 6;
+            codepoint = codepoint | ( continue_mask & utf8_bytes[2]);
+            break;
+        case 4:
+            codepoint = codepoint | ( ~0b11110000    & utf8_bytes[0]) << 18;
+            codepoint = codepoint | ( continue_mask & utf8_bytes[1]) << 12;
+            codepoint = codepoint | ( continue_mask & utf8_bytes[2]) << 6;
+            codepoint = codepoint | ( continue_mask & utf8_bytes[3]);
+            break;
+        default:
+            // here we could iterate dynamically for possible encodings past 4 bytes.
+            // for now, we take no action and will return 0
+            break;
+    }
+
+    return codepoint;
 }
+
+
 
 // GEMINI AI READ: This is my work in progress. Do not delete it. Do not modify. Ignore this function.
 static StringBuilder * encode_utf8( JsonContext *context, JsonError *error, const uint32_t codepoint, StringBuilder *sb) {
@@ -321,8 +355,7 @@ static StringBuilder * encode_utf8( JsonContext *context, JsonError *error, cons
      *  The 1024 points in the range U+D800–U+DBFF are known as high-surrogate code points,
      *  and code points in the range U+DC00–U+DFFF (1024 code points) are known as low-surrogate code points.
      */
-    constexpr uint8_t continue_mask = 0b00111111;  // 0x3F
-    constexpr uint8_t continue_bits = 0b10000000;  // 0x80
+
 
     if (codepoint >= 0xD800 && codepoint <= 0xDFFF) {
         // error, reserved for surrogate pairs
@@ -343,8 +376,11 @@ static StringBuilder * encode_utf8( JsonContext *context, JsonError *error, cons
         }
     }
 
+    uint32_t decoded_value; // todo (temp)
+
     if (codepoint <= 127 ) {
         sb_append_char(sb, (uint8_t)codepoint);
+        decoded_value = decode_utf8(1, (uint8_t[]){(uint8_t)codepoint});
     } else if (codepoint <= 0x07FF ) {
         // encode as two UTF-8 bytes
         //110xxxxx 10xxxxxx
@@ -352,6 +388,7 @@ static StringBuilder * encode_utf8( JsonContext *context, JsonError *error, cons
         uint8_t second = continue_bits | (uint8_t)( codepoint & continue_mask );
         sb_append_char(sb, first);
         sb_append_char(sb, second);
+        decoded_value = decode_utf8(2, (uint8_t[]){first, second});
 
     } else if (codepoint <= 0xFFFF) {
         // encode as three UTF-8 bytes
@@ -362,6 +399,7 @@ static StringBuilder * encode_utf8( JsonContext *context, JsonError *error, cons
         sb_append_char(sb, first);
         sb_append_char(sb, second);
         sb_append_char(sb, third);
+        decoded_value = decode_utf8(3, (uint8_t[]){first, second, third});
 
     } else if (codepoint <= 0x10FFFF) {
         // encode as four UTF-8 bytes
@@ -374,6 +412,7 @@ static StringBuilder * encode_utf8( JsonContext *context, JsonError *error, cons
         sb_append_char(sb, second);
         sb_append_char(sb, third);
         sb_append_char(sb, fourth);
+        decoded_value = decode_utf8(4, (uint8_t[]){first, second, third, fourth});
 
     } else {
         // error, codepoint out of range
@@ -383,6 +422,8 @@ static StringBuilder * encode_utf8( JsonContext *context, JsonError *error, cons
         record_error(context, error, JSON_ERR_CODEPOINT_OUT_OF_RANGE, error_msg_buffer);
         return nullptr;
     }
+
+    printf("encode_utf8: codepoint = %.4X, decoded_value=%.4X\n", codepoint, decoded_value);
 
     return sb;
 }
@@ -437,62 +478,272 @@ static void write_utf8(JsonContext *context, JsonError *error, uint32_t codepoin
     }
 }
 
-static bool validate_utf8(JsonContext *context, JsonError *error,  StringBuilder *sb) {
-    uint8_t stream_bytes[4] = {};
-    uint8_t current_byte = *context->current_ptr;
-    uint32_t num_bytes = 0;
-    stream_bytes[num_bytes++] = current_byte;
-    // if first byte is <= 0x7F add to sb and return
-    if (current_byte <= 127 ) {
-        sb_append_char(sb, current_byte);
-        return true;
-    }
-    // C0-C1 is invalid.
-    if (current_byte >= 0xC0 && current_byte <= 0xC1 ) {
+//  expect a valid continuation byte from 0x80 - 0xBF at current index
+// Return true if found, otherwise return false and report error
+static bool validate_utf8_continuation_byte(
+    JsonContext *context, JsonError *error,
+    uint8_t current_byte, uint8_t start_range, uint8_t end_range) {
+
+    uint8_t next_byte = *context->current_ptr;
+
+    if ( !( next_byte >= start_range && next_byte <= end_range )) {
         snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE,
-    "'0x%.2X' is an invalid UTF-8 start byte.", current_byte);
+    "'0x%.2X' is an invalid UTF-8 continuation byte after '0x%.2X'", next_byte, current_byte);
         context->parse_end = context->current_index;
-        record_error(context, error, JSON_ERR_INVALID_UTF8_START_BYTE, error_msg_buffer);
+        record_error(context, error, JSON_ERR_INVALID_UTF8_CONTINUATION_BYTE, error_msg_buffer);
         return false;
     }
+
+    return true;
+}
+
+static bool validate_utf8(JsonContext *context, JsonError *error,  StringBuilder *sb) {
+    uint8_t stream_bytes[4] = {};
+    uint8_t lead_byte = *context->current_ptr;;
+    uint32_t num_bytes = 0;
+    stream_bytes[num_bytes++] = lead_byte;
+
+    // -----------------------------------------------------------------
+    //          ONE BYTE (ASCII)
+    // -----------------------------------------------------------------
+
+    if (lead_byte <= 127 ) {
+        sb_append_char(sb, lead_byte);
+        advance(context, 1);
+        return true;
+    }
+
+    // -----------------------------------------------------------------
+    //          TWO BYTES
+    // -----------------------------------------------------------------
+
+    uint8_t current_byte = lead_byte;
+
+
     // if first byte is C2-DF, possible start of 2-byte sequence.
-    if (current_byte >= 0xC2 && current_byte <= 0xDF ) {
+    if (lead_byte >= 0xC2 && lead_byte <= 0xDF ) {
         advance(context, 1);
         // expect 0x80-BF to follow.
-        current_byte = (uint8_t)*context->current_ptr;
-        stream_bytes[num_bytes++] = current_byte;
-
-        if ( !( current_byte >= 0x80 && current_byte <= 0xBF )) {
-            snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE,
-        "'0x%.2X' is an invalid UTF-8 continuation byte after '0x%.2X'", current_byte, stream_bytes[0]);
-            context->parse_end = context->current_index;
-            record_error(context, error, JSON_ERR_INVALID_UTF8_CONTINUATION_BYTE, error_msg_buffer);
+        if ( !validate_utf8_continuation_byte(context, error, lead_byte, 0x80, 0xBF )) {
             return false;
         }
-        if ( current_byte >= 0x80 && current_byte <= 0xBF ) {
-            uint32_t codepoint = 0; // todo need to decode UTF-8 bytes to determine this
-            if ( codepoint < 0x80 ) {
-                snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE,
-       "'0x%.4X 0x%.4X' is an overlong sequence and an invalid UTF-8 encoding.", stream_bytes[0], stream_bytes[1]);
-                context->parse_end = context->current_index;
-                record_error(context, error, JSON_ERR_OVERLONG_SEQUENCE, error_msg_buffer);
+        current_byte = (uint8_t)*context->current_ptr;
+        stream_bytes[num_bytes++] = current_byte;
+        advance(context, 1);
+        //happy path
+        sb_append_char(sb, stream_bytes[0]);
+        sb_append_char(sb, stream_bytes[1]);
+        return true;
+    }
+
+    // -----------------------------------------------------------------
+    //      THREE BYTES
+    // -----------------------------------------------------------------
+
+    // if the first byte is E0-EF, expect 2 following bytes 80-BF with some exceptions.
+    //      EDA0+ is start of surrogate pair and not allowed
+    if ( lead_byte >= 0xE0 && lead_byte <= 0xEF ) {
+        if (lead_byte == 0xE0) {
+            advance(context, 1);
+            //expect next byte in 0xA0-BF, then 0x80-BF
+            //If the second byte is 0x80 to 0x9F, overlong sequence todo error for this
+            if ( !validate_utf8_continuation_byte(context, error, lead_byte, 0xA0, 0xBF )) {
                 return false;
             }
+            current_byte = (uint8_t)*context->current_ptr;
+            stream_bytes[num_bytes++] = current_byte;
+            advance(context, 1);
+            if ( !validate_utf8_continuation_byte(context, error, lead_byte, 0x80, 0xBF )) {
+                return false;
+            }
+            current_byte = (uint8_t)*context->current_ptr;
+            stream_bytes[num_bytes++] = current_byte;
+            advance(context, 1);
             //happy path
             sb_append_char(sb, stream_bytes[0]);
             sb_append_char(sb, stream_bytes[1]);
-
+            sb_append_char(sb, stream_bytes[2]);
+            return true;
+        }
+        if ( lead_byte >= 0xE1 && lead_byte <= 0xEC ) {
+            advance(context, 1);
+            // expect next 2 bytes in 0x80-BF
+            if ( !validate_utf8_continuation_byte(context, error, lead_byte, 0x80, 0xBF )) {
+                return false;
+            }
+            current_byte = (uint8_t)*context->current_ptr;
+            stream_bytes[num_bytes++] = current_byte;
+            advance(context, 1);
+            if ( !validate_utf8_continuation_byte(context, error, lead_byte, 0x80, 0xBF )) {
+                return false;
+            }
+            current_byte = (uint8_t)*context->current_ptr;
+            stream_bytes[num_bytes++] = current_byte;
+            advance(context, 1);
+            //happy path
+            sb_append_char(sb, stream_bytes[0]);
+            sb_append_char(sb, stream_bytes[1]);
+            sb_append_char(sb, stream_bytes[2]);
+            return true;
+        }
+        if (lead_byte == 0xED) {
+            advance(context, 1);
+            //expect next byte in 0x80-9F, then x80-BF
+            // if second byte in 0xA0 to 0xBF, encoding a surrogate : forbidden todo error reporting
+            if ( !validate_utf8_continuation_byte(context, error, lead_byte, 0x80, 0x9F )) {
+                return false;
+            }
+            current_byte = (uint8_t)*context->current_ptr;
+            stream_bytes[num_bytes++] = current_byte;
+            advance(context, 1);
+            if ( !validate_utf8_continuation_byte(context, error, lead_byte, 0x80, 0xBF )) {
+                return false;
+            }
+            current_byte = (uint8_t)*context->current_ptr;
+            stream_bytes[num_bytes++] = current_byte;
+            advance(context, 1);
+            //happy path
+            sb_append_char(sb, stream_bytes[0]);
+            sb_append_char(sb, stream_bytes[1]);
+            sb_append_char(sb, stream_bytes[2]);
+            return true;
+        }
+        if ( lead_byte == 0xEE || lead_byte == 0xEF) {
+            advance(context, 1);
+            // expect next 2 bytes in 0x80-BF
+            if ( !validate_utf8_continuation_byte(context, error, lead_byte, 0x80, 0xBF )) {
+                return false;
+            }
+            current_byte = (uint8_t)*context->current_ptr;
+            stream_bytes[num_bytes++] = current_byte;
+            advance(context, 1);
+            if ( !validate_utf8_continuation_byte(context, error, lead_byte, 0x80, 0xBF )) {
+                return false;
+            }
+            current_byte = (uint8_t)*context->current_ptr;
+            stream_bytes[num_bytes++] = current_byte;
+            advance(context, 1);
+            //happy path
+            sb_append_char(sb, stream_bytes[0]);
+            sb_append_char(sb, stream_bytes[1]);
+            sb_append_char(sb, stream_bytes[2]);
+            return true;
         }
     }
 
-    // if first byte is E0-EF, expect 2 following bytes 80-BF with some exceptions.
-    //      If codepoint < 800, overly long encoding, reject
-    //      EDA0+ is start of surrogate pair and not allowed
 
+    // -----------------------------------------------------------------
+    //          FOUR BYTES
+    // -----------------------------------------------------------------
 
     // if first byte is F0-F4, expect 3 following bytes 80-BF with some exceptions.
-    //      If codepoint < 0x10000, overly long encoding, reject.
+    if ( lead_byte >= 0xF0 && lead_byte <= 0xF4 ) {
+        if (lead_byte == 0xF0) {
+            advance(context, 1);
+            // expect next byte in 0x90-BF, then next two in x80-BF
+            //  If the second byte is 0x80 to 0x8F, overlong sequence. todo report error
+            if ( !validate_utf8_continuation_byte(context, error, lead_byte, 0x90, 0xBF )) {
+                return false;
+            }
+            current_byte = (uint8_t)*context->current_ptr;
+            stream_bytes[num_bytes++] = current_byte;
+            advance(context, 1);
+            if ( !validate_utf8_continuation_byte(context, error, lead_byte, 0x80, 0xBF )) {
+                return false;
+            }
+            current_byte = (uint8_t)*context->current_ptr;
+            stream_bytes[num_bytes++] = current_byte;
+            advance(context, 1);
+            if ( !validate_utf8_continuation_byte(context, error, lead_byte, 0x80, 0xBF )) {
+                return false;
+            }
+            current_byte = (uint8_t)*context->current_ptr;
+            stream_bytes[num_bytes++] = current_byte;
+            advance(context, 1);
+            //happy path
+            sb_append_char(sb, stream_bytes[0]);
+            sb_append_char(sb, stream_bytes[1]);
+            sb_append_char(sb, stream_bytes[2]);
+            sb_append_char(sb, stream_bytes[3]);
 
+            return true;
+        }
+
+        if ( lead_byte >= 0xF1 && lead_byte <= 0xF3 ) {
+            advance(context, 1);
+            //expect next 3 bytes in x80-BF
+            if ( !validate_utf8_continuation_byte(context, error, lead_byte, 0x80, 0xBF )) {
+                return false;
+            }
+            current_byte = (uint8_t)*context->current_ptr;
+            stream_bytes[num_bytes++] = current_byte;
+            advance(context, 1);
+            if ( !validate_utf8_continuation_byte(context, error, lead_byte, 0x80, 0xBF )) {
+                return false;
+            }
+            current_byte = (uint8_t)*context->current_ptr;
+            stream_bytes[num_bytes++] = current_byte;
+            advance(context, 1);
+            if ( !validate_utf8_continuation_byte(context, error, lead_byte, 0x80, 0xBF )) {
+                return false;
+            }
+            current_byte = (uint8_t)*context->current_ptr;
+            stream_bytes[num_bytes++] = current_byte;
+            advance(context, 1);
+            //happy path
+            sb_append_char(sb, stream_bytes[0]);
+            sb_append_char(sb, stream_bytes[1]);
+            sb_append_char(sb, stream_bytes[2]);
+            sb_append_char(sb, stream_bytes[3]);
+
+            return true;
+        }
+
+        if (lead_byte == 0xF4) {
+            advance(context, 1);
+            //expect next byte in 0x80-8F, then next two in x80-BF
+            // if second byte > 0x90, this exceeds legal unicode limit. Out of range. todo report
+            if ( !validate_utf8_continuation_byte(context, error, lead_byte, 0x80, 0x8F )) {
+                return false;
+            }
+            current_byte = (uint8_t)*context->current_ptr;
+            stream_bytes[num_bytes++] = current_byte;
+            advance(context, 1);
+            if ( !validate_utf8_continuation_byte(context, error, lead_byte, 0x80, 0xBF )) {
+                return false;
+            }
+            current_byte = (uint8_t)*context->current_ptr;
+            stream_bytes[num_bytes++] = current_byte;
+            advance(context, 1);
+            if ( !validate_utf8_continuation_byte(context, error, lead_byte, 0x80, 0xBF )) {
+                return false;
+            }
+            current_byte = (uint8_t)*context->current_ptr;
+            stream_bytes[num_bytes++] = current_byte;
+            advance(context, 1);
+            //happy path
+            sb_append_char(sb, stream_bytes[0]);
+            sb_append_char(sb, stream_bytes[1]);
+            sb_append_char(sb, stream_bytes[2]);
+            sb_append_char(sb, stream_bytes[3]);
+
+            return true;
+        }
+    }
+
+    // C0-C1 is invalid.
+    if (lead_byte == 0xC0 || lead_byte == 0xC1 ) {
+        snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE,
+    "'0x%.2X' is an invalid UTF-8 start byte and overlong sequence.", lead_byte);
+        context->parse_end = context->current_index;
+        record_error(context, error, JSON_ERR_OVERLONG_SEQUENCE, error_msg_buffer);
+        return false;
+    }
+
+    snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE,
+"'0x%.2X' is an invalid UTF-8 start byte.", lead_byte);
+    context->parse_end = context->current_index;
+    record_error(context, error, JSON_ERR_INVALID_UTF8_START_BYTE, error_msg_buffer);
     return false;
 }
 
@@ -514,13 +765,16 @@ static StringBuilder * parse_unicode_escape( JsonContext *context, JsonError *er
     uint32_t cp = cp1;
 
     if (cp1 >= 0xD800 && cp1 <= 0xDBFF ) {
-        // this is a high surrogate. Look for its low-surrogate pair
+        // High surrogate, expect the low surrogate to follow.
+        // RFC 8259: To escape an extended character (>U+FFFF), it must be
+        // represented as a 12-character sequence encoding the UTF-16 surrogate pair.
+        // Non-standard escapes like \UXXXXXXXX are not supported.
         const char *current_ptr = context->current_ptr;
 
         // Check for enough remaining characters safely
         if (current_ptr[0] != '\\' || current_ptr[1] != 'u') {
             // no following low surrogate.
-            snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE, "Expected low surrogate to follow '\\u%4X', but none found.", cp1);
+            snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE, "Expected low surrogate escape \\uXXXX to follow high surrogate '\\u%4X'.", cp1);
             context->parse_end = context->current_index;
             record_error(context, error, JSON_ERR_NO_FOLLOWING_LOW_SURROGATE, error_msg_buffer);
             return nullptr;
@@ -650,19 +904,20 @@ static JsonValue * parse_string(JsonContext *context, JsonError *error, Arena *a
             // RFC 8259: Control characters U+0000 through U+001F MUST be escaped.
             // This means the literal bytes cannot appear here.
             snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE, "Unexpected unescaped control character: 0x%.2X\n", (unsigned char)*json_ptr);
-            record_error(context, error, 2, error_msg_buffer);
+            record_error(context, error, JSON_ERR_UNESCAPED_CONTROL_CHAR, error_msg_buffer);
             sb_destroy(&sb);
             return nullptr;
         } else {
             // Here we validate a string of UTF-8 characters
-
-            sb_append_char(&sb, *json_ptr);  // capture current char into the StringBuilder
-            advance(context, 1);
+            if (! validate_utf8(context, error, &sb)) return nullptr;
+            // sb_append_char(&sb, *json_ptr);  // capture current char into the StringBuilder
+            // advance(context, 1);
         }
         json_ptr = context->current_ptr;
     }
 
-    record_error(context, error, ERROR_MSG_BUFFER_SIZE, "No closing quote found.");
+    context->parse_end = context->current_index;
+    record_error(context, error, JSON_ERR_UNTERMINATED_STRING, "No closing quote found.");
     sb_destroy(&sb);
     return nullptr;  // no closing quote found
 }
@@ -941,7 +1196,13 @@ void json_value_str(JsonValue *value) {
             printf("%g", value->u.n_double);
             break;
         case JSON_STRING:
-            printf("'%s'", value->u.string);
+            printf("'%s'\n", value->u.string);
+            // todo temp
+            uint32_t len = strlen(value->u.string);
+            printf("raw bytes: ");
+            for (uint32_t i = 0; i < len; ++i) {
+                printf(" %.1X", (uint8_t)value->u.string[i]);
+            }
             break;
         case JSON_ARRAY:
             json_array_str(value);
@@ -982,6 +1243,37 @@ void test_parse_str(char const * str) {
     jsonp_destroy();
 }
 
+void test_multi_byte_char_strings() {
+    // one byte
+    test_parse_str("\"\x41\"");     // A
+
+    // two bytes
+    test_parse_str("\"\xC1\x80\""); // invalid
+    test_parse_str("\"\xC2\x80\""); // ''
+
+    // three bytes
+    test_parse_str("\"\xE0\xA0\x80\""); // 'ࠀ'
+    test_parse_str("\"\xE1\x95\xBB\""); // 'ᕻ'
+    test_parse_str("\"\xED\x95\xBB\""); // '핻'
+    test_parse_str("\"\xEE\x95\xBB\""); // ''
+    test_parse_str("\"\xEF\xBF\xBF\""); // '￿'
+
+    // four bytes
+    test_parse_str("\"\xF0\x90\x80\x80\""); // '𐀀'
+    test_parse_str("\"\xF0\x9F\x98\x80\""); // '😀'
+    test_parse_str("\"\xF0\xBF\xBF\xBF\""); // '𿿿'
+
+    test_parse_str("\"\xF1\x80\x80\x80\""); // '𿿿'
+    test_parse_str("\"\xF3\xBF\xBF\xBF\""); // '󿿿'
+
+    test_parse_str("\"\xF4\x80\x80\x80\""); // '󿿿'
+    test_parse_str("\"\xF4\x8F\xBF\xBF\""); // '󿿿'
+
+    test_parse_str("\"\xF4\x90\x80\x80\""); // '󿿿'
+
+
+}
+
 void test_parse_unicode_escapes() {
     // test_parse_str("\"\\uCAFE \\uBABE\"");
     // test_parse_str("\"\\uCAFE\\uBABE\"");
@@ -995,12 +1287,14 @@ void test_parse_unicode_escapes() {
     // test_parse_str("\"\\uD801\\uD802\"");      //two high surrogates in a row
 
 
+    test_parse_str("\"\\u0041\""); // A
+    test_parse_str("\"\\u0080\"");  // ''
 
-    test_parse_str("\"\\u0800\"");
+    test_parse_str("\"\\u0800\"");  // 'ࠀ'
 
-    // test_parse_str("\"\\uD834\\uDD1E\"");
+    test_parse_str("\"\\uD834\\uDD1E\"");
 
-    // test_parse_str("\"😀  \\uD83D\\uDE00\"");
+    test_parse_str("\"😀  \\uD83D\\uDE00\"");
 
     // the code that renders glyphs combines them into one glyph!!
     test_parse_str("\" combining character: C with tail: \\u0043\\u0327\"");
@@ -1124,5 +1418,7 @@ int main( ) {
     // test_array_parse();
     // test_parse_objects();
     test_parse_unicode_escapes();
+
+    // test_multi_byte_char_strings();
 }
 #endif
