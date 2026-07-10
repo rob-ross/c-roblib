@@ -436,11 +436,10 @@ static StringBuilder * encode_utf8( JsonContext *context, JsonError *error, cons
     return sb;
 }
 
-// try to parse 4 hex bytes from the stream. Report in error if we didn't find 4 hex bytes.
-uint16_t parse_hex4(JsonContext *context, JsonError *error) {
-    uint16_t result = 0;
+static uint32_t parse_hex_impl(JsonContext *context, JsonError *error, const uint32_t num_chars) {
+    uint32_t result = 0;
     const char *json_ptr = context->current_ptr;
-    for (int i = 0; i < 4; i++) {
+    for (uint32_t i = 0; i < num_chars; i++) {
         if (*json_ptr == '\0') {
             context->parse_end = context->current_index;
             record_error(context, error, JSON_ERR_UNEXPECTED_EOF, "Unexpected EOF while parsing hex digit.");
@@ -458,12 +457,21 @@ uint16_t parse_hex4(JsonContext *context, JsonError *error) {
 
         // convert hex digit to uint and shift into result.
         const uint32_t dec_value = (uint32_t)hex_to_dec(*json_ptr);  // dec_value: 0 - F
-        // result = result | ( dec_value << ( 4 * (3 - i)) ) ;
         result = result * 16 | dec_value;
         json_ptr++;
     }
-    advance(context, 4);
+    advance(context, num_chars);
     return result;
+}
+
+// try to parse 6 hex bytes from the stream. Report in error if we didn't find 6 hex bytes.
+static uint32_t parse_hex6(JsonContext *context, JsonError *error) {
+    return parse_hex_impl(context, error, 6);
+}
+
+// try to parse 4 hex bytes from the stream. Report in error if we didn't find 4 hex bytes.
+static uint16_t parse_hex4(JsonContext *context, JsonError *error) {
+    return parse_hex_impl(context, error, 4);
 }
 
 static void write_utf8(JsonContext *context, JsonError *error, uint32_t codepoint, StringBuilder *sb) {
@@ -791,8 +799,21 @@ static bool validate_utf8(JsonContext *context, JsonError *error,  StringBuilder
     return false;
 }
 
-// assumes *context->current_ptr == 'u' and the previous character was a backslash '\'
+// assumes *context->current_ptr == 'u' or 'U' and the previous character was a backslash '\'
 static StringBuilder * parse_unicode_escape( JsonContext *context, JsonError *error, Arena *arena, StringBuilder *sb_out ) {
+    if (*context->current_ptr == 'U') {
+        advance(context, 1);
+        // roblib enhancement. Allows a Unicode codepoint without surrogates.
+        uint32_t full_codepoint = parse_hex6(context, error);
+        if (error->err_type != JSON_ERR_NONE) {
+            return nullptr;  // we got an error in parse_hex6()
+        }
+        // full_codepoint contains the Unicode codepoint to encode as UTF-8
+        // encode to UTF-8 and write to sb.
+        encode_utf8(context, error, full_codepoint, sb_out);
+        return sb_out;
+    }
+
     advance(context, 1);
     uint16_t cp1 = parse_hex4(context, error);
 
@@ -849,8 +870,6 @@ static StringBuilder * parse_unicode_escape( JsonContext *context, JsonError *er
     // encode to UTF-8 and write to sb.
     // write_utf8(context, error, cp, sb_out);
     encode_utf8(context, error, cp, sb_out);
-
-
     return sb_out;
 }
 
@@ -929,7 +948,10 @@ static JsonValue * parse_string(JsonContext *context, JsonError *error, Arena *a
                     advance(context, 1);
                     break;
                 case 'u':
+                case 'U':
                     // RFC 8259: \u followed by 4 hex digits
+                    // roblib addition \U followed by 6 hex digits is a codepoint, no
+                    //  surrogates required!
                     StringBuilder *result = parse_unicode_escape(context, error, arena, &sb);
                     if (!result) {
                         context->parse_end = context->current_index;
@@ -1340,6 +1362,9 @@ void test_parse_unicode_escapes() {
 
     test_parse_str("\"😀  \\uD83D\\uDE00\"");
 
+    test_parse_str("\"😀  \\U01F600\"");  // Our custom enhancement! Allows full unicode codepoint without surrogates
+
+
     // the code that renders glyphs combines them into one glyph!!
     test_parse_str("\" combining character: C with tail: \\u0043\\u0327\"");
 
@@ -1439,6 +1464,24 @@ static void debug_dump_bytes(const char *label, const char *s) {
     printf("\n");
 }
 
+static void test_hex_and_chars(void) {
+    char const * str = "Apôñéas\u253C\U0001F604\U0001F64F";
+    // 1. Output to Console
+    printf("Console Output:\n");
+    Writer out = writer_to_file(stdout);
+    repr_hex_and_chars(&out, str);
+    repr_hex_and_chars_for_codepoint(&out, 0x01F64F);
+
+    printf("\nhigh surrogate range:\nstart: ");
+    repr_hex_and_chars_for_codepoint(&out, 0xD800);
+    printf("  end: ");
+    repr_hex_and_chars_for_codepoint(&out, 0xDBFF);
+    printf("low surrogate range:\nstart: ");
+    repr_hex_and_chars_for_codepoint(&out, 0xDC00);
+    printf("  end: ");
+    repr_hex_and_chars_for_codepoint(&out, 0xDFFF);
+}
+
 #ifdef JSON_PARSER_2_MAIN
 int main( ) {
     // Set locale to ensure printf doesn't mangle UTF-8 bytes based on system defaults
@@ -1469,26 +1512,11 @@ int main( ) {
     // test_number_parse();
     // test_array_parse();
     // test_parse_objects();
-    // test_parse_unicode_escapes();
+    test_parse_unicode_escapes();
 
     // test_multi_byte_char_strings();
 
-
-    char const * str = "Apôñéas\u253C\U0001F604\U0001F64F";
-    // 1. Output to Console
-    printf("Console Output:\n");
-    Writer out = writer_to_file(stdout);
-    repr_hex_and_chars(&out, str);
-    repr_hex_and_chars_for_codepoint(&out, 0x01F64F);
-
-    printf("\nhigh surrogate range:\nstart: ");
-    repr_hex_and_chars_for_codepoint(&out, 0xD800);
-    printf("  end: ");
-    repr_hex_and_chars_for_codepoint(&out, 0xDBFF);
-    printf("low surrogate range:\nstart: ");
-    repr_hex_and_chars_for_codepoint(&out, 0xDC00);
-    printf("  end: ");
-    repr_hex_and_chars_for_codepoint(&out, 0xDFFF);
+    // test_hex_and_chars();
 
 
 }
