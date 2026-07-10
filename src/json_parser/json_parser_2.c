@@ -446,7 +446,7 @@ uint16_t parse_hex4(JsonContext *context, JsonError *error) {
             record_error(context, error, JSON_ERR_UNEXPECTED_EOF, "Unexpected EOF while parsing hex digit.");
             //  clang/clion linter doesn't see that record_error changes err_type.
             //   without this, it erroneously reports of unreachable code in calling methods
-            // error->err_type = JSON_ERR_UNEXPECTED_EOF;
+            error->err_type = JSON_ERR_UNEXPECTED_EOF;
             return 0;
         }
         if (!isxdigit((unsigned char)*json_ptr)) {
@@ -1012,7 +1012,7 @@ static JsonValue * parse_number(JsonContext *context, JsonError *error, Arena *a
     return value;
 }
 
-inline static JsonValue *  parse_literal_impl(  JsonContext *context,
+static JsonValue *  parse_literal_impl(  JsonContext *context,
                                                 JsonError *error,
                                                 JsonValue *literal,
                                                 char const *key_word ) {
