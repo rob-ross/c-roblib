@@ -13,6 +13,8 @@
 #include <string.h>
 
 #include "roblib/string_builder.h"
+#include "roblib/unicode_tools.h"
+
 
 typedef struct json_context_t {
     const char *current_ptr;  // The current text being parsed, advances through the JSON text in the json member
@@ -37,16 +39,20 @@ static JsonValue * parse_string(JsonContext *context, JsonError *error, Arena *a
 
 
 /**
+    Per RFC 8259, these are the white space characters:
     *ws = *(
     %x20 /  ; Space
     %x09 /  ; Horizontal tab
     %x0A /  ; Line feed or New line
     %x0D )  ; Carriage return
+
+    The C spec includes those but also adds these as white space characters:
+        form feed (’\f’),
+        vertical tab (’\v’)
 */
 static char const * const WHITE_SPACE_CHARS = "\x20\x09\x0A\x0D";
 
 static void skip_whitespace(JsonContext *context) {
-    //todo (rob) verify that isspace uses the same space characters as the spec (see WHITE_SPACE_CHARS0
     while (*context->current_ptr && isspace((unsigned char)*context->current_ptr)) {
         if (*context->current_ptr == '\n') {
             context->line++;
@@ -312,6 +318,7 @@ constexpr uint8_t continue_bits = 0b10000000;  // 0x80
 // decode, just verify/validate.
 
 // assumes the UTF-8 bytes are correct and well-ordered. No error checking is done here.
+// Returns the decoded Unicode codepoint value or UINT32_MAX if error occurred.
 static uint32_t decode_utf8(const uint32_t num_bytes, uint8_t utf8_bytes[]) {
     uint32_t codepoint = 0;
     switch  (num_bytes) {
@@ -319,23 +326,24 @@ static uint32_t decode_utf8(const uint32_t num_bytes, uint8_t utf8_bytes[]) {
             codepoint = utf8_bytes[0];
             break;
         case 2:
-            codepoint = codepoint | ( ~0b11000000    & utf8_bytes[0]) << 6;
+            codepoint = codepoint | ( ~0b11000000   & utf8_bytes[0]) << 6;
             codepoint = codepoint | ( continue_mask & utf8_bytes[1]);
             break;
         case 3:
-            codepoint = codepoint | ( ~0b11100000    & utf8_bytes[0]) << 12;
+            codepoint = codepoint | ( ~0b11100000   & utf8_bytes[0]) << 12;
             codepoint = codepoint | ( continue_mask & utf8_bytes[1]) << 6;
             codepoint = codepoint | ( continue_mask & utf8_bytes[2]);
             break;
         case 4:
-            codepoint = codepoint | ( ~0b11110000    & utf8_bytes[0]) << 18;
+            codepoint = codepoint | ( ~0b11110000   & utf8_bytes[0]) << 18;
             codepoint = codepoint | ( continue_mask & utf8_bytes[1]) << 12;
             codepoint = codepoint | ( continue_mask & utf8_bytes[2]) << 6;
             codepoint = codepoint | ( continue_mask & utf8_bytes[3]);
             break;
         default:
             // here we could iterate dynamically for possible encodings past 4 bytes.
-            // for now, we take no action and will return 0
+            // for now, we take no action and will return UINT32_MAX
+            codepoint = UINT32_MAX;
             break;
     }
 
@@ -436,9 +444,9 @@ uint16_t parse_hex4(JsonContext *context, JsonError *error) {
         if (*json_ptr == '\0') {
             context->parse_end = context->current_index;
             record_error(context, error, JSON_ERR_UNEXPECTED_EOF, "Unexpected EOF while parsing hex digit.");
-            // todo temp clang/clion linter doesn't see that record_error changes this value.
-            // without this, it erroneously reports of unreachable code in calling methods
-            error->err_type = JSON_ERR_UNEXPECTED_EOF;
+            //  clang/clion linter doesn't see that record_error changes err_type.
+            //   without this, it erroneously reports of unreachable code in calling methods
+            // error->err_type = JSON_ERR_UNEXPECTED_EOF;
             return 0;
         }
         if (!isxdigit((unsigned char)*json_ptr)) {
@@ -541,16 +549,23 @@ static bool validate_utf8(JsonContext *context, JsonError *error,  StringBuilder
     // -----------------------------------------------------------------
 
     // if the first byte is E0-EF, expect 2 following bytes 80-BF with some exceptions.
-    //      EDA0+ is start of surrogate pair and not allowed
+    //      EDA0+ is the start of a surrogate pair and not allowed
     if ( lead_byte >= 0xE0 && lead_byte <= 0xEF ) {
         if (lead_byte == 0xE0) {
             advance(context, 1);
-            //expect next byte in 0xA0-BF, then 0x80-BF
-            //If the second byte is 0x80 to 0x9F, overlong sequence todo error for this
+            //  expect next byte in 0xA0-BF, then 0x80-BF
+            //    If the second byte is 0x80 to 0x9F, overlong sequence
+            current_byte = (uint8_t)*context->current_ptr;
+            if ( current_byte >= 0x80 && current_byte <= 0x9F) {
+                snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE,
+            "'0x%.2X' is an invalid UTF-8 continuation byte and overlong sequence.", current_byte);
+                context->parse_end = context->current_index;
+                record_error(context, error, JSON_ERR_OVERLONG_SEQUENCE, error_msg_buffer);
+                return false;
+            }
             if ( !validate_utf8_continuation_byte(context, error, lead_byte, 0xA0, 0xBF )) {
                 return false;
             }
-            current_byte = (uint8_t)*context->current_ptr;
             stream_bytes[num_bytes++] = current_byte;
             advance(context, 1);
             if ( !validate_utf8_continuation_byte(context, error, lead_byte, 0x80, 0xBF )) {
@@ -589,11 +604,25 @@ static bool validate_utf8(JsonContext *context, JsonError *error,  StringBuilder
         if (lead_byte == 0xED) {
             advance(context, 1);
             //expect next byte in 0x80-9F, then x80-BF
-            // if second byte in 0xA0 to 0xBF, encoding a surrogate : forbidden todo error reporting
+            // if second byte in 0xA0 to 0xBF, encoding a surrogate : forbidden
+            current_byte = (uint8_t)*context->current_ptr;
+            if ( current_byte >= 0xA0 && current_byte <= 0xAF) {
+                snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE,
+            "'0x%.2X' is an invalid UTF-8 continuation byte and reserved for high surrogates.", current_byte);
+                context->parse_end = context->current_index;
+                record_error(context, error, JSON_ERR_RESERVED_FOR_HIGH_SURROGATE, error_msg_buffer);
+                return false;
+            }
+            if ( current_byte >= 0xB0 && current_byte <= 0xBF) {
+                snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE,
+            "'0x%.2X' is an invalid UTF-8 continuation byte and reserved for low surrogates.", current_byte);
+                context->parse_end = context->current_index;
+                record_error(context, error, JSON_ERR_RESERVED_FOR_LOW_SURROGATE, error_msg_buffer);
+                return false;
+            }
             if ( !validate_utf8_continuation_byte(context, error, lead_byte, 0x80, 0x9F )) {
                 return false;
             }
-            current_byte = (uint8_t)*context->current_ptr;
             stream_bytes[num_bytes++] = current_byte;
             advance(context, 1);
             if ( !validate_utf8_continuation_byte(context, error, lead_byte, 0x80, 0xBF )) {
@@ -641,11 +670,18 @@ static bool validate_utf8(JsonContext *context, JsonError *error,  StringBuilder
         if (lead_byte == 0xF0) {
             advance(context, 1);
             // expect next byte in 0x90-BF, then next two in x80-BF
-            //  If the second byte is 0x80 to 0x8F, overlong sequence. todo report error
+            //  If the second byte is 0x80 to 0x8F, overlong sequence.
+            current_byte = (uint8_t)*context->current_ptr;
+            if ( current_byte >= 0x80 && current_byte <= 0x8F) {
+                snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE,
+            "'0x%.2X' is an invalid UTF-8 continuation byte and overlong sequence.", current_byte);
+                context->parse_end = context->current_index;
+                record_error(context, error, JSON_ERR_OVERLONG_SEQUENCE, error_msg_buffer);
+                return false;
+            }
             if ( !validate_utf8_continuation_byte(context, error, lead_byte, 0x90, 0xBF )) {
                 return false;
             }
-            current_byte = (uint8_t)*context->current_ptr;
             stream_bytes[num_bytes++] = current_byte;
             advance(context, 1);
             if ( !validate_utf8_continuation_byte(context, error, lead_byte, 0x80, 0xBF )) {
@@ -701,12 +737,20 @@ static bool validate_utf8(JsonContext *context, JsonError *error,  StringBuilder
 
         if (lead_byte == 0xF4) {
             advance(context, 1);
-            //expect next byte in 0x80-8F, then next two in x80-BF
-            // if second byte > 0x90, this exceeds legal unicode limit. Out of range. todo report
+            // expect next byte in 0x80-8F, then next two in x80-BF
+            //  if second byte > 0x90, this exceeds legal Unicode limit
+            current_byte = (uint8_t)*context->current_ptr;
+            if ( current_byte >= 0x90 ) {
+                snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE,
+            "'0x%.2X' is an invalid UTF-8 continuation byte and out of range.", current_byte);
+                context->parse_end = context->current_index;
+                record_error(context, error, JSON_ERR_CODEPOINT_OUT_OF_RANGE, error_msg_buffer);
+                return false;
+            }
+
             if ( !validate_utf8_continuation_byte(context, error, lead_byte, 0x80, 0x8F )) {
                 return false;
             }
-            current_byte = (uint8_t)*context->current_ptr;
             stream_bytes[num_bytes++] = current_byte;
             advance(context, 1);
             if ( !validate_utf8_continuation_byte(context, error, lead_byte, 0x80, 0xBF )) {
@@ -1199,7 +1243,7 @@ void json_value_str(JsonValue *value) {
             printf("'%s'\n", value->u.string);
             // todo temp
             uint32_t len = strlen(value->u.string);
-            printf("raw bytes: ");
+            printf("raw bytes: %u ", len);
             for (uint32_t i = 0; i < len; ++i) {
                 printf(" %.1X", (uint8_t)value->u.string[i]);
             }
@@ -1299,6 +1343,14 @@ void test_parse_unicode_escapes() {
     // the code that renders glyphs combines them into one glyph!!
     test_parse_str("\" combining character: C with tail: \\u0043\\u0327\"");
 
+    // Test: Combining character vs Precomposed
+    // \u00E9 is 'é' (1 codepoint)
+    // e\u0301 is 'e' + '´' (2 codepoints)
+    printf("\n--- Combining Character Test ---\n");
+    test_parse_str("\"\\u00E9\"");
+    test_parse_str("\"e\\u0301\"");
+    printf("Note: Both should look identical in the terminal, but 'raw bytes' count will differ.\n");
+
     // test_parse_str("\"\\uABCDAPPLE\"");
 }
 
@@ -1390,9 +1442,9 @@ static void debug_dump_bytes(const char *label, const char *s) {
 #ifdef JSON_PARSER_2_MAIN
 int main( ) {
     // Set locale to ensure printf doesn't mangle UTF-8 bytes based on system defaults
-    // if (!setlocale(LC_ALL, "en_US.UTF-8")) {
-    //     setlocale(LC_ALL, ""); // Fallback to system default locale
-    // }
+    if (!setlocale(LC_ALL, "en_US.UTF-8")) {
+        setlocale(LC_ALL, ""); // Fallback to system default locale
+    }
     //
     // printf("--- Encoding Debug ---\n");
     //
@@ -1417,8 +1469,27 @@ int main( ) {
     // test_number_parse();
     // test_array_parse();
     // test_parse_objects();
-    test_parse_unicode_escapes();
+    // test_parse_unicode_escapes();
 
     // test_multi_byte_char_strings();
+
+
+    char const * str = "Apôñéas\u253C\U0001F604\U0001F64F";
+    // 1. Output to Console
+    printf("Console Output:\n");
+    Writer out = writer_to_file(stdout);
+    repr_hex_and_chars(&out, str);
+    repr_hex_and_chars_for_codepoint(&out, 0x01F64F);
+
+    printf("\nhigh surrogate range:\nstart: ");
+    repr_hex_and_chars_for_codepoint(&out, 0xD800);
+    printf("  end: ");
+    repr_hex_and_chars_for_codepoint(&out, 0xDBFF);
+    printf("low surrogate range:\nstart: ");
+    repr_hex_and_chars_for_codepoint(&out, 0xDC00);
+    printf("  end: ");
+    repr_hex_and_chars_for_codepoint(&out, 0xDFFF);
+
+
 }
 #endif
