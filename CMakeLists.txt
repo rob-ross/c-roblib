@@ -65,6 +65,7 @@ set(LIB_SOURCES
         ${LIB_SRC_DIR}/json_parser/arena.c
         ${LIB_SRC_DIR}/json_parser/error_result.c
         ${LIB_SRC_DIR}/json_parser/lookup_table.c
+        ${LIB_SRC_DIR}/unicode/unicode_tools.c
 )
 
 add_library(c_roblib STATIC ${LIB_SOURCES})
@@ -91,6 +92,7 @@ add_executable(json_parse2
         ${LIB_SRC_DIR}/json_parser/json_parser_2.c
         ${LIB_SRC_DIR}/json_parser/arena.c
         ${LIB_SRC_DIR}/string/string_builder.c
+        ${LIB_SRC_DIR}/unicode/unicode_tools.c
 )
 #target_link_libraries(json_parse2 PRIVATE c_roblib)
 target_include_directories(json_parse2
