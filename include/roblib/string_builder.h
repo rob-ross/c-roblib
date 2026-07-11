@@ -18,7 +18,7 @@ extern "C" {
 typedef struct string_builder_s {
     uint32_t  capacity;
     uint32_t  length;
-    char   *buffer;
+    char      *buffer;  // this needs to be a pointer because it can be reallocated if capacity increases
 } StringBuilder;
 
 
@@ -56,8 +56,10 @@ uint32_t sb_capacity( StringBuilder *sb );
  * @param out_buffer
  */
 void sb_copy_to(StringBuilder *sb, uint32_t buf_len, char out_buffer[static buf_len + 1]);
-StringBuilder * sb_insert_char( StringBuilder *sb, unsigned char c, uint32_t index);
-StringBuilder * sb_insert_str( StringBuilder *sb, char const * str, uint32_t index);
+
+// todo (rob) we need to make these insert methods utf-8 aware
+// StringBuilder * sb_insert_char( StringBuilder *sb, unsigned char c, uint32_t index);
+// StringBuilder * sb_insert_str( StringBuilder *sb, char const * str, uint32_t index);
 
 /**
  *  Returns the length (character count).

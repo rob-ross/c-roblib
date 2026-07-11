@@ -90,6 +90,8 @@ void sb_copy_to(StringBuilder *sb, uint32_t buf_size, char out_buffer[static buf
     out_buffer[buf_size-1] = '\0';
 }
 
+// todo (rob) this only works if the string is only composed of ASCII characters.
+// we need to make this utf-8 aware
 StringBuilder * sb_insert_char( StringBuilder *sb, unsigned char c, const uint32_t index) {
     if (c == '\0') return sb;  // inserting empty string does nothing.
     uint32_t new_length = sb->length + sizeof(c);
