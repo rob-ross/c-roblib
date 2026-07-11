@@ -1288,6 +1288,11 @@ void json_value_str(JsonValue *value) {
 
 void test_parse_str(char const * str) {
     Error init_err = jsonp_init();
+    if (init_err.err) {
+        err_print(init_err);
+        jsonp_destroy();
+        return;
+    }
     Arena arena = {};
     ArenaErrResult aer = arena_create_arena( &arena, ONE_MIBIBYTE * 100);
     if ( aer.err ) {

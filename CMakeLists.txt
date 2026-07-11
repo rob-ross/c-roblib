@@ -29,6 +29,7 @@ set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -O0 -g -fno-omit-frame-pointer \
 -Wno-gnu-zero-variadic-macro-arguments \
 -Wno-gnu-include-next \
 -Wno-unused-parameter \
+-Wno-unused-function \
 -Wno-gnu-anonymous-struct \
 -Wno-nested-anon-types \
 ")
@@ -61,7 +62,7 @@ set(LIB_SOURCES
         ${LIB_SRC_DIR}/map/hashmap.c
         ${LIB_SRC_DIR}/list/array_list.c
         ${LIB_SRC_DIR}/set/bitset.c
-        ${LIB_SRC_DIR}/json_parser/json_parser.c
+        ${LIB_SRC_DIR}/json_parser/json_parser_2.c
         ${LIB_SRC_DIR}/json_parser/arena.c
         ${LIB_SRC_DIR}/json_parser/error_result.c
         ${LIB_SRC_DIR}/json_parser/lookup_table.c

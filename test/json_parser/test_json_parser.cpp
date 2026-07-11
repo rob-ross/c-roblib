@@ -55,9 +55,10 @@ TEST_F(JsonParserTest, TestLiterals) {
     jval = json_parse(" true ", &err, arena);
     EXPECT_EQ(jval->type, JSON_BOOLEAN) << "Expected JsonType = JSON_BOOLEAN";
     EXPECT_TRUE(jval->u.boolean);
-    jval = json_parse(" true false", &err, arena);
-    EXPECT_EQ(jval->type, JSON_BOOLEAN) << "Expected JsonType = JSON_BOOLEAN";
-    EXPECT_TRUE(jval->u.boolean);
+    jval = json_parse(" true false", &err, arena);  // should return null and an error
+    EXPECT_EQ(jval, nullptr) << " 'true false' is invalid JSON";
+    // EXPECT_EQ(jval->type, JSON_BOOLEAN) << "Expected JsonType = JSON_BOOLEAN";
+    // EXPECT_TRUE(jval->u.boolean);
 
     jval = json_parse("false", &err, arena);
     EXPECT_EQ(jval->type, JSON_BOOLEAN) << "Expected JsonType = JSON_BOOLEAN";
@@ -65,9 +66,13 @@ TEST_F(JsonParserTest, TestLiterals) {
     jval = json_parse(" false ", &err, arena);
     EXPECT_EQ(jval->type, JSON_BOOLEAN) << "Expected JsonType = JSON_BOOLEAN";
     EXPECT_FALSE(jval->u.boolean);
+
     jval = json_parse(" false true", &err, arena);
-    EXPECT_EQ(jval->type, JSON_BOOLEAN) << "Expected JsonType = JSON_BOOLEAN";
-    EXPECT_FALSE(jval->u.boolean);
+    EXPECT_EQ(jval, nullptr) << " 'false true' is invalid JSON";
+
+    // EXPECT_EQ(jval->type, JSON_BOOLEAN) << "Expected JsonType = JSON_BOOLEAN";
+    // EXPECT_FALSE(jval->u.boolean);
+
     jval = json_parse("falsee [\"list\"]", &err, arena);
     EXPECT_EQ(jval, nullptr) << "expected nullptr";
 }
@@ -102,8 +107,8 @@ INSTANTIATE_TEST_SUITE_P(
     testing::Values(
         str_param("\"\"", ""),
         str_param("\"string\"", "string"),
-        str_param(" \"This is a json string followed by a comma\", ",
-                    "This is a json string followed by a comma")
+        str_param(" \"This is a longer json string followed by a comma,\" ",
+                    "This is a longer json string followed by a comma,")
     )
 );
 
@@ -144,10 +149,11 @@ INSTANTIATE_TEST_SUITE_P(
         // str_param( " \" backslash-u  \\u  invalid  \" ", "" ),
         // str_param( " \" backslash-uk \\uk invalid  \" ", "" ),
         // str_param( " \" backslash-ua  \\ua  need 4 hex digits\" ", "" ),
-        str_param( " \" backslash-uabcd  \\uabcd valid \" ", " backslash-uabcd   valid " ),
-        str_param( " \" backslash-uFEF0  \\uFEF0 valid \" ", " backslash-uFEF0   valid " ),
-        str_param( " \" backslash-uFEF0  \\uFEF00 one too many. Parses as valid, but next character will fail parse \" ",
-            " backslash-uFEF0  0 one too many. Parses as valid, but next character will fail parse " )
+        str_param( " \" backslash-uabcd  \\uabcd valid \" ", " backslash-uabcd  \xEA\xAF\x8D valid " ),
+        str_param( " \" backslash-uFEF0  \\uFEF0 valid \" ", " backslash-uFEF0  \xEF\xBB\xB0 valid " ),
+        str_param( " \" backslash-uFEF00  \\uFEF00 one extra hex char, valid. \" ",
+            " backslash-uFEF00  \xEF\xBB\xB0" "0 one extra hex char, valid. " ),
+        str_param( " \" backslash-01F600  😀  \\U01F600 \" ", " backslash-01F600  😀  😀 " )
     )
 );
 
