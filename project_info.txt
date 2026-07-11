@@ -1,5 +1,5 @@
 ## Project Information
-* This is a learning project for experimenting with sfml and Imgui.
+* This is an evolving, larval library of code I can reuse in other projects.
 
 ## Version Information
 * This project is developed on Mac OS Sonoma Version 14.8.4 (23J319)
@@ -7,4 +7,7 @@
 * Using C++23 and C23
 * Using CMake 4.2
 
+## Dependencies
+* GoogleTest Release 1.17.0 for unit testing
+* Some POSIX methods
 

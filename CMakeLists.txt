@@ -117,6 +117,11 @@ install(DIRECTORY "${LIB_INCLUDE_DIR}/"
 
 
 # Gtest
+#-------
+#
+# to run all tests:
+# ./cmake-build-debug/run_tests
+
 
 # 1. Automatically download and "install" GoogleTest into the project
 include(FetchContent)
