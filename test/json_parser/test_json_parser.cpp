@@ -183,7 +183,7 @@ TEST_P(JsonParserInts, TestDoubles) {
     auto [input_json, expected_value] = GetParam();
     JsonValue *jval = json_parse(input_json.c_str(), &err, arena);
 
-    ASSERT_NE(jval, nullptr) << "Failed to parse: " << input_json;
+    ASSERT_NE(jval, nullptr) << "Failed to parse: " << input_json << err.message;
     EXPECT_EQ(jval->type, JSON_INT);
     if (jval->type == JSON_INT) {
         EXPECT_EQ(jval->u.n_long, expected_value);
@@ -198,6 +198,9 @@ INSTANTIATE_TEST_SUITE_P(
         std::make_pair("-0", 0),
         std::make_pair("1", 1),
         std::make_pair("-2", -2),
+        std::make_pair("4", 4),
+        std::make_pair("-4", -4),
+        std::make_pair("44", 44),
         std::make_pair("4444", 4444),
         std::make_pair("-55555", -55555)
     )

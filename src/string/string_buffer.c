@@ -4,14 +4,13 @@
 // String methods that work on an ASCII string buffer.
 
 #include "roblib/string_buffer.h"
+#include "roblib/string_utils.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
 
-
-#include "roblib/string_utils.h"
 
 const StringBuffer NULL_STRING_BUFFER = {.type = SBTYPE_NULL, .length = 0, .buffer.as_char = NULL};
 

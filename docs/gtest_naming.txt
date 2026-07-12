@@ -1,0 +1,74 @@
+Google Test’s parameterized system can be quite opaque because it separates the declaration of logic from the injection of data. It helps to think of it as a template system for tests.
+Here is a breakdown of how the naming system works and how it was intended to be used.
+1. The TEST_P Macro (Logic Definition)
+TEST_P(SuiteName, TestName)
+•
+SuiteName: Just like TEST_F, this must be the name of your fixture class (e.g., JsonTestSuiteParam). This class must inherit from testing::WithParamInterface<T>.
+•
+TestName: This is the name of the logical test case.
+•
+The Intent: You are writing a "placeholder" test. You aren't saying what the data is yet; you are only describing how to test it once the data arrives.
+2. The INSTANTIATE_TEST_SUITE_P Macro (Data Injection)
+INSTANTIATE_TEST_SUITE_P(InstantiationName, SuiteName, ParameterGenerator, NameGenerator)
+•
+InstantiationName (The Discriminator): This is a prefix. It is used to distinguish between different "batches" of data being sent to the same suite.
+•
+SuiteName: This links this specific batch of data to the TEST_P logic you defined earlier. It must match the SuiteName used in TEST_P.
+•
+The Intent: This tells GTest, "Take this collection of files and run every TEST_P associated with this SuiteName using this data."
+3. The "Multiplication" Effect
+This is usually where the confusion starts. If you have:
+•
+Two TEST_P declarations (e.g., parse_json and validate_schema) for the same SuiteName.
+•
+Two INSTANTIATE_TEST_SUITE_P calls (e.g., Pass and Fail) for that same SuiteName.
+GTest performs a Cartesian product. It will run:
+1.
+Pass/JsonTestSuiteParam.parse_json/...
+2.
+Pass/JsonTestSuiteParam.validate_schema/...
+3.
+Fail/JsonTestSuiteParam.parse_json/...
+4.
+Fail/JsonTestSuiteParam.validate_schema/...
+This is why you were told that parameters are shared. Every instantiation batch is applied to every TEST_P in that suite. If you want a specific test to only run against "pass" data, you have two choices:
+1.
+Use a flag inside the JsonTestParams (like your should_pass boolean) and use a single TEST_P.
+2.
+Create separate Fixture Classes (Suites) for different logic.
+4. Solving your "Indeterminate" requirement
+For your scenario involving Pass, Fail, and Indeterminate (which can be treated as Pass or Fail), here is how the architecture was intended to handle it:
+The General Solution (Categorization by Logic)
+If the logic of the test is different, you should use different TEST_P names. If the data is different, you use different InstantiationNames.
+To achieve your 4 points:
+1.
+Expected Pass: INSTANTIATE(Pass, ...) -> TEST_P(..., parse_json)
+2.
+Expected Fail: INSTANTIATE(Fail, ...) -> TEST_P(..., parse_json)
+3.
+Indeterminate Assume Pass: INSTANTIATE(Indeterminate, ...) -> TEST_P(..., assume_pass_logic)
+4.
+Indeterminate Assume Fail: INSTANTIATE(Indeterminate, ...) -> TEST_P(..., assume_fail_logic)
+However, if assume_pass_logic is identical to parse_json (just checking for non-null), then you are essentially running the same logic on different data.
+The "Best Practice" for Ambiguous Data
+Since you want to analyze "i" (indeterminate) tests specifically, you should create a third instantiation for the indeterminate folder.
+If you keep your current TEST_P(JsonTestSuiteParam, parse_json) which uses the should_pass flag in the parameters, your setup would look like this:
+•
+Instantiation 1: Prefix Pass, Data from /pass folder, should_pass = true.
+•
+Instantiation 2: Prefix Fail, Data from /fail folder, should_pass = false.
+•
+Instantiation 3: Prefix Indeterminate_as_Pass, Data from /indeterminate folder, should_pass = true.
+•
+Instantiation 4: Prefix Indeterminate_as_Fail, Data from /indeterminate folder, should_pass = false.
+Summary of the Naming Hierarchy
+When you look at the CLion output, the full name generated is: [InstantiationName] / [FixtureName] . [TestName] / [ParamName]
+•
+InstantiationName separates the Source (where the data came from).
+•
+FixtureName separates the Environment (what arena/init logic is used).
+•
+TestName separates the Assertion Logic (should it be null or not null?).
+•
+ParamName separates the Individual File (which specific JSON failed).
+By using different InstantiationNames (the first parameter), you satisfy GTest's requirement for unique identifiers while allowing the same TEST_P logic to be reused across different data sets.

@@ -147,8 +147,12 @@ Error jsonp_init();
 // call when done with parsing module, frees up resources acquired in init().
 void jsonp_destroy(void);
 
-/* Main parsing function */
+/* Main parsing functions */
 JsonValue *json_parse(const char *json, JsonError *error, Arena *arena);
+
+// version that takes an argument, buffer_size, which is the actual size of the JSON text buffer in bytes.
+// this method can report errors where it parsed successfully but did not use up the entire buffer
+JsonValue *json_parse_ex(const char *json, JsonError *error, Arena *arena, size_t buffer_size);
 
 // Searches the entries in the JSON object `json_obj` and returns the entry whose key matches the argument `key`.
 // Returns nullptr if there is no entry with this key.

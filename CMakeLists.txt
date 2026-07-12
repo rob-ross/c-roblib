@@ -67,6 +67,7 @@ set(LIB_SOURCES
         ${LIB_SRC_DIR}/json_parser/error_result.c
         ${LIB_SRC_DIR}/json_parser/lookup_table.c
         ${LIB_SRC_DIR}/unicode/unicode_tools.c
+        ${LIB_SRC_DIR}/file_io/file_utils.c
 )
 
 add_library(c_roblib STATIC ${LIB_SOURCES})
@@ -94,6 +95,7 @@ add_executable(json_parse2
         ${LIB_SRC_DIR}/json_parser/arena.c
         ${LIB_SRC_DIR}/string/string_builder.c
         ${LIB_SRC_DIR}/unicode/unicode_tools.c
+        ${LIB_SRC_DIR}/json_parser/error_result.c
 )
 #target_link_libraries(json_parse2 PRIVATE c_roblib)
 target_include_directories(json_parse2
@@ -145,6 +147,11 @@ file(GLOB_RECURSE TEST_SOURCES "${LIB_TEST_DIR}/*.cpp")
 
 # Define your test executable with all discovered source files
 add_executable(run_tests ${TEST_SOURCES})
+
+# Define a macro so the code knows where the test data is located.
+# CMAKE_CURRENT_SOURCE_DIR points to the directory containing this CMakeLists.txt.
+target_compile_definitions(run_tests PRIVATE
+        JSONTestSuite_DATA_PATH="${CMAKE_CURRENT_SOURCE_DIR}/test/json_parser/JSONTestSuite")
 
 # 3. Link your static C library AND GoogleTest to the test executable
 target_link_libraries(run_tests

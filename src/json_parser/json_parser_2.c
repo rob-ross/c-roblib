@@ -11,10 +11,22 @@
 #include <locale.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
+#include <limits.h>
 
 #include "roblib/string_builder.h"
 #include "roblib/unicode_tools.h"
 
+/*
+ *  todo - configuration flags
+ *  1. allow trailing comma - allow a final comma after an element (array) or member (object) list
+ *  2. allow leading zero on int?
+ *  3. allow formfeed as whitespace? What about vertical tab?
+ *  4. treat -0 as float or int by default?
+ *  5. allow \UXXXXXX 6 hex digit for single Unicode codepoint
+ *  6. BOM handling at start of JSON text - allow? error? replace?
+ *  7. missing surrogate : error, remove, replace with ?
+ */
 
 typedef struct json_context_t {
     const char *current_ptr;  // The current text being parsed, advances through the JSON text in the json member
@@ -52,8 +64,13 @@ static JsonValue * parse_string(JsonContext *context, JsonError *error, Arena *a
 */
 static char const * const WHITE_SPACE_CHARS = "\x20\x09\x0A\x0D";
 
+static inline bool is_json_whitespace(unsigned char c) {
+    return c == ' ' || c == '\t' || c == '\n' || c == '\r';
+}
+
 static void skip_whitespace(JsonContext *context) {
-    while (*context->current_ptr && isspace((unsigned char)*context->current_ptr)) {
+    while (*context->current_ptr && is_json_whitespace((unsigned char)*context->current_ptr)) {
+        // unsigned char c = (unsigned char)*context->current_ptr;
         if (*context->current_ptr == '\n') {
             context->line++;
             context->column = 1;
@@ -126,7 +143,7 @@ static JsonValue * parse_object(JsonContext *context, JsonError *error, Arena *a
     while ( *context->current_ptr && *context->current_ptr != '}' ) {
         skip_whitespace(context);
         JsonValue *key = parse_string(context, error, arena);
-        if (!key) return nullptr;  // error out immediately
+        if (!key) return nullptr;  // error outs immediately
         skip_whitespace(context);
 
         // need to parse a colon ":" here:
@@ -384,11 +401,11 @@ static StringBuilder * encode_utf8( JsonContext *context, JsonError *error, cons
         }
     }
 
-    uint32_t decoded_value; // todo (temp)
+    // uint32_t decoded_value; // todo (temp)
 
     if (codepoint <= 127 ) {
         sb_append_char(sb, (uint8_t)codepoint);
-        decoded_value = decode_utf8(1, (uint8_t[]){(uint8_t)codepoint});
+        // decoded_value = decode_utf8(1, (uint8_t[]){(uint8_t)codepoint});
     } else if (codepoint <= 0x07FF ) {
         // encode as two UTF-8 bytes
         //110xxxxx 10xxxxxx
@@ -396,7 +413,7 @@ static StringBuilder * encode_utf8( JsonContext *context, JsonError *error, cons
         uint8_t second = continue_bits | (uint8_t)( codepoint & continue_mask );
         sb_append_char(sb, first);
         sb_append_char(sb, second);
-        decoded_value = decode_utf8(2, (uint8_t[]){first, second});
+        // decoded_value = decode_utf8(2, (uint8_t[]){first, second});
 
     } else if (codepoint <= 0xFFFF) {
         // encode as three UTF-8 bytes
@@ -407,7 +424,7 @@ static StringBuilder * encode_utf8( JsonContext *context, JsonError *error, cons
         sb_append_char(sb, first);
         sb_append_char(sb, second);
         sb_append_char(sb, third);
-        decoded_value = decode_utf8(3, (uint8_t[]){first, second, third});
+        // decoded_value = decode_utf8(3, (uint8_t[]){first, second, third});
 
     } else if (codepoint <= 0x10FFFF) {
         // encode as four UTF-8 bytes
@@ -420,7 +437,7 @@ static StringBuilder * encode_utf8( JsonContext *context, JsonError *error, cons
         sb_append_char(sb, second);
         sb_append_char(sb, third);
         sb_append_char(sb, fourth);
-        decoded_value = decode_utf8(4, (uint8_t[]){first, second, third, fourth});
+        // decoded_value = decode_utf8(4, (uint8_t[]){first, second, third, fourth});
 
     } else {
         // error, codepoint out of range
@@ -431,7 +448,7 @@ static StringBuilder * encode_utf8( JsonContext *context, JsonError *error, cons
         return nullptr;
     }
 
-    printf("encode_utf8: codepoint = %.4X, decoded_value=%.4X\n", codepoint, decoded_value);
+    // printf("encode_utf8: codepoint = %.4X, decoded_value=%.4X\n", codepoint, decoded_value);
 
     return sb;
 }
@@ -887,12 +904,10 @@ static JsonValue * parse_string(JsonContext *context, JsonError *error, Arena *a
     // 2. EOF, AKA null terminator, \x00
     JsonValue *value = nullptr;
     advance(context, 1); // Skip the opening quote
-    const char *json_ptr = context->current_ptr;
-    while (*json_ptr) {
-        if (*json_ptr == QUOTE) {
+    unsigned char current_byte = (unsigned char )*context->current_ptr;
+    while (current_byte) {
+        if (current_byte == QUOTE) {
             // happy case. We found the terminating quote
-            int match_len = (int)((json_ptr) - context->current_ptr);
-
             value = arena_alloc(arena, sizeof(JsonValue) );
             value->type = JSON_STRING;
 
@@ -905,26 +920,27 @@ static JsonValue * parse_string(JsonContext *context, JsonError *error, Arena *a
 
             value->u.string = str_value;
 
-            advance(context, match_len + 1); // we add 1 to consume the terminating quote
+            advance(context, 1); // consume the terminating quote
             sb_destroy(&sb);
             return value;
         }
 
-        if (*json_ptr == REVERSE_SOLIDUS) {
-            json_ptr++; // Move to the escaped character
+        if (current_byte == REVERSE_SOLIDUS) {
             advance(context, 1); // Skip the backslash
-            if (*json_ptr == '\0') {
+            current_byte = (unsigned char )*context->current_ptr;
+
+            if (current_byte == '\0') {
                 record_error(context, error, 2, "Unexpected EOF after backslash");
                 sb_destroy(&sb);
                 return nullptr; // Unexpected EOF
             }
 
             // Validate escape sequence
-            switch (*json_ptr) {
+            switch (current_byte) {
                 case '"':
                 case '\\':
                 case '/':
-                    sb_append_char(&sb, *json_ptr);
+                    sb_append_char(&sb, current_byte);
                     advance(context, 1);
                     break;
                 case 'b':
@@ -950,8 +966,8 @@ static JsonValue * parse_string(JsonContext *context, JsonError *error, Arena *a
                 case 'u':
                 case 'U':
                     // RFC 8259: \u followed by 4 hex digits
-                    // roblib addition \U followed by 6 hex digits is a codepoint, no
-                    //  surrogates required!
+                    // roblib addition \U followed by 6 hex digits is a codepoint,
+                    //  no surrogates required!
                     StringBuilder *result = parse_unicode_escape(context, error, arena, &sb);
                     if (!result) {
                         context->parse_end = context->current_index;
@@ -960,26 +976,24 @@ static JsonValue * parse_string(JsonContext *context, JsonError *error, Arena *a
                     }
                     break;
                 default:
-                    snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE, "Invalid escape sequence: \\%c", *json_ptr);
+                    snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE, "Invalid escape sequence: \\%c", current_byte);
                     record_error(context, error, 2, error_msg_buffer);
                     sb_destroy(&sb);
                     return nullptr;
             }
 
-        } else if ((unsigned char)*json_ptr <= 0x1F) {
+        } else if ( current_byte <= 0x1F) {
             // RFC 8259: Control characters U+0000 through U+001F MUST be escaped.
             // This means the literal bytes cannot appear here.
-            snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE, "Unexpected unescaped control character: 0x%.2X\n", (unsigned char)*json_ptr);
+            snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE, "Unexpected unescaped control character: 0x%.2X\n", current_byte);
             record_error(context, error, JSON_ERR_UNESCAPED_CONTROL_CHAR, error_msg_buffer);
             sb_destroy(&sb);
             return nullptr;
         } else {
             // Here we validate a string of UTF-8 characters
             if (! validate_utf8(context, error, &sb)) return nullptr;
-            // sb_append_char(&sb, *json_ptr);  // capture current char into the StringBuilder
-            // advance(context, 1);
         }
-        json_ptr = context->current_ptr;
+        current_byte = (unsigned char)*context->current_ptr;
     }
 
     context->parse_end = context->current_index;
@@ -992,7 +1006,7 @@ static JsonValue * parse_string(JsonContext *context, JsonError *error, Arena *a
 #define RSL      "^"
 #define WS       "[\x20\x09\x0A\x0D]"
 #define WS_star  "[\x20\x09\x0A\x0D]*"
-static const char * const REGEX_NUMBER_STR = RSL "(-?(0|[1-9])[0-9]*(\\.[0-9]+)?([eE][-+]?[0-9]+)?)" WS_star;
+static const char * const REGEX_NUMBER_STR = RSL "(-?(0|([1-9][0-9]*))(\\.[0-9]+)?([eE][-+]?[0-9]+)?)" WS_star;
 static regex_t REGEX_NUMBER_PATTERN;
 constexpr int MATCH_FOUND = 0;
 
@@ -1013,7 +1027,8 @@ static JsonValue * parse_number(JsonContext *context, JsonError *error, Arena *a
     auto end = pmatch[1].rm_eo;
     bool is_double = false;
     for (regoff_t i = start; i < end; ++i) {
-        if (context->current_ptr[i]=='.') {
+        char c = context->current_ptr[i];
+        if (c == '.' || c == 'e' || c == 'E') {
             is_double = true;
             break;
         }
@@ -1021,13 +1036,22 @@ static JsonValue * parse_number(JsonContext *context, JsonError *error, Arena *a
 
     value = arena_alloc(arena, sizeof(JsonValue) );
     value->type = JSON_NUMBER;
+
+    errno = 0; // Reset errno before the calls
     if (is_double) {
         value->type = JSON_FLOAT;
         value->u.n_double = strtod(context->current_ptr, nullptr);
+        // Note: If strtod overflows, u.n_double will be +/- Infinity (HUGE_VAL).
     } else {
         value->type = JSON_INT;
-        value->u.n_long = strtol(context->current_ptr, nullptr, 10);
-
+        long val = strtol(context->current_ptr, nullptr, 10);
+        if (errno == ERANGE) {
+            // Promotion: If too big for long, use double to preserve magnitude (even if it becomes Infinity)
+            value->type = JSON_FLOAT;
+            value->u.n_double = strtod(context->current_ptr, nullptr);
+        } else {
+            value->u.n_long = val;
+        }
     }
     advance(context, match_len);
     context->parse_end = context->current_index;
@@ -1414,14 +1438,18 @@ void test_false_parse(void) {
 }
 
 void test_number_parse(void) {
-    test_parse_str("0");
-    test_parse_str("1");
-    test_parse_str("1.1");
-    test_parse_str("-3.3");
-    test_parse_str("-3.3e24");
-    test_parse_str("5.3e-24");
-    test_parse_str("5.67 moo");
-
+    // test_parse_str("0");
+    // test_parse_str("1");
+    // test_parse_str("1.1");
+    // test_parse_str("-3.3");
+    // test_parse_str("-3.3e24");
+    // test_parse_str("5.3e-24");
+    // test_parse_str("5.67 moo");
+    // test_parse_str("[100000000000000000000]");
+    test_parse_str("[123123e100000]");
+    test_parse_str("[-123123e100000]");
+    test_parse_str("[0.4e00669999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999969999999006]");
+    test_parse_str("[-123123123123123123123123123123]");
 }
 
 void test_array_parse(void) {
@@ -1487,6 +1515,10 @@ static void test_hex_and_chars(void) {
     repr_hex_and_chars_for_codepoint(&out, 0xDFFF);
 }
 
+void test_indeterminates(void) {
+    test_parse_str("[\"日ш�\"]");
+}
+
 #ifdef JSON_PARSER_2_MAIN
 int main( ) {
     // Set locale to ensure printf doesn't mangle UTF-8 bytes based on system defaults
@@ -1507,9 +1539,9 @@ int main( ) {
     // printf("\n");
     // fflush(stdout);
 
-    printf("Pound sign: %s\n", "");
-    printf("\\u0800: \u0800\n");
-    printf("\\U+0001f600: \U0001f600\n");
+    // printf("Pound sign: %s\n", "");
+    // printf("\\u0800: \u0800\n");
+    // printf("\\U+0001f600: \U0001f600\n");
 
     // test_null_parse();
     // test_true_parse();
@@ -1517,11 +1549,13 @@ int main( ) {
     // test_number_parse();
     // test_array_parse();
     // test_parse_objects();
-    test_parse_unicode_escapes();
+    // test_parse_unicode_escapes();
 
     // test_multi_byte_char_strings();
 
     // test_hex_and_chars();
+
+    test_indeterminates();
 
 
 }
