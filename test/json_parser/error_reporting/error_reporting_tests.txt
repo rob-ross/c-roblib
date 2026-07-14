@@ -1,0 +1,35 @@
+# filename: error_reporting_tests.txt
+# description: "JSON texts for testing error reporting. Expect to fail."
+# fields: name|json_text|json_error_type|first_bad_char|parse_start|parse_end
+object_key_lone_2nd_surrogate|{"\uDFAA":0}|14|8|1|8
+string_1st_surrogate_but_2nd_missing|["\uDADA"]|15|8|1|8
+string_1st_valid_surrogate_2nd_invalid|["\uD888\u1234"]|15|14|1|14
+string_incomplete_surrogate_and_escape_valid|["\uD800\n"]|15|8|1|8
+string_incomplete_surrogate_pair|["\uDd1ea"]|14|8|1|8
+string_incomplete_surrogates_escape_valid|["\uD800\uD800\n"]|15|14|1|14
+string_invalid_lonely_surrogate|["\ud800"]|15|8|1|8
+string_invalid_surrogate|["\ud800abc"]|15|8|1|8
+string_invalid_utf-8|["\xff"]|19|2|1|2
+string_inverted_surrogates_U+1D11E|["\uDd1e\uD834"]|14|8|1|8
+string_iso_latin_1|["\xe9"]|20|3|1|3
+string_lone_second_surrogate|["\uDFAA"]|14|8|1|8
+string_lone_utf8_continuation_byte|["\x81"]|19|2|1|2
+string_not_in_unicode_range|["\xf4\xbf\xbf\xbf"]|18|3|1|3
+string_overlong_sequence_2_bytes|["\xc0\xaf"]"|21|2|1|2
+string_overlong_sequence_6_bytes|["\xfc\x83\xbf\xbf\xbf\xbf"]|19|2|1|2
+string_overlong_sequence_6_bytes_null|["\xfc\x80\x80\x80\x80\x80"]|19|2|1|2
+string_truncated-utf-8|["\xe0\xff"]|20|3|1|3
+string_UTF8_surrogate_U+D800|["\xed\xa0\x80"]|16|3|1|3
+string_UTF-8_invalid_sequence|["\xe6\x97\xa5\xd1\x88\xfa"]|19|7|1|7
+
+structure_UTF-8_BOM_empty_object|\xef\xbb\xbf{}|0|0|0|0
+
+# utf-16 tests... we need to move these to a utf-16 test method. Also, we have to implement utf-16 file handling first.
+
+string_utf16BE_no_BOM|\x00\x5b\x00\x22\x00\xe9\x00\x22\x00\x5d|0|0|0|0
+string_utf16LE_no_BOM|\x5b\x00\x22\x00\xe9\x00\x22\x00\x5d\x00|0|0|0|0
+string_UTF-16LE_with_BOM|\xff\xfe\x5b\x00\x22\x00\xe9\x00\x22\x00\x5d\x00|0|0|0|0
+
+
+#  ||0|0|0|0
+

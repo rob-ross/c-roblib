@@ -151,7 +151,8 @@ add_executable(run_tests ${TEST_SOURCES})
 # Define a macro so the code knows where the test data is located.
 # CMAKE_CURRENT_SOURCE_DIR points to the directory containing this CMakeLists.txt.
 target_compile_definitions(run_tests PRIVATE
-        JSONTestSuite_DATA_PATH="${CMAKE_CURRENT_SOURCE_DIR}/test/json_parser/JSONTestSuite")
+        JSONTestSuite_DATA_PATH="${CMAKE_CURRENT_SOURCE_DIR}/test/json_parser/JSONTestSuite"
+        ERROR_REPORTING_DATA_PATH="${CMAKE_CURRENT_SOURCE_DIR}/test/json_parser/error_reporting")
 
 # 3. Link your static C library AND GoogleTest to the test executable
 target_link_libraries(run_tests

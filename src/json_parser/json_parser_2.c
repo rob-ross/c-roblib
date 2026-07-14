@@ -158,6 +158,7 @@ static JsonValue * parse_object(JsonContext *context, JsonError *error, Arena *a
 
     while ( *context->current_ptr && *context->current_ptr != '}' ) {
         skip_whitespace(context);
+        context->parse_start = context->current_index;
         JsonValue *key = parse_string(context, error, arena);
         if (!key) {
             // error-out immediately
@@ -169,7 +170,7 @@ static JsonValue * parse_object(JsonContext *context, JsonError *error, Arena *a
         // need to parse a colon ":" here:
         if (*context->current_ptr != ':' ) {
             char const *msg = "expected name-separator ':'";
-            record_error(context, error, (int)strlen(msg), msg);
+            record_error(context, error, JSON_ERR_MISSING_COLON, msg);
             depth_current--;
             return nullptr;
         }
@@ -202,7 +203,7 @@ static JsonValue * parse_object(JsonContext *context, JsonError *error, Arena *a
 
     if (*context->current_ptr != '}' ) {
         char const *msg = "unterminated object";
-        record_error(context, error, (int)strlen(msg), msg);
+        record_error(context, error, JSON_ERR_UNTERMINATED_OBJECT, msg);
         depth_current--;
         return nullptr;
     }
@@ -264,7 +265,7 @@ static JsonValue * parse_array(JsonContext *context, JsonError *error, Arena *ar
     if ( *context->current_ptr && *context->current_ptr != ']') {
         JsonValue *value = parse_value(context, error, arena);
         if (!value) {
-            context->parse_start = context->current_index;
+            // context->parse_start = context->current_index;
             context->parse_end = context->current_index;
             depth_current--;
             return nullptr;  // error-out immediately
@@ -278,7 +279,7 @@ static JsonValue * parse_array(JsonContext *context, JsonError *error, Arena *ar
         skip_whitespace(context);
         //expect ','
         if (*context->current_ptr != ',' ) {
-            context->parse_start = context->current_index;
+            // context->parse_start = context->current_index;
             context->parse_end = context->current_index;
             record_error(context, error, JSON_ERR_MISSING_COMMA, "expected comma");
             depth_current--;
@@ -441,11 +442,11 @@ static StringBuilder * encode_utf8( JsonContext *context, JsonError *error, cons
         }
     }
 
-    // uint32_t decoded_value; // todo (temp)
+    uint32_t decoded_value; // todo (temp)
 
     if (codepoint <= 127 ) {
         sb_append_char(sb, (uint8_t)codepoint);
-        // decoded_value = decode_utf8(1, (uint8_t[]){(uint8_t)codepoint});
+        decoded_value = decode_utf8(1, (uint8_t[]){(uint8_t)codepoint});
     } else if (codepoint <= 0x07FF ) {
         // encode as two UTF-8 bytes
         //110xxxxx 10xxxxxx
@@ -453,7 +454,7 @@ static StringBuilder * encode_utf8( JsonContext *context, JsonError *error, cons
         uint8_t second = continue_bits | (uint8_t)( codepoint & continue_mask );
         sb_append_char(sb, first);
         sb_append_char(sb, second);
-        // decoded_value = decode_utf8(2, (uint8_t[]){first, second});
+        decoded_value = decode_utf8(2, (uint8_t[]){first, second});
 
     } else if (codepoint <= 0xFFFF) {
         // encode as three UTF-8 bytes
@@ -464,7 +465,7 @@ static StringBuilder * encode_utf8( JsonContext *context, JsonError *error, cons
         sb_append_char(sb, first);
         sb_append_char(sb, second);
         sb_append_char(sb, third);
-        // decoded_value = decode_utf8(3, (uint8_t[]){first, second, third});
+        decoded_value = decode_utf8(3, (uint8_t[]){first, second, third});
 
     } else if (codepoint <= 0x10FFFF) {
         // encode as four UTF-8 bytes
@@ -477,7 +478,7 @@ static StringBuilder * encode_utf8( JsonContext *context, JsonError *error, cons
         sb_append_char(sb, second);
         sb_append_char(sb, third);
         sb_append_char(sb, fourth);
-        // decoded_value = decode_utf8(4, (uint8_t[]){first, second, third, fourth});
+        decoded_value = decode_utf8(4, (uint8_t[]){first, second, third, fourth});
 
     } else {
         // error, codepoint out of range
@@ -488,7 +489,7 @@ static StringBuilder * encode_utf8( JsonContext *context, JsonError *error, cons
         return nullptr;
     }
 
-    // printf("encode_utf8: codepoint = %.4X, decoded_value=%.4X\n", codepoint, decoded_value);
+    printf("encode_utf8: codepoint = %.4X, decoded_value=%.4X\n", codepoint, decoded_value);
 
     return sb;
 }
@@ -871,7 +872,7 @@ static StringBuilder * parse_unicode_escape( JsonContext *context, JsonError *er
         return sb_out;
     }
 
-    advance(context, 1);
+    advance(context, 1);  // consume 'u'
     uint16_t cp1 = parse_hex4(context, error);
 
     if (error->err_type != JSON_ERR_NONE) {
@@ -970,7 +971,7 @@ static JsonValue * parse_string(JsonContext *context, JsonError *error, Arena *a
             current_byte = (unsigned char )*context->current_ptr;
 
             if (current_byte == '\0') {
-                record_error(context, error, 2, "Unexpected EOF after backslash");
+                record_error(context, error, JSON_ERR_UNEXPECTED_EOF, "Unexpected EOF after backslash");
                 sb_destroy(&sb);
                 return nullptr; // Unexpected EOF
             }
@@ -1017,7 +1018,7 @@ static JsonValue * parse_string(JsonContext *context, JsonError *error, Arena *a
                     break;
                 default:
                     snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE, "Invalid escape sequence: \\%c", current_byte);
-                    record_error(context, error, 2, error_msg_buffer);
+                    record_error(context, error, JSON_ERR_INVALID_ESCAPE_SEQUENCE, error_msg_buffer);
                     sb_destroy(&sb);
                     return nullptr;
             }
@@ -1060,7 +1061,7 @@ static JsonValue * parse_number(JsonContext *context, JsonError *error, Arena *a
     int match_len =  (int)pmatch[0].rm_eo;
     if (result != MATCH_FOUND || match_len < 0) {
         snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE, "expected number, got: %.*s", 100 ,context->current_ptr);
-        record_error(context, error, ERROR_MSG_BUFFER_SIZE, error_msg_buffer);
+        record_error(context, error, JSON_ERR_INVALID_NUMBER_FORMAT, error_msg_buffer);
         return nullptr;
     }
     auto start = pmatch[1].rm_so;
