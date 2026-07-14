@@ -26,6 +26,9 @@
  *  5. allow \UXXXXXX 6 hex digit for single Unicode codepoint
  *  6. BOM handling at start of JSON text - allow? error? replace?
  *  7. missing surrogate : error, remove, replace with ?
+ *  8. Parse -0 as int or float?
+ *  9. Max nesting depth. Default? 64?
+ * 10. Invalid utf-8: error? remove? replace with ?
  */
 
 typedef struct json_context_t {
@@ -40,6 +43,10 @@ typedef struct json_context_t {
 
 constexpr uint32_t ERROR_MSG_BUFFER_SIZE = 1023;
 static char error_msg_buffer[ERROR_MSG_BUFFER_SIZE + 1] = {};
+
+constexpr uint32_t DEPTH_MAX_DEFAULT = 64;
+static uint32_t depth_max = DEPTH_MAX_DEFAULT; // todo (rob) make this Threadlocal
+static uint32_t depth_current = 0;
 
 
 // -----------------------------------------------------------------
@@ -129,6 +136,15 @@ JsonObjectEntry * jsonp_entry_for_key(const JsonValue *json_obj, char const * ke
 
 static JsonValue * parse_object(JsonContext *context, JsonError *error, Arena *arena ) {
     // we recursively parse members of this object until we see end-of-object '}' char or run out of text
+    depth_current++;
+    if (depth_current > depth_max) {
+        snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE,
+            "max nested depth of %d exceeded", depth_max);
+        context->parse_end = context->current_index;
+        record_error(context, error, JSON_ERR_MAX_NESTED_DEPTH_EXCEEDED, error_msg_buffer);
+        depth_current--;
+        return nullptr;  // error-out immediately
+    }
     JsonValue *object =  arena_alloc(arena, sizeof(JsonValue) );
 
     size_t num_entries = 0;
@@ -143,23 +159,32 @@ static JsonValue * parse_object(JsonContext *context, JsonError *error, Arena *a
     while ( *context->current_ptr && *context->current_ptr != '}' ) {
         skip_whitespace(context);
         JsonValue *key = parse_string(context, error, arena);
-        if (!key) return nullptr;  // error outs immediately
+        if (!key) {
+            // error-out immediately
+            depth_current--;
+            return nullptr;
+        }
         skip_whitespace(context);
 
         // need to parse a colon ":" here:
         if (*context->current_ptr != ':' ) {
             char const *msg = "expected name-separator ':'";
             record_error(context, error, (int)strlen(msg), msg);
+            depth_current--;
             return nullptr;
         }
         advance(context, 1);  // consume ':'
 
         JsonValue *value = parse_value(context, error, arena);
-        if (!value) return nullptr;  // error out immediately
-
+        if (!value) {
+            // error-out immediately
+            depth_current--;
+            return nullptr;
+        }
         JsonObjectEntry *joe = (JsonObjectEntry*)arena_alloc(arena, sizeof(JsonObjectEntry));
         if (!joe) {
             fprintf(stderr, "parse_object(): arena alloc failed for JsonObjectEntry *joe\n");
+            depth_current--;
             return nullptr;
         }
 
@@ -178,6 +203,7 @@ static JsonValue * parse_object(JsonContext *context, JsonError *error, Arena *a
     if (*context->current_ptr != '}' ) {
         char const *msg = "unterminated object";
         record_error(context, error, (int)strlen(msg), msg);
+        depth_current--;
         return nullptr;
     }
 
@@ -192,6 +218,7 @@ static JsonValue * parse_object(JsonContext *context, JsonError *error, Arena *a
     }
     object->u.object.count = num_entries;
     object->u.object.entries = entries_array;
+    depth_current--;
     return object;
 }
 
@@ -212,8 +239,17 @@ static JsonValueNode * add_json_value_node(JsonValueNode * first_node, JsonValue
 }
 
 
-static JsonValue * parse_array(JsonContext *context, JsonError *error, Arena *arena ) {
+static JsonValue * parse_array(JsonContext *context, JsonError *error, Arena *arena) {
     // we recursively parse elements of this array until we see end-of-array ']' char or run out of text
+    depth_current++;
+    if (depth_current > depth_max) {
+        snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE,
+            "max nested depth of %d exceeded", depth_max);
+        context->parse_end = context->current_index;
+        record_error(context, error, JSON_ERR_MAX_NESTED_DEPTH_EXCEEDED, error_msg_buffer);
+        depth_current--;
+        return nullptr;  // error-out immediately
+    }
     JsonValue *array =  arena_alloc(arena, sizeof(JsonValue) );
 
     size_t num_elements = 0;
@@ -230,6 +266,7 @@ static JsonValue * parse_array(JsonContext *context, JsonError *error, Arena *ar
         if (!value) {
             context->parse_start = context->current_index;
             context->parse_end = context->current_index;
+            depth_current--;
             return nullptr;  // error-out immediately
         }
         elements = add_json_value_node(elements, value, arena);
@@ -244,6 +281,7 @@ static JsonValue * parse_array(JsonContext *context, JsonError *error, Arena *ar
             context->parse_start = context->current_index;
             context->parse_end = context->current_index;
             record_error(context, error, JSON_ERR_MISSING_COMMA, "expected comma");
+            depth_current--;
             return nullptr;
         }
         // comma is expected delimiter between array elements
@@ -264,6 +302,7 @@ static JsonValue * parse_array(JsonContext *context, JsonError *error, Arena *ar
         char const *msg = "unterminated array";
         context->parse_end = context->current_index;
         record_error(context, error, JSON_ERR_UNTERMINATED_ARRAY, msg);
+        depth_current--;
         return nullptr;
     }
     advance(context, 1);  // consume ']'
@@ -279,6 +318,7 @@ static JsonValue * parse_array(JsonContext *context, JsonError *error, Arena *ar
     array->u.array.count = num_elements;
     array->u.array.elements = element_array;
 
+    depth_current--;
     return array;
 }
 
@@ -1516,7 +1556,38 @@ static void test_hex_and_chars(void) {
 }
 
 void test_indeterminates(void) {
-    test_parse_str("[\"日ш�\"]");
+    // test_parse_str("[\"日ш�\"]");
+
+    // a really big int.
+    test_parse_str("[100000000000000000000]");  // parses as [ 1e+20 ]
+
+
+    // + overflow
+    test_parse_str("[123123e100000]"); // [ inf ]
+
+    // - overflow
+    test_parse_str("[-123123e100000]");  // [ -inf ]
+
+    // huge exp- parses as [ inf ]
+    test_parse_str("[0.4e00669999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999969999999006]");
+
+    // too big negative int
+    test_parse_str("[-123123123123123123123123123123]");  // [ -1.23123e+29 ]
+
+    // number_double_huge_neg_exp.json
+    test_parse_str("[123.456e-789]");  // [ 0 ]
+
+    //number_pos_double_huge_exp.json
+    test_parse_str("[1.5e+9999]"); // [ inf ]
+
+    //number_real_underflow.json
+    test_parse_str("[123e-10000000]");  // [ 0 ]
+
+    // number_very_big_negative_int.json  - parses a [ -2.37462e+47 ][ -2.37462e+47 ]
+    test_parse_str("[-237462374673276894279832749832423479823246327846]");
+
+    // number_neg_int_huge_exp.json
+    test_parse_str("[-1e+9999]");  // [ -inf ]
 }
 
 #ifdef JSON_PARSER_2_MAIN
