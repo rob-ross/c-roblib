@@ -22,7 +22,6 @@ string_truncated-utf-8|["\xe0\xff"]|20|3|1|3
 string_UTF8_surrogate_U+D800|["\xed\xa0\x80"]|16|3|1|3
 string_UTF-8_invalid_sequence|["\xe6\x97\xa5\xd1\x88\xfa"]|19|7|1|7
 
-structure_UTF-8_BOM_empty_object|\xef\xbb\xbf{}|0|0|0|0
 
 # utf-16 tests... we need to move these to a utf-16 test method. Also, we have to implement utf-16 file handling first.
 

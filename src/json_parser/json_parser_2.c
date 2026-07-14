@@ -1220,12 +1220,22 @@ JsonValue *json_parse(const char *json, JsonError *error, Arena *arena) {
         return nullptr;
     }
 
+    // if the json text starts with the BOM, skip over it
+    // todo (rob) if FAIL_ON_BOM.... and there's a BOM, error-out
+
+    // EF BB BF.
+    if ( (unsigned char)json[0] == 0xEF && (unsigned char)json[1] == 0xBB && (unsigned char)json[2] == 0xBF) {
+        json = json + 3;
+    }
+
     JsonContext context = {.current_ptr = json, .json=json};
     skip_whitespace(&context);
     if (json[0] == '\0') {
         *error = (JsonError){.json=json, .message = "empty json text", .err_type = JSON_ERR_EMPTY_TEXT};
         return nullptr;
     }
+
+
 
     //A JSON value MUST be an object, array, number, or string, or one of the following three literal names:
     //  false, null, true

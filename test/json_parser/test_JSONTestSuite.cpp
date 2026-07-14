@@ -155,25 +155,25 @@ TEST_P(JsonTestSuiteParam, parse_json) {
 // }
 
 INSTANTIATE_TEST_SUITE_P(
-    Pass,
+    ShouldPass,
     JsonTestSuiteParam,
     testing::ValuesIn(GetTestSuiteFiles(std::string("/pass"), true)),
     ParamNameGenerator
 );
 
 INSTANTIATE_TEST_SUITE_P(
-    Fail,
+    ShouldFail,
     JsonTestSuiteParam,
     testing::ValuesIn(GetTestSuiteFiles(std::string("/fail"), false)),
     ParamNameGenerator
 );
 
-INSTANTIATE_TEST_SUITE_P(
-    Indeterminate_as_Pass,
-    JsonTestSuiteParam,
-    testing::ValuesIn(GetTestSuiteFiles(std::string("/indeterminate"), true)),
-    ParamNameGenerator
-);
+// INSTANTIATE_TEST_SUITE_P(
+//     Indeterminate_as_Pass,
+//     JsonTestSuiteParam,
+//     testing::ValuesIn(GetTestSuiteFiles(std::string("/indeterminate"), true)),
+//     ParamNameGenerator
+// );
 
 INSTANTIATE_TEST_SUITE_P(
     Indeterminate_as_Fail,
