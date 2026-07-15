@@ -24,7 +24,7 @@
 
 typedef struct json_context_t {
     const char *current_ptr;  // The current text being parsed, advances through the JSON text in the json member
-    const char *json; // full original JSON text string
+    const char *json_text; // full original JSON text string
     uint32_t current_index; // the index of the character the lexer is scanning
     uint32_t line;
     uint32_t column;
@@ -138,7 +138,7 @@ static void pvt_record_error(
     const JsonContext *context, JsonError *error, const enum json_error_type err_type, const char *msg) {
 
     error->message = msg;
-    error->json = context->json;
+    error->json = context->json_text;
     error->err_type = err_type;
     error->first_bad_char = context->current_index;
     error->line   = context->line;
@@ -1384,7 +1384,7 @@ static void pvt_init_context_ws_table(JsonContext *context) {
 JsonValue *jsonp_parse(const char *json_text, JsonError *error, Arena *arena) {
     JsonContext context = {
         .current_ptr = json_text,
-        .json = json_text,
+        .json_text = json_text,
         .config_flags = atomic_load(&json_config_flags)
     };
     pvt_init_context_ws_table(&context);
@@ -1395,7 +1395,7 @@ JsonValue *jsonp_parse(const char *json_text, JsonError *error, Arena *arena) {
 JsonValue *jsonp_parse_ex(const char *json_text, JsonError *error, Arena *arena, const uint32_t buffer_size) {
     JsonContext context = {
         .current_ptr = json_text,
-        .json = json_text,
+        .json_text = json_text,
         .config_flags = atomic_load(&json_config_flags)
     };
     pvt_init_context_ws_table(&context);
