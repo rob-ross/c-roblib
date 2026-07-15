@@ -51,6 +51,7 @@ static int utf8_to_codepoint(const char *utf8, uint32_t *out_cp) {
 }
 
 // copy diagnostic information for the codepoint argument into the Writer
+//this encodes a codepoint as UTF-8
 void repr_hex_and_chars_for_codepoint(Writer *w, uint32_t codepoint) {
     char utf8[5] = {0};
     if (codepoint <= 0x7F) {

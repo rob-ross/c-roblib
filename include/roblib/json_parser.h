@@ -145,7 +145,11 @@ typedef enum json_error_type {
     JSON_ERR_INVALID_UTF8_CONTINUATION_BYTE,
     JSON_ERR_OVERLONG_SEQUENCE,
     JSON_ERR_MAX_NESTED_DEPTH_EXCEEDED,
-
+    JSON_ERR_UNEXPECTED_UTF16_ENCODING,
+    JSON_ERR_UNEXPECTED_UTF32_ENCODING,
+    JSON_ERR_BOM_NOT_ALLOWED,
+    JSON_ERR_TRAILING_COMMA_NOT_ALLOWED,
+    JSON_ERR_OUT_OF_MEMORY,
     JSON_ERR_COUNT
 } JsonErrType;
 
@@ -160,7 +164,27 @@ typedef struct json_error_s {
     int parse_end;
 } JsonError;
 
+typedef enum json_config_flag_e : uint64_t {
+    JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_ARRAYS,
+    JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_OBJECTS,
+    JSON_CONFIG_ALLOW_UNICODE_U_ESCAPE, // allows Unicode escapes in form of \UXXXXXX (6 hex digits)
+    JSON_CONFIG_FAIL_ON_INT_OVERFLOW,  // when not set (default) will try to promote number to double
+    JSON_CONFIG_FAIL_ON_FLOAT_OVERFLOW,
+    // if set and the number is too small to be represented as a float, rejects the JSON text
+    // if not set (the default), an under-flowing double becomes 0.0f.
+    JSON_CONFIG_FAIL_ON_FLOAT_UNDERFLOW,
+    // if set and the JSON text begins with a BOM, reject the JSON text.
+    // if not set (the default) ignores a BOM at the start of the JSON text
+    JSON_CONFIG_FAIL_ON_INITIAL_BOM,
 
+    //  if set, replace any invalid UTF-8 sequences with the missing symbol character
+    //  if not set (the default), rejects the JSON text as invalid if it contains invalid utf-8 sequences.
+    JSON_CONFIG_REPLACE_BAD_UTF8,
+    //  if set, replace any invalid utf-16 surrogate sequences with the missing symbol character
+    //  if not set (the default), rejects the JSON text as invalid if it contains invalid utf-16 surrogate sequences.
+    JSON_CONFIG_REPLACE_BAD_SURROGATES,
+
+} JsonConfigFlag;
 
 // Must call at application startup to initialize the parser before first use.
 Error jsonp_init();
@@ -168,7 +192,7 @@ Error jsonp_init();
 void jsonp_destroy(void);
 
 /* Main parsing functions */
-JsonValue *json_parse(const char *json, JsonError *error, Arena *arena);
+JsonValue *jsonp_parse(const char *json_text, JsonError *error, Arena *arena);
 
 // version that takes an argument, buffer_size, which is the actual size of the JSON text buffer in bytes.
 // this method can report errors where it parsed successfully but did not use up the entire buffer
@@ -179,7 +203,15 @@ JsonValue *json_parse_ex(const char *json, JsonError *error, Arena *arena, size_
 JsonObjectEntry * jsonp_entry_for_key(const JsonValue *json_obj, char const * key) ;
 
 // print a string representation of the JSON graph to the console
-void json_value_str(JsonValue *value);
+void jsonp_print_json_value(JsonValue *value);
+
+
+bool jsonp_is_flag_set(JsonConfigFlag flag);
+
+void jsonp_set_config_flag(JsonConfigFlag flag);
+
+void jsonp_clear_config_flag(JsonConfigFlag flag);
+
 
 
 void json_value_repr(JsonValue *value);

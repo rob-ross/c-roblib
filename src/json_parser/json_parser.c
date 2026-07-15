@@ -97,7 +97,7 @@ constexpr char QUOTATION_MARK = '"';
 // -----------------------------------------------------------------
 //      Forward References
 // -----------------------------------------------------------------
-static JsonValue *parse_value(JsonContext *context, JsonError *error, Arena *arena) ;
+static JsonValue *pvt_parse_value(JsonContext *context, JsonError *error, Arena *arena) ;
 
 
 
@@ -106,7 +106,7 @@ static int parse_position( const JsonContext *context) {
     return (int)(context->current_ptr - context->json);
 }
 
-static void skip_whitespace(JsonContext *context) {
+static void pvt_skip_whitespace(JsonContext *context) {
     while (*context->current_ptr && isspace(*context->current_ptr)) {
         if (*context->current_ptr == '\n') {
             context->line++;
@@ -145,7 +145,7 @@ static int match_one_pattern( const RegexPattern *rp, char const * str) {
 // }
 
 // advance the parser state based on the current parse window
-static void advance(JsonContext *context, const int char_count) {
+static void pvt_advance(JsonContext *context, const int char_count) {
     context->current_ptr += char_count;
     context->column       += char_count;
     context->parse_end    = context->parse_start + char_count;
@@ -182,7 +182,7 @@ static JsonValue * parse_null(JsonContext *context, JsonError *error, Arena *are
 
     value = arena_alloc(arena, sizeof(JsonValue) );
     value->type = JSON_NULL;
-    advance(context, match_len);
+    pvt_advance(context, match_len);
     return value;
 }
 
@@ -204,7 +204,7 @@ static JsonValue *  parse_true(JsonContext *context, JsonError *error, Arena *ar
     value = arena_alloc(arena, sizeof(JsonValue) );
     value->type = JSON_BOOLEAN;
     value->u.boolean = true;
-    advance(context, match_len);
+    pvt_advance(context, match_len);
     return value;
 
 }
@@ -225,7 +225,7 @@ static JsonValue *  parse_false(JsonContext *context, JsonError *error, Arena *a
     value = arena_alloc(arena, sizeof(JsonValue) );
     value->type = JSON_BOOLEAN;
     value->u.boolean = false;
-    advance(context, match_len);
+    pvt_advance(context, match_len);
     return value;
 
 }
@@ -239,7 +239,7 @@ constexpr char RIGHT_BRACE     = '}';
 constexpr char COLON           = ':';
 constexpr char COMMA           = ',';
 
-static JsonValue * parse_string(JsonContext *context, JsonError *error, Arena *arena ) {
+static JsonValue * pvt_parse_string(JsonContext *context, JsonError *error, Arena *arena ) {
     // the standard regex C library doesn't provide look-arounds. so simple regex matching with escaped quotes
     // causes the string to terminate early when there's not a closing, non-escaped quote.
     // E.g., ' "This  \"json\" string has embedded quotes but no matching closing quote ':
@@ -254,7 +254,7 @@ static JsonValue * parse_string(JsonContext *context, JsonError *error, Arena *a
     // 2. EOF, AKA null terminator, \x00
     // 3. any of the delimiter chars bracket, brace, colon, comma.
     JsonValue *value = nullptr;
-    advance(context, 1); // Skip the opening quote
+    pvt_advance(context, 1); // Skip the opening quote
     const char *json_ptr = context->current_ptr;
     while (*json_ptr) {
         if (*json_ptr == QUOTE) {
@@ -276,7 +276,7 @@ static JsonValue * parse_string(JsonContext *context, JsonError *error, Arena *a
             value->u.string = str_value;
 
 
-            advance(context, match_len + 1); // we add 1 to consume the terminating quote
+            pvt_advance(context, match_len + 1); // we add 1 to consume the terminating quote
 
             // printf("  returning from parse_str, StringBuilder buffer is : '%s'\n", sb.buffer);
 
@@ -376,7 +376,7 @@ static JsonValue * parse_string(JsonContext *context, JsonError *error, Arena *a
 
 }
 
-static JsonValue * parse_number(JsonContext *context, JsonError *error, Arena *arena ) {
+static JsonValue * pvt_parse_number(JsonContext *context, JsonError *error, Arena *arena ) {
     JsonValue *value = nullptr;
 
     constexpr size_t max_groups = 4;
@@ -422,7 +422,7 @@ static JsonValue * parse_number(JsonContext *context, JsonError *error, Arena *a
         value->u.n_long = strtol(context->current_ptr, nullptr, 10);
 
     }
-    advance(context, match_len);
+    pvt_advance(context, match_len);
     return value;
 
 
@@ -436,7 +436,7 @@ typedef struct json_value_node_s {
 // add a node to the linked list headed by first_node.
 // adds nodes to the front of the linked list. If first_node is null, it will be the head node of a new linked list.
 // Returns the new first_node.
-static JsonValueNode * add_json_value_node(JsonValueNode * first_node, JsonValue *value, Arena *arena ) {
+static JsonValueNode * pvt_add_json_value_node(JsonValueNode * first_node, JsonValue *value, Arena *arena ) {
     if (!value) return nullptr;
     JsonValueNode * new_node = (JsonValueNode*) arena_alloc(arena, sizeof(JsonValueNode) );
     new_node->value = value;
@@ -445,7 +445,7 @@ static JsonValueNode * add_json_value_node(JsonValueNode * first_node, JsonValue
 }
 
 
-static JsonValue * parse_array(JsonContext *context, JsonError *error, Arena *arena ) {
+static JsonValue * pvt_parse_array(JsonContext *context, JsonError *error, Arena *arena ) {
     // we recursively parse elements of this array until we see end-of-array ']' char
     JsonValue *array =  arena_alloc(arena, sizeof(JsonValue) );
 
@@ -455,19 +455,19 @@ static JsonValue * parse_array(JsonContext *context, JsonError *error, Arena *ar
     array->u.array.elements = nullptr;
 
     JsonValueNode *elements = nullptr;
-    advance(context, 1);  // consume '['
-    skip_whitespace(context);
+    pvt_advance(context, 1);  // consume '['
+    pvt_skip_whitespace(context);
 
     while ( *context->current_ptr && *context->current_ptr != ']' ) {
-        skip_whitespace(context);
-        JsonValue *value = parse_value(context, error, arena);
+        pvt_skip_whitespace(context);
+        JsonValue *value = pvt_parse_value(context, error, arena);
         if (!value) return nullptr;  // error out immediately
-        elements = add_json_value_node(elements, value, arena);
+        elements = pvt_add_json_value_node(elements, value, arena);
         num_elements++;
-        skip_whitespace(context);
+        pvt_skip_whitespace(context);
         if (*context->current_ptr == ',' ) {
             // comma is expected delimiter between array elements
-            advance(context, 1);  // consume ','
+            pvt_advance(context, 1);  // consume ','
         }
         // context->current_ptr++;
     }
@@ -478,7 +478,7 @@ static JsonValue * parse_array(JsonContext *context, JsonError *error, Arena *ar
         return nullptr;
     }
 
-    advance(context, 1);  // consume ']'
+    pvt_advance(context, 1);  // consume ']'
     JsonValue **element_array = arena_alloc(arena, sizeof(JsonValue) *  num_elements);
     // copy linked list elements into new array in reverse order so the list maintains the order from the json file.
 
@@ -498,7 +498,7 @@ typedef struct json_object_entry_node_s {
     struct json_object_entry_node_s *next;
 } JsonObjectEntryNode;
 
-static JsonObjectEntryNode * add_json_object_entry_node(JsonObjectEntryNode * first_node, JsonObjectEntry *object_entry, Arena *arena ) {
+static JsonObjectEntryNode * pvt_add_json_object_entry_node(JsonObjectEntryNode * first_node, JsonObjectEntry *object_entry, Arena *arena ) {
     if (!object_entry) return nullptr;
     JsonObjectEntryNode * new_node = (JsonObjectEntryNode*) arena_alloc(arena, sizeof(JsonObjectEntryNode) );
     new_node->object_entry = object_entry;
@@ -520,7 +520,7 @@ JsonObjectEntry * jsonp_entry_for_key(const JsonValue *json_obj, char const * ke
     return nullptr;
 }
 
-static JsonValue * parse_object(JsonContext *context, JsonError *error, Arena *arena ) {
+static JsonValue * pvt_parse_object(JsonContext *context, JsonError *error, Arena *arena ) {
     // we recursively parse elements of this object until we see end-of-object '}' char
     JsonValue *object =  arena_alloc(arena, sizeof(JsonValue) );
 
@@ -530,14 +530,14 @@ static JsonValue * parse_object(JsonContext *context, JsonError *error, Arena *a
     object->u.object.entries = nullptr;
 
     JsonObjectEntryNode *entries = nullptr;
-    advance(context, 1);  // consume '{'
-    skip_whitespace(context);
+    pvt_advance(context, 1);  // consume '{'
+    pvt_skip_whitespace(context);
 
     while ( *context->current_ptr && *context->current_ptr != '}' ) {
-        skip_whitespace(context);
-        JsonValue *key = parse_string(context, error, arena);
+        pvt_skip_whitespace(context);
+        JsonValue *key = pvt_parse_string(context, error, arena);
         if (!key) return nullptr;  // error out immediately
-        skip_whitespace(context);
+        pvt_skip_whitespace(context);
 
         // need to parse a colon ":" here:
         if (*context->current_ptr != ':' ) {
@@ -545,9 +545,9 @@ static JsonValue * parse_object(JsonContext *context, JsonError *error, Arena *a
             record_error(context, error, (int)strlen(msg), msg);
             return nullptr;
         }
-        advance(context, 1);  // consume ':'
+        pvt_advance(context, 1);  // consume ':'
 
-        JsonValue *value = parse_value(context, error, arena);
+        JsonValue *value = pvt_parse_value(context, error, arena);
         if (!value) return nullptr;  // error out immediately
 
         JsonObjectEntry *joe = (JsonObjectEntry*)arena_alloc(arena, sizeof(JsonObjectEntry));
@@ -558,13 +558,13 @@ static JsonValue * parse_object(JsonContext *context, JsonError *error, Arena *a
 
         joe->key = key->u.string;
         joe->value = value;
-        entries = add_json_object_entry_node(entries, joe, arena);
+        entries = pvt_add_json_object_entry_node(entries, joe, arena);
         num_entries++;
 
-        skip_whitespace(context);
+        pvt_skip_whitespace(context);
         if (*context->current_ptr == ',' ) {
             // comma is expected delimiter between key:value elements
-            advance(context, 1);  // consume ','
+            pvt_advance(context, 1);  // consume ','
         }
     }
 
@@ -574,7 +574,7 @@ static JsonValue * parse_object(JsonContext *context, JsonError *error, Arena *a
         return nullptr;
     }
 
-    advance(context, 1);  // consume '}'
+    pvt_advance(context, 1);  // consume '}'
     JsonObjectEntry **entries_array = arena_alloc(arena, sizeof(JsonObjectEntry) *  num_entries);
     // copy linked list elements into new array in reverse order so the object entries maintain
     // the order from the JSON file.
@@ -591,8 +591,8 @@ static JsonValue * parse_object(JsonContext *context, JsonError *error, Arena *a
 
 
 
-static JsonValue *parse_value(JsonContext *context, JsonError *error, Arena *arena ) {
-    skip_whitespace(context);
+static JsonValue *pvt_parse_value(JsonContext *context, JsonError *error, Arena *arena ) {
+    pvt_skip_whitespace(context);
     JsonValue *value = nullptr;
     context->parse_start = context->parse_end;
     switch (*context->current_ptr) {
@@ -609,19 +609,19 @@ static JsonValue *parse_value(JsonContext *context, JsonError *error, Arena *are
             break;
         }
         case '"': /* Handle string */ {
-            value = parse_string(context, error, arena);
+            value = pvt_parse_string(context, error, arena);
             break;
         }
         case '[': /* Handle array */
-            value = parse_array(context, error, arena);
+            value = pvt_parse_array(context, error, arena);
             break;
         case '{': /* Handle object */
-            value = parse_object(context, error, arena);
+            value = pvt_parse_object(context, error, arena);
             break;
         case '-': case '0': case '1': case '2': case '3':
         case '4': case '5': case '6': case '7': case '8': case '9':
             /* Handle number */ {
-                value = parse_number(context,error, arena);
+                value = pvt_parse_number(context,error, arena);
             }
             break;
         default:
@@ -637,18 +637,18 @@ static JsonValue *parse_value(JsonContext *context, JsonError *error, Arena *are
 
 }
 
-JsonValue *json_parse(const char *json, JsonError *error, Arena *arena) {
-    if (!json) {
+JsonValue *jsonp_parse(const char *json_text, JsonError *error, Arena *arena) {
+    if (!json_text) {
         *error = (JsonError){ .message = "null json string"};
         return nullptr;
     }
-    JsonContext context = {.current_ptr = json, .json=json, .line = 1, .column = 1};
-    if (json[0] == '\0') {
+    JsonContext context = {.current_ptr = json_text, .json=json_text, .line = 1, .column = 1};
+    if (json_text[0] == '\0') {
         *error = (JsonError){.line=1, .column=1, .message = "empty json string"};
         return nullptr;
     }
 
-    JsonValue *value =  parse_value(&context, error, arena);
+    JsonValue *value =  pvt_parse_value(&context, error, arena);
 
     return value;
 }
@@ -775,24 +775,24 @@ void json_array_str(JsonValue *array) {
     if (!array || array->type != JSON_ARRAY) return;
     printf("[ ");
     for (size_t i = 0; i < array->u.array.count; ++i) {
-        json_value_str(array->u.array.elements[i]);
+        jsonp_print_json_value(array->u.array.elements[i]);
         printf(", ");
     }
     printf(" ]");
 }
 
-void json_object_str(JsonValue *object) {
+void pvt_json_object_str(JsonValue *object) {
     if (!object || object->type != JSON_OBJECT) return;
     printf("{ ");
     for (size_t i = 0; i < object->u.object.count; ++i) {
         printf(" '%s' : ",object->u.object.entries[i]->key);
-        json_value_str(object->u.object.entries[i]->value);
+        jsonp_print_json_value(object->u.object.entries[i]->value);
         printf(", ");
     }
     printf(" }");
 }
 
-void json_value_str(JsonValue *value) {
+void jsonp_print_json_value(JsonValue *value) {
     switch (value->type) {
         case JSON_NULL:
             printf("null");
@@ -817,7 +817,7 @@ void json_value_str(JsonValue *value) {
             json_array_str(value);
             break;
         case JSON_OBJECT:
-            json_object_str(value);
+            pvt_json_object_str(value);
             break;
     }
 }
@@ -892,13 +892,13 @@ void test_parse_str(char const * str) {
     }
     JsonError err = {.json = str};
     printf("\nParsing json string '%s': \n", str);
-    JsonValue *jval = json_parse(str, &err, &arena);
+    JsonValue *jval = jsonp_parse(str, &err, &arena);
     if (!jval) {
         printf("ERROR : line:%d col:%d start:%d end:%d  %s\n",
             err.line, err.column, err.parse_start, err.parse_end -1, err.message);
     }
     else {
-        json_value_str(jval);
+        jsonp_print_json_value(jval);
         printf("\n");
     }
 

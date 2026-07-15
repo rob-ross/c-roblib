@@ -124,7 +124,7 @@ TEST_P(JsonTestErrorReportingParam, parse_json) {
     const JsonTestParam& param = GetParam();
     std::string json_text = param.json_text;
 
-    JsonValue *jval = json_parse(json_text.c_str(), &err, JsonParserEnvironment::arena);
+    JsonValue *jval = jsonp_parse(json_text.c_str(), &err, JsonParserEnvironment::arena);
 
     EXPECT_EQ(jval, nullptr)
         << "test: " << param.test_name
@@ -137,7 +137,7 @@ TEST_P(JsonTestErrorReportingParam, parse_json) {
 }
 
 INSTANTIATE_TEST_SUITE_P(
-    F,
+    ShouldFail,
     JsonTestErrorReportingParam,
     testing::ValuesIn(JsonTestErrorReportingParam::read_file(std::string(ERROR_REPORTING_DATA_PATH) + "/error_reporting_tests.txt")),
     ParamNameGenerator
