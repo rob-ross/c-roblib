@@ -97,8 +97,7 @@ TEST_F(JsonParserTest, TestObjectTrailingCommas) {
     char const * test_fixture = "{\"foo\" : 1, }";
     JsonValue *jval = jsonp_parse(test_fixture, &err, arena);
     EXPECT_EQ(jval, nullptr) << "expected nullptr";
-    // EXPECT_EQ(err.err_type, JSON_ERR_TRAILING_COMMA_NOT_ALLOWED);
-    EXPECT_EQ(err.err_type, 0);
+    EXPECT_EQ(err.err_type, JSON_ERR_TRAILING_COMMA_NOT_ALLOWED);
 
 
     bool flag_was_set = jsonp_is_flag_set(JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_OBJECTS);
@@ -109,6 +108,17 @@ TEST_F(JsonParserTest, TestObjectTrailingCommas) {
 
     //restore flag
     if (!flag_was_set)  jsonp_clear_config_flag(JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_OBJECTS);
+}
+
+TEST_F(JsonParserTest, n_multidigit_number_then_00_json) {
+    char const * test_fixture = "123\x0";
+    JsonValue *jval = jsonp_parse(test_fixture, &err, arena);
+    EXPECT_NE(jval, nullptr) << "expected successful parse with jsonp_parse";
+
+    jval = jsonp_parse_ex(test_fixture, &err, arena, 4);
+    EXPECT_EQ(jval, nullptr) << "expected fail to parse";
+    EXPECT_EQ(err.err_type, JSON_ERR_UNEXPECTED_EOF);
+    EXPECT_EQ(err.parse_end, 3);
 }
 
 template <typename T>

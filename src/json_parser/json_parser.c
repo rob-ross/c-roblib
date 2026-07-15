@@ -822,7 +822,7 @@ void jsonp_print_json_value(JsonValue *value) {
     }
 }
 
-constexpr int COMPILE_SUCCESS = 0;
+constexpr int REGEX_COMPILE_SUCCESS = 0;
 
 
 static bool is_initialized = false;
@@ -835,7 +835,7 @@ Error init_regex_patterns(void) {
 
     for (int i = 0; i < NUM_REGEX_PATTERNS; i++) {
         int reti = regcomp(&p_list[i]->compiled_regex, p_list[i]->pattern_string, REG_EXTENDED);
-        if ( reti != COMPILE_SUCCESS) {
+        if ( reti != REGEX_COMPILE_SUCCESS) {
             char msgbuf[100];
             regerror(reti, &p_list[i]->compiled_regex, msgbuf, sizeof(msgbuf));
             fprintf(stderr, "Regex compilation failed for '%s': %s\n", p_list[i]->pattern_string, msgbuf);

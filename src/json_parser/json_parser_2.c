@@ -42,11 +42,11 @@ void jsonp_clear_config_flag(JsonConfigFlag flag) {
 typedef struct json_context_t {
     const char *current_ptr;  // The current text being parsed, advances through the JSON text in the json member
     const char *json; // full original JSON text string
-    int current_index; // the index of the character the lexer is scanning
-    int line;
-    int column;
-    int parse_start;
-    int parse_end;
+    uint32_t current_index; // the index of the character the lexer is scanning
+    uint32_t line;
+    uint32_t column;
+    uint32_t parse_start;
+    uint32_t parse_end;
 } JsonContext;
 
 // -----------------------------------------------------------------
@@ -542,11 +542,8 @@ static StringBuilder * pvt_encode_utf8( JsonContext *context, JsonError *error, 
         }
     }
 
-    uint32_t decoded_value; // todo (temp)
-
     if (codepoint <= 127 ) {
         sb_append_char(sb, (uint8_t)codepoint);
-        decoded_value = pvt_decode_utf8(1, (uint8_t[]){(uint8_t)codepoint});
     } else if (codepoint <= 0x07FF ) {
         // encode as two UTF-8 bytes
         //110xxxxx 10xxxxxx
@@ -554,7 +551,6 @@ static StringBuilder * pvt_encode_utf8( JsonContext *context, JsonError *error, 
         uint8_t second = continue_bits | (uint8_t)( codepoint & continue_mask );
         sb_append_char(sb, first);
         sb_append_char(sb, second);
-        decoded_value = pvt_decode_utf8(2, (uint8_t[]){first, second});
 
     } else if (codepoint <= 0xFFFF) {
         // encode as three UTF-8 bytes
@@ -565,7 +561,6 @@ static StringBuilder * pvt_encode_utf8( JsonContext *context, JsonError *error, 
         sb_append_char(sb, first);
         sb_append_char(sb, second);
         sb_append_char(sb, third);
-        decoded_value = pvt_decode_utf8(3, (uint8_t[]){first, second, third});
 
     } else if (codepoint <= 0x10FFFF) {
         // encode as four UTF-8 bytes
@@ -578,7 +573,6 @@ static StringBuilder * pvt_encode_utf8( JsonContext *context, JsonError *error, 
         sb_append_char(sb, second);
         sb_append_char(sb, third);
         sb_append_char(sb, fourth);
-        decoded_value = pvt_decode_utf8(4, (uint8_t[]){first, second, third, fourth});
 
     } else {
         // error, codepoint out of range
@@ -588,8 +582,6 @@ static StringBuilder * pvt_encode_utf8( JsonContext *context, JsonError *error, 
         pvt_record_error(context, error, JSON_ERR_CODEPOINT_OUT_OF_RANGE, error_msg_buffer);
         return nullptr;
     }
-
-    printf("encode_utf8: codepoint = %.4X, decoded_value=%.4X\n", codepoint, decoded_value);
 
     return sb;
 }
@@ -1342,8 +1334,7 @@ static bool pvt_is_rejected_due_to_bom(JsonContext *context, const char *json_te
     return false;
 }
 
-JsonValue *jsonp_parse(const char *json_text, JsonError *error, Arena *arena) {
-
+static JsonValue * pvt_jsonp_parse_impl(JsonContext *context, const char *json_text, JsonError *error, Arena *arena) {
     if (!json_text) {
         *error = (JsonError){ .json=json_text, .message = "null json text", .err_type = JSON_ERR_NULL_TEXT};
         return nullptr;
@@ -1353,14 +1344,12 @@ JsonValue *jsonp_parse(const char *json_text, JsonError *error, Arena *arena) {
         return nullptr;
     }
 
-    JsonContext context = {.current_ptr = json_text, .json=json_text};
+    if (pvt_is_rejected_due_to_bom(context, json_text, error)) return nullptr;
 
-    if (pvt_is_rejected_due_to_bom(&context, json_text, error)) return nullptr;
-
-    pvt_skip_whitespace(&context);
+    pvt_skip_whitespace(context);
     if (json_text[0] == '\0') {
         *error = (JsonError){.json=json_text, .message = "empty json text", .err_type = JSON_ERR_EMPTY_TEXT,
-        .first_bad_char = context.current_index, .parse_end = context.current_index};
+        .first_bad_char = context->current_index, .parse_end = context->current_index};
         return nullptr;
     }
 
@@ -1369,29 +1358,53 @@ JsonValue *jsonp_parse(const char *json_text, JsonError *error, Arena *arena) {
     //  false, null, true
 
     error->err_type = JSON_ERR_NONE;
-    JsonValue *value =  pvt_parse_value(&context, error, arena);
+    JsonValue *value =  pvt_parse_value(context, error, arena);
     if ( error->err_type != JSON_ERR_NONE) {
         return nullptr;
     }
 
-    pvt_skip_whitespace(&context);
+    pvt_skip_whitespace(context);
 
-    if (*context.current_ptr != '\0') {
+    if (*context->current_ptr != '\0') {
         //we parsed the root value, but there is still text remaining in the JSON text, which is an error
-        pvt_record_error(&context, error, JSON_ERR_UNEXPECTED_TEXT, "unexpected json text after parsing value");
+        pvt_record_error(context, error, JSON_ERR_UNEXPECTED_TEXT, "unexpected json text after parsing value");
         return nullptr;
     }
-
-
     return value;
 }
 
-constexpr int COMPILE_SUCCESS = 0;
+
+JsonValue *jsonp_parse(const char *json_text, JsonError *error, Arena *arena) {
+    JsonContext context = {.current_ptr = json_text, .json=json_text};
+    JsonValue *value = pvt_jsonp_parse_impl(&context, json_text, error, arena);
+    return value;
+}
+
+JsonValue *jsonp_parse_ex(const char *json_text, JsonError *error, Arena *arena, const uint32_t buffer_size) {
+    JsonContext context = {.current_ptr = json_text, .json=json_text};
+    JsonValue *value = pvt_jsonp_parse_impl(&context, json_text, error, arena);
+    if (!value) return nullptr;
+
+    if (context.current_index < buffer_size) {
+        snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE,
+    "JSON text was successfully parsed, but characters remain in the buffer."
+    " This can happen when the text is followed by embedded NUL characters.\nbuffer size=%u, bytes parsed=%u",
+    buffer_size, context.current_index );
+        context.parse_end = context.current_index;
+        pvt_record_error(&context, error, JSON_ERR_UNEXPECTED_EOF, error_msg_buffer);
+        return nullptr;
+
+    }
+    return value;
+}
+
+
+constexpr int REGEX_COMPILE_SUCCESS = 0;
 static bool is_initialized = false;
 
 Error jsonp_init() {
     int reti = regcomp(&REGEX_NUMBER_PATTERN, REGEX_NUMBER_STR, REG_EXTENDED);
-    if ( reti != COMPILE_SUCCESS) {
+    if ( reti != REGEX_COMPILE_SUCCESS) {
         char msgbuf[100];
         regerror(reti, &REGEX_NUMBER_PATTERN, msgbuf, sizeof(msgbuf));
         fprintf(stderr, "Regex compilation failed for '%s': %s\n", REGEX_NUMBER_STR, msgbuf);
