@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <stdatomic.h>
 
 #include "roblib/string_builder.h"
 #include "roblib/unicode_tools.h"
@@ -21,22 +22,6 @@
  *  8. Parse -0 as int or float?
  */
 
-
-
-static uint64_t json_config_flags = 0;
-
-bool jsonp_is_flag_set(JsonConfigFlag flag) {
-    return json_config_flags & ( 1 << flag) ;
-}
-
-void jsonp_set_config_flag(JsonConfigFlag flag) {
-    json_config_flags = json_config_flags | ( 1 << flag);
-}
-
-void jsonp_clear_config_flag(JsonConfigFlag flag) {
-    json_config_flags = json_config_flags & ~( 1 << flag);
-}
-
 typedef struct json_context_t {
     const char *current_ptr;  // The current text being parsed, advances through the JSON text in the json member
     const char *json; // full original JSON text string
@@ -45,35 +30,62 @@ typedef struct json_context_t {
     uint32_t column;
     uint32_t parse_start;
     uint32_t parse_end;
+    uint32_t depth_current;
+    uint64_t config_flags;
+    bool     ws_table[256];
+    char     error_msg[1024];
 } JsonContext;
+
+
+// -----------------------------------------------------------------
+//      CONFIG FLAGS
+// -----------------------------------------------------------------
+
+// Using _Atomic ensures that setting a flag in one thread and reading it
+// to initialize a context in another thread is thread-safe and visible.
+static _Atomic(uint64_t) json_config_flags = 0;
+
+bool jsonp_is_flag_set(JsonConfigFlag flag) {
+    return atomic_load(&json_config_flags) & ( 1 << flag) ;
+}
+
+static bool pvt_is_flag_set_thread_local(const JsonContext *context, const JsonConfigFlag flag) {
+    return context->config_flags & ( 1 << flag) ;
+}
+
+void jsonp_set_config_flag(JsonConfigFlag flag) {
+    uint64_t old = atomic_load(&json_config_flags);
+    while (!atomic_compare_exchange_weak(&json_config_flags, &old, old | (1 << flag)));
+}
+
+void jsonp_clear_config_flag(JsonConfigFlag flag) {
+    uint64_t old = atomic_load(&json_config_flags);
+    while (!atomic_compare_exchange_weak(&json_config_flags, &old, old & ~(1 << flag)));
+}
+
+
+
 
 // -----------------------------------------------------------------
 //      WHITE SPACE
 // -----------------------------------------------------------------
 
-static char const * const WHITE_SPACE_CHARS_DEFAULT = "\x20\x09\x0A\x0D";
-static volatile char const * whitespace_chars = WHITE_SPACE_CHARS_DEFAULT;
+static char const * const WHITE_SPACE_CHARS_DEFAULT = " \t\n\r";
+static _Atomic(const char *) whitespace_chars = WHITE_SPACE_CHARS_DEFAULT;
 
 void jsonp_define_whitespace_chars( char const *ws_chars ) {
-    whitespace_chars = ws_chars;
+    atomic_store(&whitespace_chars, ws_chars);
 }
 
-static inline bool pvt_is_json_whitespace(const unsigned char c) {
-    volatile char const *p = whitespace_chars;
-    while (*p) {
-        if (*p++ == c) return true;
-    }
-    return false;
-
-    // return c == ' ' || c == '\t' || c == '\n' || c == '\r';
+static inline bool pvt_is_json_whitespace(JsonContext *context, const unsigned char c) {
+    return context->ws_table[c];
 }
 
 static void pvt_skip_whitespace(JsonContext *context) {
-    while (*context->current_ptr && pvt_is_json_whitespace((unsigned char)*context->current_ptr)) {
-        // unsigned char c = (unsigned char)*context->current_ptr;
+    while ( pvt_is_json_whitespace(context, (const unsigned char)*context->current_ptr) ) {
         if (*context->current_ptr == '\n') {
             context->line++;
-            context->column = 1;
+            context->column = 0;
         } else {
             context->column++;
         }
@@ -257,7 +269,7 @@ static JsonValue * pvt_parse_object(JsonContext *context, JsonError *error, Aren
 
         if (*context->current_ptr == '}') {
             // we have a comma without another entry
-            if (jsonp_is_flag_set(JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_OBJECTS)) {
+            if (pvt_is_flag_set_thread_local(context, JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_OBJECTS)) {
                 // this allowed
                 break;
             }
@@ -366,7 +378,7 @@ static JsonValue * pvt_parse_array(JsonContext *context, JsonError *error, Arena
 
         if (*context->current_ptr == ']') {
             // we have a comma without another value
-            if (jsonp_is_flag_set(JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_ARRAYS)) {
+            if (pvt_is_flag_set_thread_local(context, JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_ARRAYS)) {
                 // this allowed
                 break;
             }
@@ -1307,7 +1319,7 @@ static bool pvt_is_rejected_due_to_bom(JsonContext *context, const char *json_te
 
     // utf8 BOM behavior controlled by flag JSON_CONFIG_FAIL_ON_INITIAL_BOM
     if (pvt_starts_with_bom(json_text, 3, BOM_UTF8)  ) {
-        if (jsonp_is_flag_set(JSON_CONFIG_FAIL_ON_INITIAL_BOM)) {
+        if (pvt_is_flag_set_thread_local(context, JSON_CONFIG_FAIL_ON_INITIAL_BOM)) {
             pvt_advance(context, 3);
             context->parse_end = context->current_index;
             pvt_record_error(context, error, JSON_ERR_BOM_NOT_ALLOWED,
@@ -1361,15 +1373,32 @@ static JsonValue * pvt_jsonp_parse_impl(JsonContext *context, const char *json_t
     return value;
 }
 
+static void pvt_init_context_ws_table(JsonContext *context) {
+    const char *ws = atomic_load(&whitespace_chars);
+    memset(context->ws_table, 0, sizeof(context->ws_table));
+    while (*ws) {
+        context->ws_table[(unsigned char)*ws++] = true;
+    }
+}
 
 JsonValue *jsonp_parse(const char *json_text, JsonError *error, Arena *arena) {
-    JsonContext context = {.current_ptr = json_text, .json=json_text};
+    JsonContext context = {
+        .current_ptr = json_text,
+        .json = json_text,
+        .config_flags = atomic_load(&json_config_flags)
+    };
+    pvt_init_context_ws_table(&context);
     JsonValue *value = pvt_jsonp_parse_impl(&context, json_text, error, arena);
     return value;
 }
 
 JsonValue *jsonp_parse_ex(const char *json_text, JsonError *error, Arena *arena, const uint32_t buffer_size) {
-    JsonContext context = {.current_ptr = json_text, .json=json_text};
+    JsonContext context = {
+        .current_ptr = json_text,
+        .json = json_text,
+        .config_flags = atomic_load(&json_config_flags)
+    };
+    pvt_init_context_ws_table(&context);
     JsonValue *value = pvt_jsonp_parse_impl(&context, json_text, error, arena);
     if (!value) return nullptr;
 
