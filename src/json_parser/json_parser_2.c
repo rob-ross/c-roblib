@@ -6,13 +6,11 @@
 
 #include "roblib/json_parser.h"
 #include <ctype.h>
-#include <stdio.h>
 
 #include <locale.h>
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
-#include <limits.h>
 
 #include "roblib/string_builder.h"
 #include "roblib/unicode_tools.h"
@@ -56,13 +54,13 @@ typedef struct json_context_t {
 static char const * const WHITE_SPACE_CHARS_DEFAULT = "\x20\x09\x0A\x0D";
 
 /**
- * Specifies what the parser considers as white space.
+ * Specifies what the parser considers as white space. Replaces the existing definition.
  * Per RFC 8259, these are the white space characters used by default:
- *  *ws = *(
- *  %x20 /  ; Space
- *  %x09 /  ; Horizontal tab
- *  %x0A /  ; Line feed or New line
- *  %x0D )  ; Carriage return
+ * ws = *(
+ *  %x20 Space
+ *  %x09 Horizontal tab
+ *  %x0A Line feed or New line
+ *  %x0D Carriage return)
  *
  *  The C locale defines what counts as a space (via isspace()) as the above characters, and adds:
  *    form feed (’\f’),
@@ -72,7 +70,7 @@ static char const * const WHITE_SPACE_CHARS_DEFAULT = "\x20\x09\x0A\x0D";
  *  todo (rob) this currently is limited to ASCII characters. Should we support any Unicode codepoint?
  *
  * @param ws_chars the characters that should be treated as white space characters.
- * Replaces the existing definition.
+ *
  */
 void jsonp_define_whitespace_chars(JsonContext *context, char const *ws_chars);
 
