@@ -1,6 +1,8 @@
 # roblib
 
 My slowly-evolving library of useful (to me) C functions. See project_info.txt for environment details.
+This has only been tested on my Mac. It's mostly C23 but I do use a few POSIX calls, especially mmap for
+the Arena, file IO, etc. So this currently won't build on Windows as-is.
 
 # Build
 
