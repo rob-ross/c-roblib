@@ -191,6 +191,29 @@ Error jsonp_init();
 // call when done with parsing module, frees up resources acquired in init().
 void jsonp_destroy(void);
 
+
+
+/**
+ * Specifies what the parser considers as white space. Replaces the existing definition.
+ * Per RFC 8259, these are the white space characters used by default:
+ * ws = *(
+ *  %x20 Space
+ *  %x09 Horizontal tab
+ *  %x0A Line feed or New line
+ *  %x0D Carriage return)
+ *
+ *  The C locale defines what counts as a space (via isspace()) as the above characters, and adds:
+ *    form feed (’\f’),
+ *    vertical tab (’\v’)
+ *  These are not included by default as white space characters in this parser.
+ *
+ *  todo (rob) this currently is limited to ASCII characters. Should we support any Unicode codepoint?
+ *
+ * @param ws_chars the characters that should be treated as white space characters.
+ *
+ */
+void jsonp_define_whitespace_chars( char const *ws_chars );
+
 /* Main parsing functions */
 JsonValue *jsonp_parse(const char *json_text, JsonError *error, Arena *arena);
 

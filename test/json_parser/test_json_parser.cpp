@@ -121,6 +121,28 @@ TEST_F(JsonParserTest, n_multidigit_number_then_00_json) {
     EXPECT_EQ(err.parse_end, 3);
 }
 
+TEST_F(JsonParserTest, n_structure_whitespace_formfeed_json) {
+    // form feed not "whitespace" per the JSON spec.
+    char const * test_fixture = "[\x0c]";  // literal Form feed character
+    JsonValue *jval = jsonp_parse(test_fixture, &err, arena);
+    EXPECT_EQ(jval, nullptr) << "expected fail to parse with embedded formfeed";
+    EXPECT_EQ(err.err_type, JSON_ERR_UNEXPECTED_TEXT);
+    EXPECT_EQ(err.parse_end, 1);
+
+    jsonp_define_whitespace_chars("\x20\x09\x0A\x0D\x0c");  // add formfeed
+
+    jval = jsonp_parse(test_fixture, &err, arena);
+    EXPECT_NE(jval, nullptr) << "expected successful parse for: '" << test_fixture \
+        << "' after adding form-feed as white space character.";
+
+    jsonp_define_whitespace_chars("\x20\x09\x0A\x0D");  // restore original
+}
+
+
+// -----------------------------------------------------------------
+//      PARAMETERIZED TESTS
+// -----------------------------------------------------------------
+
 template <typename T>
 class JsonParserParamFixture : public JsonParserTest, public ::testing::WithParamInterface<T> {};
 

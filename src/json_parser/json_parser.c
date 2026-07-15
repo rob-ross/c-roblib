@@ -52,30 +52,20 @@ typedef struct json_context_t {
 // -----------------------------------------------------------------
 
 static char const * const WHITE_SPACE_CHARS_DEFAULT = "\x20\x09\x0A\x0D";
+static volatile char const * whitespace_chars = WHITE_SPACE_CHARS_DEFAULT;
 
-/**
- * Specifies what the parser considers as white space. Replaces the existing definition.
- * Per RFC 8259, these are the white space characters used by default:
- * ws = *(
- *  %x20 Space
- *  %x09 Horizontal tab
- *  %x0A Line feed or New line
- *  %x0D Carriage return)
- *
- *  The C locale defines what counts as a space (via isspace()) as the above characters, and adds:
- *    form feed (’\f’),
- *    vertical tab (’\v’)
- *  These are not included by default as white space characters in this parser.
- *
- *  todo (rob) this currently is limited to ASCII characters. Should we support any Unicode codepoint?
- *
- * @param ws_chars the characters that should be treated as white space characters.
- *
- */
-void jsonp_define_whitespace_chars(JsonContext *context, char const *ws_chars);
+void jsonp_define_whitespace_chars( char const *ws_chars ) {
+    whitespace_chars = ws_chars;
+}
 
-static inline bool pvt_is_json_whitespace(unsigned char c) {
-    return c == ' ' || c == '\t' || c == '\n' || c == '\r';
+static inline bool pvt_is_json_whitespace(const unsigned char c) {
+    volatile char const *p = whitespace_chars;
+    while (*p) {
+        if (*p++ == c) return true;
+    }
+    return false;
+
+    // return c == ' ' || c == '\t' || c == '\n' || c == '\r';
 }
 
 static void pvt_skip_whitespace(JsonContext *context) {
@@ -1767,10 +1757,10 @@ int main( ) {
     // printf("\\u0800: \u0800\n");
     // printf("\\U+0001f600: \U0001f600\n");
 
-    // test_null_parse();
+    test_null_parse();
     // test_true_parse();
     // test_false_parse();
-    test_number_parse();
+    // test_number_parse();
     // test_array_parse();
     // test_parse_objects();
     // test_parse_unicode_escapes();
