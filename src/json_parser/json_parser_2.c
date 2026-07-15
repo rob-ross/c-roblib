@@ -19,17 +19,33 @@
 
 /*
  *  todo - configuration flags
- *  1. allow trailing comma - allow a final comma after an element (array) or member (object) list
- *  2. allow leading zero on int?
- *  3. allow formfeed as whitespace? What about vertical tab?
  *  4. treat -0 as float or int by default?
- *  5. allow \UXXXXXX 6 hex digit for single Unicode codepoint
- *  6. BOM handling at start of JSON text - allow? error? replace?
- *  7. missing surrogate : error, remove, replace with ?
  *  8. Parse -0 as int or float?
- *  9. Max nesting depth. Default? 64?
- * 10. Invalid utf-8: error? remove? replace with ?
  */
+
+typedef enum json_config_flag_e : uint64_t {
+    JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_ARRAYS,
+    JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_OBJECTS,
+    JSON_CONFIG_ALLOW_UNICODE_U_ESCAPE, // allows Unicode escapes in form of \UXXXXXX (6 hex digits)
+    JSON_CONFIG_FAIL_ON_INT_OVERFLOW,  // when not set (default) will try to promote number to double
+    JSON_CONFIG_FAIL_ON_FLOAT_OVERFLOW,
+    // if set and the number is too small to be represented as a float, rejects the JSON text
+    // if not set (the default), an under-flowing double becomes 0.0f.
+    JSON_CONFIG_FAIL_ON_FLOAT_UNDERFLOW,
+    // if set and the JSON text begins with a BOM, reject the JSON text.
+    // if not set (the default) ignores a BOM at the start of the JSON text
+    JSON_CONFIG_FAIL_ON_INITIAL_BOM,
+
+    //  if set, replace any invalid UTF-8 sequences with the missing symbol character
+    //  if not set (the default), rejects the JSON text as invalid if it contains invalid utf-8 sequences.
+    JSON_CONFIG_REPLACE_BAD_UTF8,
+    //  if set, replace any invalid utf-16 surrogate sequences with the missing symbol character
+    //  if not set (the default), rejects the JSON text as invalid if it contains invalid utf-16 surrogate sequences.
+    JSON_CONFIG_REPLACE_BAD_SURROGATES,
+
+
+} JsonConfigFlag;
+
 
 typedef struct json_context_t {
     const char *current_ptr;  // The current text being parsed, advances through the JSON text in the json member
@@ -41,35 +57,32 @@ typedef struct json_context_t {
     int parse_end;
 } JsonContext;
 
-constexpr uint32_t ERROR_MSG_BUFFER_SIZE = 1023;
-static char error_msg_buffer[ERROR_MSG_BUFFER_SIZE + 1] = {};
-
-constexpr uint32_t DEPTH_MAX_DEFAULT = 64;
-static uint32_t depth_max = DEPTH_MAX_DEFAULT; // todo (rob) make this Threadlocal
-static uint32_t depth_current = 0;
-
-
 // -----------------------------------------------------------------
-//      Forward Declarations
+//      WHITE SPACE
 // -----------------------------------------------------------------
-static JsonValue *parse_value(JsonContext *context, JsonError *error, Arena *arena );
-static JsonValue * parse_string(JsonContext *context, JsonError *error, Arena *arena );
 
-
+static char const * const WHITE_SPACE_CHARS_DEFAULT = "\x20\x09\x0A\x0D";
 
 /**
-    Per RFC 8259, these are the white space characters:
-    *ws = *(
-    %x20 /  ; Space
-    %x09 /  ; Horizontal tab
-    %x0A /  ; Line feed or New line
-    %x0D )  ; Carriage return
-
-    The C spec includes those but also adds these as white space characters:
-        form feed (’\f’),
-        vertical tab (’\v’)
-*/
-static char const * const WHITE_SPACE_CHARS = "\x20\x09\x0A\x0D";
+ * Specifies what the parser considers as white space.
+ * Per RFC 8259, these are the white space characters used by default:
+ *  *ws = *(
+ *  %x20 /  ; Space
+ *  %x09 /  ; Horizontal tab
+ *  %x0A /  ; Line feed or New line
+ *  %x0D )  ; Carriage return
+ *
+ *  The C locale defines what counts as a space (via isspace()) as the above characters, and adds:
+ *    form feed (’\f’),
+ *    vertical tab (’\v’)
+ *  These are not included by default as white space characters in this parser.
+ *
+ *  todo (rob) this currently is limited to ASCII characters. Should we support any Unicode codepoint?
+ *
+ * @param ws_chars the characters that should be treated as white space characters.
+ * Replaces the existing definition.
+ */
+void jsonp_define_whitespace_chars(JsonContext *context, char const *ws_chars);
 
 static inline bool is_json_whitespace(unsigned char c) {
     return c == ' ' || c == '\t' || c == '\n' || c == '\r';
@@ -88,6 +101,29 @@ static void skip_whitespace(JsonContext *context) {
         context->current_ptr++;
     }
 }
+
+constexpr uint32_t ERROR_MSG_BUFFER_SIZE = 1023;
+static char error_msg_buffer[ERROR_MSG_BUFFER_SIZE + 1] = {};
+
+constexpr uint32_t DEPTH_MAX_DEFAULT = 64;
+static uint32_t depth_max = DEPTH_MAX_DEFAULT; // todo (rob) make this Threadlocal
+static uint32_t depth_current = 0;
+
+/**
+ *  Sets the maximum nesting depth allowed in the json text. If depth is exceeded, the json text is
+ *  rejected as invalid.
+ *  The default is specified in DEPTH_MAX_DEFAULT
+ *
+ */
+void jsonp_set_max_nesting_depth(JsonContext *context, uint32_t depth);
+
+// -----------------------------------------------------------------
+//      Forward Declarations
+// -----------------------------------------------------------------
+static JsonValue *parse_value(JsonContext *context, JsonError *error, Arena *arena );
+static JsonValue * parse_string(JsonContext *context, JsonError *error, Arena *arena );
+
+
 
 // advance the parser state based on the current parse window
 static void advance(JsonContext *context, const int char_count) {
@@ -1500,6 +1536,9 @@ void test_number_parse(void) {
     test_parse_str("[123123e100000]");
     test_parse_str("[-123123e100000]");
     test_parse_str("[0.4e00669999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999969999999006]");
+    test_parse_str("[0.4e-00669999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999969999999006]");
+    test_parse_str("[-0.4e-00669999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999969999999006]");
+
     test_parse_str("[-123123123123123123123123123123]");
 }
 
@@ -1628,7 +1667,7 @@ int main( ) {
     // test_null_parse();
     // test_true_parse();
     // test_false_parse();
-    // test_number_parse();
+    test_number_parse();
     // test_array_parse();
     // test_parse_objects();
     // test_parse_unicode_escapes();
@@ -1637,7 +1676,7 @@ int main( ) {
 
     // test_hex_and_chars();
 
-    test_indeterminates();
+    // test_indeterminates();
 
 
 }
