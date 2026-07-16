@@ -8,17 +8,20 @@
 #include "roblib/bitset.h"
 
 
-bool bitset_test_all(const BitSet *set, const size_t flags_len, const enum SystemFlag flags[static flags_len] ) {
-    for (size_t i = 0; i < flags_len; ++i) {
-        if (!bitset_test(set, flags[i])) {
+bool bitset_test_all(const void *set_ptr, const size_t count, const uint32_t flags[]) {
+    const BitSet *set = (const BitSet *)set_ptr;
+    for (size_t i = 0; i < count; ++i) {
+        uint32_t flag = flags[i];
+        if (!(set->words[flag / BITS_PER_WORD] & ((uint64_t)1 << (flag % BITS_PER_WORD)))) {
             return false; // Fail fast
         }
     }
     return true;
 }
 
-bool bitset_test_any(const BitSet * set, const size_t flags_len, const enum SystemFlag flags[static flags_len]) {
-    for (size_t i = 0; i < flags_len; ++i) {
+bool bitset_test_any(const void *set_ptr, const size_t count, const uint32_t flags[]) {
+    const BitSet *set = (const BitSet *)set_ptr;
+    for (size_t i = 0; i < count; ++i) {
         if (!bitset_test(set, flags[i])) {
             return true;
         }
@@ -26,9 +29,12 @@ bool bitset_test_any(const BitSet * set, const size_t flags_len, const enum Syst
     return false;
 }
 
-bool bitset_contains_mask(const BitSet *set, const BitSet *mask) {
-    for (int i = 0; i < BITSET_WORDS; ++i) {
-        // if the mask requires on bits that 'set' doesn't have on, it fails
+bool bitset_contains_mask(const void *set_ptr, const void *mask_ptr) {
+    const BitSet *set = (const BitSet *)set_ptr;
+    const BitSet *mask = (const BitSet *)mask_ptr;
+    const size_t count = set->word_count;
+    // Use the count stored in the struct itself!
+    for (size_t i = 0; i < count; ++i) {
         if ( ( set->words[i] & mask->words[i] ) != mask->words[i] ) {
             return false;
         }
@@ -37,38 +43,58 @@ bool bitset_contains_mask(const BitSet *set, const BitSet *mask) {
 }
 
 // bulk set multiple flags at once using a mask
-void bit_set_mask(BitSet *set, const BitSet * mask) {
-    for (int i = 0; i < BITSET_WORDS; ++i) {
-        set->words[i] |= mask->words[i]; // combines 64 flags per iteration
+void bitset_set_mask(void *set_ptr, const void *mask_ptr) {
+    BitSet *set = (BitSet *)set_ptr;
+    const size_t count = set->word_count;
+    const BitSet *mask = (const BitSet *)mask_ptr;
+    for (size_t i = 0; i < count; ++i) {
+        set->words[i] |= mask->words[i];
     }
 }
 
 // bulk clear multiple flags at once using a mask
-void bitset_clear_mask(BitSet * set, const BitSet * mask) {
-    for ( size_t i = 0; i < BITSET_WORDS; ++i ) {
+void bitset_clear_mask(void *set_ptr, const void *mask_ptr) {
+    BitSet *set = (BitSet *)set_ptr;
+    const size_t count = set->word_count;
+    const BitSet *mask = (const BitSet *)mask_ptr;
+    for (size_t i = 0; i < count; ++i) {
         set->words[i] &= ~mask->words[i]; // clears 64 flags per iteration
     }
 }
 
-
 // bulk helper function using the VLA/static count parameter syntax
-void bitset_set_multiple(BitSet * set, const size_t count, const enum SystemFlag flags[static count]) {
+void bitset_set_multiple(void *set_ptr, const size_t count, const uint32_t flags[]) {
     for (size_t i = 0; i < count; ++i) {
-        bitset_set(set, flags[i]);
+        bitset_set(set_ptr, flags[i]);
     }
 }
 
-// The Variadic macro
-#define BITSET_SET_MULTIPLE(set_ptr, ... ) \
-    do {                \
-        const enum SystemFlag _temp_flags[] = { __VA_ARGS__ }; \
-        bitset_set_multiple( (set_ptr), sizeof(_temp_flags) / sizeof (enum SystemFlag), _temp_flags ); \
-    } while (0);
 
-
+#ifdef BITSET_MAIN
 int main(void) {
-    // temp test
-    BitSet my_flags = {};
+    // temp test.
+    // We could expand this to hundreds or thousands of flags.
+    // each enum constant represents the number of bits to left shift the number 1
+    enum SystemFlag  : uint32_t{
+        FLAG_FIRST = 0,
+        // ... possibly hundreds of entries
+        // examples:
+        FLAG_NETWORK_READY = 452,
+        FLAG_DATABASE_CONNECTED = 1023,
+        FLAG_MAX_COUNT = 2000,  // total capacity needed
+
+    };
+
+    // 1. Define the custom type
+    BITSET_DEFINE(MyBitSet, FLAG_MAX_COUNT);
+
+    // 2. Initialize it (the macro sets word_count to 1)
+    MyBitSet my_flags = BITSET_INIT(FLAG_MAX_COUNT);
+
+
+    // 3. Use generic functions without worrying about sizes
+
+
 
     // set individual bits out of thousands
     bitset_set(&my_flags, FLAG_NETWORK_READY);
@@ -86,7 +112,7 @@ int main(void) {
     }
 
     for (int i = 0; i<2; ++i) {
-        enum SystemFlag critical_group[] = { FLAG_NETWORK_READY, FLAG_DATABASE_CONNECTED};
+        uint32_t critical_group[] = { FLAG_NETWORK_READY, FLAG_DATABASE_CONNECTED};
         if ( bitset_test_all(&my_flags, 2, critical_group )) {
             printf("Both flags are set\n");
         } else {
@@ -115,3 +141,4 @@ int main(void) {
 
     return 0;
 }
+#endif

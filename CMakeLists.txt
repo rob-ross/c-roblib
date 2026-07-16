@@ -68,6 +68,7 @@ set(LIB_SOURCES
         ${LIB_SRC_DIR}/json_parser/lookup_table.c
         ${LIB_SRC_DIR}/unicode/unicode_tools.c
         ${LIB_SRC_DIR}/file_io/file_utils.c
+        ${LIB_SRC_DIR}/set/bitset.c
 )
 
 add_library(c_roblib STATIC ${LIB_SOURCES})
