@@ -1,7 +1,7 @@
-//  json_parser_2.c
+//  json_parser.c
 // Created by Rob Ross on 7/2/26.
 //
-// Migrating and reworking the existing json_parser.c here, which will replace it when completed
+// JSONP v0.1.0
 
 
 #include "roblib/json_parser.h"
@@ -13,6 +13,12 @@
 #include <errno.h>
 #include <stdatomic.h>
 
+// POSIX.1-2008 locale functions.
+// Modern glibc (Linux) uses <locale.h>, while macOS/BSD often requires <xlocale.h>.
+#ifndef _WIN32
+#include <xlocale.h>
+#endif
+
 #include "roblib/string_builder.h"
 #include "roblib/unicode_tools.h"
 
@@ -21,6 +27,19 @@
  *  4. treat -0 as float or int by default?
  *  8. Parse -0 as int or float?
  */
+
+
+
+// -----------------------------------------------------------------
+//      BOM CONSTANTS
+// -----------------------------------------------------------------
+
+char const * const BOM_UTF8     = "\xEF\xBB\xBF";
+char const * const BOM_UTF16_BE = "\xFE\xFF";
+char const * const BOM_UTF16_LE = "\xFF\xFE";
+char const * const BOM_UTF32_BE = "\x00\x00\xFE\xFF";
+char const * const BOM_UTF32_LE = "\xFF\xFE\x00\x00";
+
 
 typedef struct json_context_t {
     const char *current_ptr;  // The current text being parsed, advances through the JSON text in the json member
@@ -31,10 +50,18 @@ typedef struct json_context_t {
     uint32_t parse_start;
     uint32_t parse_end;
     uint32_t depth_current;
+    uint32_t depth_max;
     uint64_t config_flags;
     bool     ws_table[256];
-    char     error_msg[1024];
+    char     error_msg[ERROR_MSG_BUFFER_SIZE + 1];
 } JsonContext;
+
+// -----------------------------------------------------------------
+//      Forward Declarations
+// -----------------------------------------------------------------
+static JsonValue * pvt_parse_value(JsonContext *context, JsonError *error, Arena *arena );
+static JsonValue * pvt_parse_string(JsonContext *context, JsonError *error, Arena *arena );
+
 
 
 // -----------------------------------------------------------------
@@ -49,7 +76,7 @@ bool jsonp_is_flag_set(JsonConfigFlag flag) {
     return atomic_load(&json_config_flags) & ( 1 << flag) ;
 }
 
-static bool pvt_is_flag_set_thread_local(const JsonContext *context, const JsonConfigFlag flag) {
+static bool pvt_is_flag_set_lock_free(const JsonContext *context, const JsonConfigFlag flag) {
     return context->config_flags & ( 1 << flag) ;
 }
 
@@ -57,6 +84,15 @@ void jsonp_set_config_flag(JsonConfigFlag flag) {
     uint64_t old = atomic_load(&json_config_flags);
     while (!atomic_compare_exchange_weak(&json_config_flags, &old, old | (1 << flag)));
 }
+
+uint64_t jsonp_set_config_flags(const uint32_t flag_count, JsonConfigFlag const *flag) {
+    uint64_t set_flags = 0;
+    for (uint32_t i = 0; i < flag_count; ++i) {
+        set_flags |= ( 1 << flag[i]);
+    }
+    return set_flags;
+}
+
 
 void jsonp_clear_config_flag(JsonConfigFlag flag) {
     uint64_t old = atomic_load(&json_config_flags);
@@ -70,11 +106,31 @@ void jsonp_clear_config_flag(JsonConfigFlag flag) {
 //      WHITE SPACE
 // -----------------------------------------------------------------
 
-static char const * const WHITE_SPACE_CHARS_DEFAULT = " \t\n\r";
-static _Atomic(const char *) whitespace_chars = WHITE_SPACE_CHARS_DEFAULT;
+static _Atomic(const char *) pvt_whitespace_chars = nullptr;
 
-void jsonp_define_whitespace_chars( char const *ws_chars ) {
-    atomic_store(&whitespace_chars, ws_chars);
+// Locale object to ensure thread-safe, locale-independent number parsing (JSON always uses '.')
+#ifndef _WIN32
+static locale_t c_locale_obj;
+#else
+static _locale_t c_locale_obj;
+#endif
+
+void jsonp_define_whitespace_chars( const char *whitespace_chars ) {
+    if (!whitespace_chars) return;
+
+    // ReSharper disable once CppDFAMemoryLeak
+    char *new_ws = (char *)malloc(strlen(whitespace_chars) + 1);
+    if (new_ws) {
+        strcpy(new_ws, whitespace_chars);
+
+        // Swap the new pointer into the atomic global.
+        // We cast to (void*) to free the old pointer since free doesn't care about const.
+        const char *old_ws = atomic_exchange(&pvt_whitespace_chars, (const char *)new_ws);
+
+        if (old_ws) {
+            free((void *)old_ws);
+        }
+    }
 }
 
 static inline bool pvt_is_json_whitespace(JsonContext *context, const unsigned char c) {
@@ -94,37 +150,15 @@ static void pvt_skip_whitespace(JsonContext *context) {
     }
 }
 
-constexpr uint32_t ERROR_MSG_BUFFER_SIZE = 1023;
-static char error_msg_buffer[ERROR_MSG_BUFFER_SIZE + 1] = {};
-
-constexpr uint32_t DEPTH_MAX_DEFAULT = 64;
-static uint32_t depth_max = DEPTH_MAX_DEFAULT; // todo (rob) make this Threadlocal
-static uint32_t depth_current = 0;
-
 // -----------------------------------------------------------------
-//      BOM CONSTANTS
+//      NESTING DEPTH
 // -----------------------------------------------------------------
 
-char const * const BOM_UTF8     = "\xEF\xBB\xBF";
-char const * const BOM_UTF16_BE = "\xFE\xFF";
-char const * const BOM_UTF16_LE = "\xFF\xFE";
-char const * const BOM_UTF32_BE = "\x00\x00\xFE\xFF";
-char const * const BOM_UTF32_LE = "\xFF\xFE\x00\x00";
+static _Atomic(uint32_t) pvt_depth_max = JSON_DEPTH_MAX_DEFAULT;
 
-/**
- *  Sets the maximum nesting depth allowed in the json text. If depth is exceeded, the json text is
- *  rejected as invalid.
- *  The default is specified in DEPTH_MAX_DEFAULT
- *
- */
-void jsonp_set_max_nesting_depth(JsonContext *context, uint32_t depth);
-
-// -----------------------------------------------------------------
-//      Forward Declarations
-// -----------------------------------------------------------------
-static JsonValue * pvt_parse_value(JsonContext *context, JsonError *error, Arena *arena );
-static JsonValue * pvt_parse_string(JsonContext *context, JsonError *error, Arena *arena );
-
+void jsonp_set_max_nesting_depth( const uint32_t depth) {
+    atomic_store(&pvt_depth_max, depth);
+}
 
 
 // advance the parser state based on the current parse window
@@ -137,7 +171,7 @@ static void pvt_advance(JsonContext *context, const int char_count) {
 static void pvt_record_error(
     const JsonContext *context, JsonError *error, const enum json_error_type err_type, const char *msg) {
 
-    error->message = msg;
+    strncpy(error->message, msg, ERROR_MSG_BUFFER_SIZE);
     error->json = context->json_text;
     error->err_type = err_type;
     error->first_bad_char = context->current_index;
@@ -148,11 +182,11 @@ static void pvt_record_error(
 }
 
 static bool pvt_max_depth_exceeded(JsonContext *context, JsonError *error) {
-    if (depth_current > depth_max) {
-        snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE,
-            "max nested depth of %d exceeded", depth_max);
+    if (context->depth_current > context->depth_max) {
+        snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE,
+            "max nested depth of %u exceeded", context->depth_max);
         context->parse_end = context->current_index;
-        pvt_record_error(context, error, JSON_ERR_MAX_NESTED_DEPTH_EXCEEDED, error_msg_buffer);
+        pvt_record_error(context, error, JSON_ERR_MAX_NESTED_DEPTH_EXCEEDED, context->error_msg);
         return true;
     }
     return false;
@@ -224,9 +258,9 @@ static JsonObjectEntry * pvt_parse_one_entry(JsonContext *context, JsonError *er
 static JsonValue * pvt_parse_object(JsonContext *context, JsonError *error, Arena *arena ) {
     // we recursively parse members of this object until we see end-of-object '}' char or run out of text
     // todo refactor to use stack DS and iterative algorithm instead of recursion
-    depth_current++;
+    context->depth_current++;
     if ( pvt_max_depth_exceeded(context, error)) {
-        depth_current--;
+        context->depth_current--;
         return nullptr;  // error-out immediately
     }
 
@@ -245,7 +279,7 @@ static JsonValue * pvt_parse_object(JsonContext *context, JsonError *error, Aren
     if ( *context->current_ptr && *context->current_ptr != '}') {
         JsonObjectEntry *joe = pvt_parse_one_entry(context, error, arena);
         if (!joe) {
-            depth_current--;
+            context->depth_current--;
             return nullptr;  // error-out immediately
         }
         entries = pvt_add_json_object_entry_node(entries, joe, arena);
@@ -260,7 +294,7 @@ static JsonValue * pvt_parse_object(JsonContext *context, JsonError *error, Aren
         if (*context->current_ptr != ',' ) {
             context->parse_end = context->current_index;
             pvt_record_error(context, error, JSON_ERR_MISSING_COMMA, "expected comma");
-            depth_current--;
+            context->depth_current--;
             return nullptr;
         }
         // comma is expected delimiter between object entries
@@ -269,7 +303,7 @@ static JsonValue * pvt_parse_object(JsonContext *context, JsonError *error, Aren
 
         if (*context->current_ptr == '}') {
             // we have a comma without another entry
-            if (pvt_is_flag_set_thread_local(context, JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_OBJECTS)) {
+            if (pvt_is_flag_set_lock_free(context, JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_OBJECTS)) {
                 // this allowed
                 break;
             }
@@ -277,24 +311,26 @@ static JsonValue * pvt_parse_object(JsonContext *context, JsonError *error, Aren
             context->parse_start = context->current_index;
             context->parse_end = context->current_index;
             pvt_record_error(context, error, JSON_ERR_TRAILING_COMMA_NOT_ALLOWED, "trailing comma not allowed in object entry list");
-            depth_current--;
+            context->depth_current--;
             return nullptr;
         }
 
         JsonObjectEntry *joe = pvt_parse_one_entry(context, error, arena);
         if (!joe) {
-            depth_current--;
+            context->depth_current--;
             return nullptr;
         }
         entries = pvt_add_json_object_entry_node(entries, joe, arena);
         num_entries++;
+        pvt_skip_whitespace(context);
+
     }
 
     if (*context->current_ptr != '}' ) {
         char const *msg = "unterminated object";
         context->parse_end = context->current_index;
         pvt_record_error(context, error, JSON_ERR_UNTERMINATED_OBJECT, msg);
-        depth_current--;
+        context->depth_current--;
         return nullptr;
     }
 
@@ -310,7 +346,7 @@ static JsonValue * pvt_parse_object(JsonContext *context, JsonError *error, Aren
     object->u.object.count = num_entries;
     object->u.object.entries = entries_array;
 
-    depth_current--;
+    context->depth_current--;
     return object;
 }
 
@@ -334,9 +370,9 @@ static JsonValueNode * pvt_add_json_value_node(JsonValueNode * first_node, JsonV
 static JsonValue * pvt_parse_array(JsonContext *context, JsonError *error, Arena *arena) {
     // we recursively parse elements of this array until we see end-of-array ']' char or run out of text
     // todo refactor to use stack DS and iterative algorithm instead of recursion
-    depth_current++;
+    context->depth_current++;
     if ( pvt_max_depth_exceeded(context, error)) {
-        depth_current--;
+        context->depth_current--;
         return nullptr;  // error-out immediately
     }
     JsonValue *array =  arena_alloc(arena, sizeof(JsonValue) );
@@ -355,7 +391,7 @@ static JsonValue * pvt_parse_array(JsonContext *context, JsonError *error, Arena
         JsonValue *value = pvt_parse_value(context, error, arena);
         if (!value) {
             context->parse_end = context->current_index;
-            depth_current--;
+            context->depth_current--;
             return nullptr;  // error-out immediately
         }
         elements = pvt_add_json_value_node(elements, value, arena);
@@ -369,7 +405,7 @@ static JsonValue * pvt_parse_array(JsonContext *context, JsonError *error, Arena
         if (*context->current_ptr != ',' ) {
             context->parse_end = context->current_index;
             pvt_record_error(context, error, JSON_ERR_MISSING_COMMA, "expected comma");
-            depth_current--;
+            context->depth_current--;
             return nullptr;
         }
         // comma is expected delimiter between array elements
@@ -378,7 +414,7 @@ static JsonValue * pvt_parse_array(JsonContext *context, JsonError *error, Arena
 
         if (*context->current_ptr == ']') {
             // we have a comma without another value
-            if (pvt_is_flag_set_thread_local(context, JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_ARRAYS)) {
+            if (pvt_is_flag_set_lock_free(context, JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_ARRAYS)) {
                 // this allowed
                 break;
             }
@@ -386,13 +422,13 @@ static JsonValue * pvt_parse_array(JsonContext *context, JsonError *error, Arena
             context->parse_start = context->current_index;
             context->parse_end = context->current_index;
             pvt_record_error(context, error, JSON_ERR_TRAILING_COMMA_NOT_ALLOWED, "trailing comma not allowed in array element list");
-            depth_current--;
+            context->depth_current--;
             return nullptr;
         }
 
         JsonValue *value = pvt_parse_value(context, error, arena);
         if (!value) {
-            depth_current--;
+            context->depth_current--;
             return nullptr;
         }
         elements = pvt_add_json_value_node(elements, value, arena);
@@ -404,7 +440,7 @@ static JsonValue * pvt_parse_array(JsonContext *context, JsonError *error, Arena
         char const *msg = "unterminated array";
         context->parse_end = context->current_index;
         pvt_record_error(context, error, JSON_ERR_UNTERMINATED_ARRAY, msg);
-        depth_current--;
+        context->depth_current--;
         return nullptr;
     }
     pvt_advance(context, 1);  // consume ']'
@@ -419,7 +455,7 @@ static JsonValue * pvt_parse_array(JsonContext *context, JsonError *error, Arena
     array->u.array.count = num_elements;
     array->u.array.elements = element_array;
 
-    depth_current--;
+    context->depth_current--;
     return array;
 }
 
@@ -527,17 +563,17 @@ static StringBuilder * pvt_encode_utf8( JsonContext *context, JsonError *error, 
         // error, reserved for surrogate pairs
         if (codepoint < 0xDC00 ) {
             // high/leading surrogate
-            snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE,
+            snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE,
         "'U+%.4X' is reserved as a high/leading surrogate and cannot be used as a codepoint.", codepoint);
             context->parse_end = context->current_index;
-            pvt_record_error(context, error, JSON_ERR_RESERVED_FOR_HIGH_SURROGATE, error_msg_buffer);
+            pvt_record_error(context, error, JSON_ERR_RESERVED_FOR_HIGH_SURROGATE, context->error_msg);
             return nullptr;
         } else {
             // low/ trailing surrogate
-            snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE,
+            snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE,
         "'U+%.4X' is reserved as a low/trailing surrogate and cannot be used as a codepoint.", codepoint);
             context->parse_end = context->current_index;
-            pvt_record_error(context, error, JSON_ERR_RESERVED_FOR_LOW_SURROGATE, error_msg_buffer);
+            pvt_record_error(context, error, JSON_ERR_RESERVED_FOR_LOW_SURROGATE, context->error_msg);
             return nullptr;
         }
     }
@@ -576,10 +612,10 @@ static StringBuilder * pvt_encode_utf8( JsonContext *context, JsonError *error, 
 
     } else {
         // error, codepoint out of range
-        snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE,
+        snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE,
     "'U+%.4X' is out of range and cannot be used as a codepoint.", codepoint);
         context->parse_end = context->current_index;
-        pvt_record_error(context, error, JSON_ERR_CODEPOINT_OUT_OF_RANGE, error_msg_buffer);
+        pvt_record_error(context, error, JSON_ERR_CODEPOINT_OUT_OF_RANGE, context->error_msg);
         return nullptr;
     }
 
@@ -591,22 +627,27 @@ static uint32_t pvt_parse_hex_impl(JsonContext *context, JsonError *error, const
     const char *json_ptr = context->current_ptr;
     for (uint32_t i = 0; i < num_chars; i++) {
         if (*json_ptr == '\0') {
+            pvt_advance(context, i);
             context->parse_end = context->current_index;
-            pvt_record_error(context, error, JSON_ERR_UNEXPECTED_EOF, "Unexpected EOF while parsing hex digit.");
+            snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE,
+                "Unexpected EOF while parsing hex digit. (Expected %d hex digits, got %d)",  num_chars, i);
+            pvt_record_error(context, error, JSON_ERR_UNEXPECTED_EOF, context->error_msg);
             //  clang/clion linter doesn't see that record_error changes err_type.
             //   without this, it erroneously reports of unreachable code in calling methods
             error->err_type = JSON_ERR_UNEXPECTED_EOF;
             return 0;
         }
         if (!isxdigit((unsigned char)*json_ptr)) {
+            pvt_advance(context, i);
             context->parse_end = context->current_index;
-            snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE, "Invalid hex digit in Unicode escape: %c", *json_ptr);
-            pvt_record_error(context, error, JSON_ERR_INVALID_UNICODE_ESCAPE, error_msg_buffer);
+            snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE,
+                "Invalid hex digit in Unicode escape: '%c'. (Expected %d hex digits, got %d)", *json_ptr, num_chars, i);
+            pvt_record_error(context, error, JSON_ERR_INVALID_UNICODE_ESCAPE, context->error_msg);
             return 0;
         }
 
         // convert hex digit to uint and shift into result.
-        const uint32_t dec_value = (uint32_t)pvt_hex_to_dec(*json_ptr);  // dec_value: 0 - F
+        const uint32_t dec_value = (uint32_t)pvt_hex_to_dec(*json_ptr);  // dec_value: 0 - 15
         result = result * 16 | dec_value;
         json_ptr++;
     }
@@ -633,10 +674,10 @@ static bool pvt_validate_utf8_continuation_byte(
     uint8_t next_byte = *context->current_ptr;
 
     if ( !( next_byte >= start_range && next_byte <= end_range )) {
-        snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE,
+        snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE,
     "'0x%.2X' is an invalid UTF-8 continuation byte after '0x%.2X'", next_byte, current_byte);
         context->parse_end = context->current_index;
-        pvt_record_error(context, error, JSON_ERR_INVALID_UTF8_CONTINUATION_BYTE, error_msg_buffer);
+        pvt_record_error(context, error, JSON_ERR_INVALID_UTF8_CONTINUATION_BYTE, context->error_msg);
         return false;
     }
 
@@ -695,10 +736,10 @@ static bool pvt_validate_utf8(JsonContext *context, JsonError *error,  StringBui
             //    If the second byte is 0x80 to 0x9F, overlong sequence
             current_byte = (uint8_t)*context->current_ptr;
             if ( current_byte >= 0x80 && current_byte <= 0x9F) {
-                snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE,
+                snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE,
             "'0x%.2X' is an invalid UTF-8 continuation byte and overlong sequence.", current_byte);
                 context->parse_end = context->current_index;
-                pvt_record_error(context, error, JSON_ERR_OVERLONG_SEQUENCE, error_msg_buffer);
+                pvt_record_error(context, error, JSON_ERR_OVERLONG_SEQUENCE, context->error_msg);
                 return false;
             }
             if ( !pvt_validate_utf8_continuation_byte(context, error, lead_byte, 0xA0, 0xBF )) {
@@ -745,17 +786,17 @@ static bool pvt_validate_utf8(JsonContext *context, JsonError *error,  StringBui
             // if second byte in 0xA0 to 0xBF, encoding a surrogate : forbidden
             current_byte = (uint8_t)*context->current_ptr;
             if ( current_byte >= 0xA0 && current_byte <= 0xAF) {
-                snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE,
+                snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE,
             "'0x%.2X' is an invalid UTF-8 continuation byte and reserved for high surrogates.", current_byte);
                 context->parse_end = context->current_index;
-                pvt_record_error(context, error, JSON_ERR_RESERVED_FOR_HIGH_SURROGATE, error_msg_buffer);
+                pvt_record_error(context, error, JSON_ERR_RESERVED_FOR_HIGH_SURROGATE, context->error_msg);
                 return false;
             }
             if ( current_byte >= 0xB0 && current_byte <= 0xBF) {
-                snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE,
+                snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE,
             "'0x%.2X' is an invalid UTF-8 continuation byte and reserved for low surrogates.", current_byte);
                 context->parse_end = context->current_index;
-                pvt_record_error(context, error, JSON_ERR_RESERVED_FOR_LOW_SURROGATE, error_msg_buffer);
+                pvt_record_error(context, error, JSON_ERR_RESERVED_FOR_LOW_SURROGATE, context->error_msg);
                 return false;
             }
             if ( !pvt_validate_utf8_continuation_byte(context, error, lead_byte, 0x80, 0x9F )) {
@@ -811,10 +852,10 @@ static bool pvt_validate_utf8(JsonContext *context, JsonError *error,  StringBui
             //  If the second byte is 0x80 to 0x8F, overlong sequence.
             current_byte = (uint8_t)*context->current_ptr;
             if ( current_byte >= 0x80 && current_byte <= 0x8F) {
-                snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE,
+                snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE,
             "'0x%.2X' is an invalid UTF-8 continuation byte and overlong sequence.", current_byte);
                 context->parse_end = context->current_index;
-                pvt_record_error(context, error, JSON_ERR_OVERLONG_SEQUENCE, error_msg_buffer);
+                pvt_record_error(context, error, JSON_ERR_OVERLONG_SEQUENCE, context->error_msg);
                 return false;
             }
             if ( !pvt_validate_utf8_continuation_byte(context, error, lead_byte, 0x90, 0xBF )) {
@@ -879,10 +920,10 @@ static bool pvt_validate_utf8(JsonContext *context, JsonError *error,  StringBui
             //  if second byte > 0x90, this exceeds legal Unicode limit
             current_byte = (uint8_t)*context->current_ptr;
             if ( current_byte >= 0x90 ) {
-                snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE,
+                snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE,
             "'0x%.2X' is an invalid UTF-8 continuation byte and out of range.", current_byte);
                 context->parse_end = context->current_index;
-                pvt_record_error(context, error, JSON_ERR_CODEPOINT_OUT_OF_RANGE, error_msg_buffer);
+                pvt_record_error(context, error, JSON_ERR_CODEPOINT_OUT_OF_RANGE, context->error_msg);
                 return false;
             }
 
@@ -915,24 +956,32 @@ static bool pvt_validate_utf8(JsonContext *context, JsonError *error,  StringBui
 
     // C0-C1 is invalid.
     if (lead_byte == 0xC0 || lead_byte == 0xC1 ) {
-        snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE,
+        snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE,
     "'0x%.2X' is an invalid UTF-8 start byte and overlong sequence.", lead_byte);
         context->parse_end = context->current_index;
-        pvt_record_error(context, error, JSON_ERR_OVERLONG_SEQUENCE, error_msg_buffer);
+        pvt_record_error(context, error, JSON_ERR_OVERLONG_SEQUENCE, context->error_msg);
         return false;
     }
 
-    snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE,
+    snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE,
 "'0x%.2X' is an invalid UTF-8 start byte.", lead_byte);
     context->parse_end = context->current_index;
-    pvt_record_error(context, error, JSON_ERR_INVALID_UTF8_START_BYTE, error_msg_buffer);
+    pvt_record_error(context, error, JSON_ERR_INVALID_UTF8_START_BYTE, context->error_msg);
     return false;
 }
 
 // assumes *context->current_ptr == 'u' or 'U' and the previous character was a backslash '\'
 static StringBuilder * pvt_parse_unicode_escape( JsonContext *context, JsonError *error, Arena *arena, StringBuilder *sb_out ) {
     if (*context->current_ptr == 'U') {
-        pvt_advance(context, 1);
+        if ( !pvt_is_flag_set_lock_free(context, JSON_CONFIG_ALLOW_UNICODE_U_ESCAPE)) {
+            // got a \U (uppercase U) Unicode escape but flag is not enabled
+            context->parse_end = context->current_index;
+            pvt_record_error(context, error, JSON_ERR_INVALID_ESCAPE_SEQUENCE,
+                "Invalid Unicode escape sequence '\\U'. Set config flag JSON_CONFIG_ALLOW_UNICODE_U_ESCAPE "
+                "to enable this extension");
+            return nullptr;
+        }
+        pvt_advance(context, 1);  // // consume 'U'
         // roblib enhancement. Allows a Unicode codepoint without surrogates.
         uint32_t full_codepoint = pvt_parse_hex6(context, error);
         if (error->err_type != JSON_ERR_NONE) {
@@ -952,9 +1001,10 @@ static StringBuilder * pvt_parse_unicode_escape( JsonContext *context, JsonError
     }
     if ( cp1 >= 0xDC00 && cp1 <= 0xDFFF ) {
         // A low surrogate that wasn't preceded by a high surrogate. This is an error.
-        snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE, "Expected high surrogate to precede low surrogate '\\u%4X', but none found.", cp1);
+        snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE,
+            "Expected high surrogate \\uD800-\\uDBFF to precede low surrogate '\\u%4X', but none found.", cp1);
         context->parse_end = context->current_index;
-        pvt_record_error(context, error, JSON_ERR_NO_PRECEDING_HIGH_SURROGATE, error_msg_buffer);
+        pvt_record_error(context, error, JSON_ERR_NO_PRECEDING_HIGH_SURROGATE, context->error_msg);
         return nullptr;
     }
     uint32_t cp = cp1;
@@ -969,9 +1019,10 @@ static StringBuilder * pvt_parse_unicode_escape( JsonContext *context, JsonError
         // Check for enough remaining characters safely
         if (current_ptr[0] != '\\' || current_ptr[1] != 'u') {
             // no following low surrogate.
-            snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE, "Expected low surrogate escape \\uXXXX to follow high surrogate '\\u%4X'.", cp1);
+            snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE,
+                "Expected low surrogate escape \\uDC00-\\uDFFF to follow high surrogate '\\u%4X'.", cp1);
             context->parse_end = context->current_index;
-            pvt_record_error(context, error, JSON_ERR_NO_FOLLOWING_LOW_SURROGATE, error_msg_buffer);
+            pvt_record_error(context, error, JSON_ERR_NO_FOLLOWING_LOW_SURROGATE, context->error_msg);
             return nullptr;
         }
         //we have a second Unicode escape immediately after the first.
@@ -984,10 +1035,10 @@ static StringBuilder * pvt_parse_unicode_escape( JsonContext *context, JsonError
 
         if ( !(cp2 >= 0xDC00 && cp2 <= 0xDFFF )) {
             // no following low surrogate.
-            snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE,
+            snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE,
                 "Expected low surrogate to follow '\\u%4X', but found '\\u%4X' instead.", cp1, cp2);
             context->parse_end = context->current_index;
-            pvt_record_error(context, error, JSON_ERR_NO_FOLLOWING_LOW_SURROGATE, error_msg_buffer);
+            pvt_record_error(context, error, JSON_ERR_NO_FOLLOWING_LOW_SURROGATE, context->error_msg);
             return nullptr;
         }
 
@@ -1089,8 +1140,8 @@ static JsonValue * pvt_parse_string(JsonContext *context, JsonError *error, Aren
                     }
                     break;
                 default:
-                    snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE, "Invalid escape sequence: \\%c", current_byte);
-                    pvt_record_error(context, error, JSON_ERR_INVALID_ESCAPE_SEQUENCE, error_msg_buffer);
+                    snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE, "Invalid escape sequence: \\%c", current_byte);
+                    pvt_record_error(context, error, JSON_ERR_INVALID_ESCAPE_SEQUENCE, context->error_msg);
                     sb_destroy(&sb);
                     return nullptr;
             }
@@ -1098,8 +1149,8 @@ static JsonValue * pvt_parse_string(JsonContext *context, JsonError *error, Aren
         } else if ( current_byte <= 0x1F) {
             // RFC 8259: Control characters U+0000 through U+001F MUST be escaped.
             // This means the literal bytes cannot appear here.
-            snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE, "Unexpected unescaped control character: 0x%.2X\n", current_byte);
-            pvt_record_error(context, error, JSON_ERR_UNESCAPED_CONTROL_CHAR, error_msg_buffer);
+            snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE, "Unexpected unescaped control character: 0x%.2X\n", current_byte);
+            pvt_record_error(context, error, JSON_ERR_UNESCAPED_CONTROL_CHAR, context->error_msg);
             sb_destroy(&sb);
             return nullptr;
         } else {
@@ -1117,9 +1168,7 @@ static JsonValue * pvt_parse_string(JsonContext *context, JsonError *error, Aren
 
 // RSL: "Regex Start of Line"
 #define RSL      "^"
-#define WS       "[\x20\x09\x0A\x0D]"
-#define WS_star  "[\x20\x09\x0A\x0D]*"
-static const char * const REGEX_NUMBER_STR = RSL "(-?(0|([1-9][0-9]*))(\\.[0-9]+)?([eE][-+]?[0-9]+)?)" WS_star;
+static const char * const REGEX_NUMBER_STR = RSL "(-?(0|([1-9][0-9]*))(\\.[0-9]+)?([eE][-+]?[0-9]+)?)";
 static regex_t REGEX_NUMBER_PATTERN;
 constexpr int MATCH_FOUND = 0;
 
@@ -1132,8 +1181,8 @@ static JsonValue * pvt_parse_number(JsonContext *context, JsonError *error, Aren
     const int result = regexec( &REGEX_NUMBER_PATTERN, context->current_ptr, max_groups, pmatch, 0);
     int match_len =  (int)pmatch[0].rm_eo;
     if (result != MATCH_FOUND || match_len < 0) {
-        snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE, "expected number, got: %.*s", 100 ,context->current_ptr);
-        pvt_record_error(context, error, JSON_ERR_INVALID_NUMBER_FORMAT, error_msg_buffer);
+        snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE, "expected number, got: %.*s", 100 ,context->current_ptr);
+        pvt_record_error(context, error, JSON_ERR_INVALID_NUMBER_FORMAT, context->error_msg);
         return nullptr;
     }
     auto start = pmatch[1].rm_so;
@@ -1153,7 +1202,12 @@ static JsonValue * pvt_parse_number(JsonContext *context, JsonError *error, Aren
     errno = 0; // Reset errno before the calls
     if (is_double) {
         value->type = JSON_FLOAT;
-        value->u.n_double = strtod(context->current_ptr, nullptr);
+        // value->u.n_double = strtod(context->current_ptr, nullptr);
+#ifdef _WIN32
+        value->u.n_double = _strtod_l(context->current_ptr, nullptr, _get_pure_c_locale());
+#else
+        value->u.n_double = strtod_l(context->current_ptr, nullptr, c_locale_obj);
+#endif
         // Note: If strtod overflows, u.n_double will be +/- Infinity (HUGE_VAL).
     } else {
         value->type = JSON_INT;
@@ -1161,7 +1215,12 @@ static JsonValue * pvt_parse_number(JsonContext *context, JsonError *error, Aren
         if (errno == ERANGE) {
             // Promotion: If too big for long, use double to preserve magnitude (even if it becomes Infinity)
             value->type = JSON_FLOAT;
-            value->u.n_double = strtod(context->current_ptr, nullptr);
+            // value->u.n_double = strtod(context->current_ptr, nullptr);
+#ifdef _WIN32
+            value->u.n_double = _strtod_l(context->current_ptr, nullptr, _get_pure_c_locale());
+#else
+            value->u.n_double = strtod_l(context->current_ptr, nullptr, c_locale_obj);
+#endif
         } else {
             value->u.n_long = val;
         }
@@ -1189,7 +1248,7 @@ static JsonValue *  pvt_parse_literal_impl(  JsonContext *context,
         }
         if (*keyword_ptr != *text_ptr) {
             err_type = JSON_ERR_UNEXPECTED_TEXT;
-            snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE,
+            snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE,
                 "unexpected character:'%c', expected '%s'", *text_ptr, key_word);
             break;
         }
@@ -1206,10 +1265,10 @@ static JsonValue *  pvt_parse_literal_impl(  JsonContext *context,
     if ( err_type == JSON_ERR_NONE && *keyword_ptr != '\0') {
         // unexpected end of text
         err_type = JSON_ERR_UNEXPECTED_EOF;
-        snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE, "unexpected EOF, expected '%s'", key_word);
+        snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE, "unexpected EOF, expected '%s'", key_word);
     }
     if (err_type != JSON_ERR_NONE) {
-        pvt_record_error(context, error, err_type, error_msg_buffer);
+        pvt_record_error(context, error, err_type, context->error_msg);
         return nullptr;
     }
 
@@ -1274,8 +1333,8 @@ static JsonValue *pvt_parse_value(JsonContext *context, JsonError *error, Arena 
         default:
             if (error) {
                 context->parse_end = context->current_index;
-                snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE, "unexpected character:'%c'", *context->current_ptr);
-                pvt_record_error(context, error, JSON_ERR_UNEXPECTED_TEXT, error_msg_buffer);
+                snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE, "unexpected character:'%c'", *context->current_ptr);
+                pvt_record_error(context, error, JSON_ERR_UNEXPECTED_TEXT, context->error_msg);
                 return nullptr;
             }
             break;
@@ -1319,7 +1378,7 @@ static bool pvt_is_rejected_due_to_bom(JsonContext *context, const char *json_te
 
     // utf8 BOM behavior controlled by flag JSON_CONFIG_FAIL_ON_INITIAL_BOM
     if (pvt_starts_with_bom(json_text, 3, BOM_UTF8)  ) {
-        if (pvt_is_flag_set_thread_local(context, JSON_CONFIG_FAIL_ON_INITIAL_BOM)) {
+        if (pvt_is_flag_set_lock_free(context, JSON_CONFIG_FAIL_ON_INITIAL_BOM)) {
             pvt_advance(context, 3);
             context->parse_end = context->current_index;
             pvt_record_error(context, error, JSON_ERR_BOM_NOT_ALLOWED,
@@ -1374,7 +1433,7 @@ static JsonValue * pvt_jsonp_parse_impl(JsonContext *context, const char *json_t
 }
 
 static void pvt_init_context_ws_table(JsonContext *context) {
-    const char *ws = atomic_load(&whitespace_chars);
+    const char *ws = atomic_load(&pvt_whitespace_chars);
     memset(context->ws_table, 0, sizeof(context->ws_table));
     while (*ws) {
         context->ws_table[(unsigned char)*ws++] = true;
@@ -1382,10 +1441,13 @@ static void pvt_init_context_ws_table(JsonContext *context) {
 }
 
 JsonValue *jsonp_parse(const char *json_text, JsonError *error, Arena *arena) {
+
+
     JsonContext context = {
         .current_ptr = json_text,
         .json_text = json_text,
-        .config_flags = atomic_load(&json_config_flags)
+        .config_flags = atomic_load(&json_config_flags),
+        .depth_max = atomic_load(&pvt_depth_max)
     };
     pvt_init_context_ws_table(&context);
     JsonValue *value = pvt_jsonp_parse_impl(&context, json_text, error, arena);
@@ -1396,49 +1458,112 @@ JsonValue *jsonp_parse_ex(const char *json_text, JsonError *error, Arena *arena,
     JsonContext context = {
         .current_ptr = json_text,
         .json_text = json_text,
-        .config_flags = atomic_load(&json_config_flags)
+        .config_flags = atomic_load(&json_config_flags),
+        .depth_max = atomic_load(&pvt_depth_max)
     };
     pvt_init_context_ws_table(&context);
     JsonValue *value = pvt_jsonp_parse_impl(&context, json_text, error, arena);
     if (!value) return nullptr;
 
     if (context.current_index < buffer_size) {
-        snprintf(error_msg_buffer, ERROR_MSG_BUFFER_SIZE,
+        snprintf(context.error_msg, ERROR_MSG_BUFFER_SIZE,
     "JSON text was successfully parsed, but characters remain in the buffer."
     " This can happen when the text is followed by embedded NUL characters.\nbuffer size=%u, bytes parsed=%u",
     buffer_size, context.current_index );
         context.parse_end = context.current_index;
-        pvt_record_error(&context, error, JSON_ERR_UNEXPECTED_EOF, error_msg_buffer);
+        pvt_record_error(&context, error, JSON_ERR_UNEXPECTED_EOF, context.error_msg);
         return nullptr;
 
     }
     return value;
 }
 
+// -----------------------------------------------------------------
+//      INITIALIZE
+// -----------------------------------------------------------------
 
 constexpr int REGEX_COMPILE_SUCCESS = 0;
-static bool is_initialized = false;
+static _Atomic(bool) is_initialized = false;
 
-Error jsonp_init() {
+// Canonical initializer
+Error jsonp_init_3(uint64_t config_flags, uint32_t max_depth, char const * whitespace_chars) {
+    if (atomic_load(&is_initialized)) {
+        return (Error){};
+    }
+
+    // Initialize Locale
+#ifndef _WIN32
+    c_locale_obj = newlocale(LC_NUMERIC_MASK, "C", (locale_t)0);
+#endif
+
     int reti = regcomp(&REGEX_NUMBER_PATTERN, REGEX_NUMBER_STR, REG_EXTENDED);
     if ( reti != REGEX_COMPILE_SUCCESS) {
+        // free resources and return error
+        const char *ws = atomic_exchange(&pvt_whitespace_chars, NULL);
+        if (ws) {
+            free((void*)ws);
+        }
         char msgbuf[100];
         regerror(reti, &REGEX_NUMBER_PATTERN, msgbuf, sizeof(msgbuf));
         fprintf(stderr, "Regex compilation failed for '%s': %s\n", REGEX_NUMBER_STR, msgbuf);
         Error result =  (Error){ .err = true, .reported_err = reti, .err_obj = (void*)REGEX_NUMBER_STR };
         strncpy(result.msg, msgbuf, sizeof msgbuf);
         result.msg[ sizeof msgbuf - 1 ] = '\0';
+        // ReSharper disable once CppDFAMemoryLeak
         return result; // Exit early on compilation error
     }
 
-    is_initialized = true;
+    // Initialize Whitespace (Copy the argument)
+    // ReSharper disable once CppDFAMemoryLeak
+    char *default_ws = (char *)malloc(strlen(whitespace_chars) + 1);
+    if (default_ws) {
+        strcpy(default_ws, whitespace_chars);
+        atomic_store(&pvt_whitespace_chars, default_ws);
+    } else {
+        return (Error){ .err = true, .reported_err = ENOMEM };
+    }
+
+    atomic_store(&json_config_flags, config_flags);
+    atomic_store(&pvt_depth_max, max_depth);
+
+    atomic_store(&is_initialized, true);
+    // ReSharper disable once CppDFAMemoryLeak
     return (Error){};
 }
 
-void jsonp_destroy(void) {
-    regfree(&REGEX_NUMBER_PATTERN);
-    is_initialized = false;
+Error jsonp_init_2(uint64_t config_flags, uint32_t max_depth) {
+    return jsonp_init_3(config_flags, max_depth, JSON_WHITESPACE_CHARS_DEFAULT);
 }
+
+Error jsonp_init_1(uint64_t config_flags) {
+    return jsonp_init_3( config_flags, JSON_DEPTH_MAX_DEFAULT, JSON_WHITESPACE_CHARS_DEFAULT);
+}
+
+
+Error jsonp_init() {
+    return jsonp_init_3(JSON_CONFIG_FLAGS_DEFAULT, JSON_DEPTH_MAX_DEFAULT, JSON_WHITESPACE_CHARS_DEFAULT);
+}
+
+
+
+// -----------------------------------------------------------------
+//      DESTROY
+// -----------------------------------------------------------------
+
+void jsonp_destroy(void) {
+    if (atomic_exchange(&is_initialized, false)) {
+        regfree(&REGEX_NUMBER_PATTERN);
+#ifndef _WIN32
+        freelocale(c_locale_obj);
+#endif
+        const char *ws = atomic_exchange(&pvt_whitespace_chars, nullptr);
+        if (ws) {
+            free( (void*)ws);
+        }
+    }
+}
+
+
 
 // -----------------------------------------------------------------
 //      Pretty-Printer like output
@@ -1519,7 +1644,7 @@ void jsonp_print_json_value(JsonValue *value) {
 //// ------------------------------------------------------------
 
 
-void test_parse_str(char const * str) {
+void parse_test_str(char const * str) {
     Error init_err = jsonp_init();
     if (init_err.err) {
         err_print(init_err);
@@ -1547,158 +1672,219 @@ void test_parse_str(char const * str) {
     jsonp_destroy();
 }
 
+void parse_test_str_custom_init(
+        char const * str,
+        uint64_t config_flags,
+        uint32_t max_depth,
+        char const * whitespace_chars )
+{
+
+    if (! whitespace_chars ) whitespace_chars = JSON_WHITESPACE_CHARS_DEFAULT;
+    Error err = jsonp_init_3( config_flags, max_depth,whitespace_chars );
+
+    Arena arena = {};
+    ArenaErrResult aer = arena_create_arena( &arena, ONE_MIBIBYTE * 100);
+    if ( aer.err ) {
+        printf("arena_create_arena failed with %d, %s\n", aer.reported_err, aer.msg);
+    }
+    JsonError json_err = {};
+    printf("\nParsing json string '%s': \n", str);
+    JsonValue *jval = jsonp_parse(str, &json_err, &arena);
+    if (!jval) {
+        printf("ERROR %d: first_bad_char:%d, line:%d col:%d start:%d end:%d  %s\n",
+           json_err.err_type, json_err.first_bad_char,  json_err.line, json_err.column, json_err.parse_start,
+           json_err.parse_end, json_err.message);
+    }
+    else {
+        jsonp_print_json_value(jval);
+        printf("\n");
+    }
+
+    arena_destroy_arena(&arena);
+    jsonp_destroy();
+
+}
+
+void test_custom_flags(void) {
+    uint64_t my_custom_flags =
+        jsonp_set_config_flags( 3, (JsonConfigFlag[3]) {
+            JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_ARRAYS,
+            JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_OBJECTS,
+            JSON_CONFIG_ALLOW_UNICODE_U_ESCAPE
+            });
+
+    // first should error:
+    parse_test_str_custom_init("[ 1,2, ]", 0, JSON_DEPTH_MAX_DEFAULT, JSON_WHITESPACE_CHARS_DEFAULT);
+    // this should pass
+    parse_test_str_custom_init("[ 1,2, ]", my_custom_flags, JSON_DEPTH_MAX_DEFAULT, JSON_WHITESPACE_CHARS_DEFAULT);
+
+    // first should error:
+    parse_test_str_custom_init("{ \"one\":1, \"two\":2, }", 0, JSON_DEPTH_MAX_DEFAULT, JSON_WHITESPACE_CHARS_DEFAULT);
+    // this should pass
+    parse_test_str_custom_init("{ \"one\":1, \"two\":2, }", my_custom_flags, JSON_DEPTH_MAX_DEFAULT, JSON_WHITESPACE_CHARS_DEFAULT);
+
+    // first should error:
+    parse_test_str_custom_init("\"one:\\U012348\"", 0, JSON_DEPTH_MAX_DEFAULT, JSON_WHITESPACE_CHARS_DEFAULT);
+    // this should pass
+    parse_test_str_custom_init("\"one:\\U012348\"", my_custom_flags, JSON_DEPTH_MAX_DEFAULT, JSON_WHITESPACE_CHARS_DEFAULT);
+}
+
+
 void test_multi_byte_char_strings() {
     // one byte
-    test_parse_str("\"\x41\"");     // A
+    parse_test_str("\"\x41\"");     // A
 
     // two bytes
-    test_parse_str("\"\xC1\x80\""); // invalid
-    test_parse_str("\"\xC2\x80\""); // ''
+    parse_test_str("\"\xC1\x80\""); // invalid
+    parse_test_str("\"\xC2\x80\""); // ''
 
     // three bytes
-    test_parse_str("\"\xE0\xA0\x80\""); // 'ࠀ'
-    test_parse_str("\"\xE1\x95\xBB\""); // 'ᕻ'
-    test_parse_str("\"\xED\x95\xBB\""); // '핻'
-    test_parse_str("\"\xEE\x95\xBB\""); // ''
-    test_parse_str("\"\xEF\xBF\xBF\""); // '￿'
+    parse_test_str("\"\xE0\xA0\x80\""); // 'ࠀ'
+    parse_test_str("\"\xE1\x95\xBB\""); // 'ᕻ'
+    parse_test_str("\"\xED\x95\xBB\""); // '핻'
+    parse_test_str("\"\xEE\x95\xBB\""); // ''
+    parse_test_str("\"\xEF\xBF\xBF\""); // '￿'
 
     // four bytes
-    test_parse_str("\"\xF0\x90\x80\x80\""); // '𐀀'
-    test_parse_str("\"\xF0\x9F\x98\x80\""); // '😀'
-    test_parse_str("\"\xF0\xBF\xBF\xBF\""); // '𿿿'
+    parse_test_str("\"\xF0\x90\x80\x80\""); // '𐀀'
+    parse_test_str("\"\xF0\x9F\x98\x80\""); // '😀'
+    parse_test_str("\"\xF0\xBF\xBF\xBF\""); // '𿿿'
 
-    test_parse_str("\"\xF1\x80\x80\x80\""); // '𿿿'
-    test_parse_str("\"\xF3\xBF\xBF\xBF\""); // '󿿿'
+    parse_test_str("\"\xF1\x80\x80\x80\""); // '𿿿'
+    parse_test_str("\"\xF3\xBF\xBF\xBF\""); // '󿿿'
 
-    test_parse_str("\"\xF4\x80\x80\x80\""); // '󿿿'
-    test_parse_str("\"\xF4\x8F\xBF\xBF\""); // '󿿿'
+    parse_test_str("\"\xF4\x80\x80\x80\""); // '󿿿'
+    parse_test_str("\"\xF4\x8F\xBF\xBF\""); // '󿿿'
 
-    test_parse_str("\"\xF4\x90\x80\x80\""); // '󿿿'
+    parse_test_str("\"\xF4\x90\x80\x80\""); // '󿿿'
 
 
 }
 
 void test_parse_unicode_escapes() {
-    // test_parse_str("\"\\uCAFE \\uBABE\"");
-    // test_parse_str("\"\\uCAFE\\uBABE\"");
+    // parse_test_str("\"\\uCAFE \\uBABE\"");
+    // parse_test_str("\"\\uCAFE\\uBABE\"");
 
-    // test_parse_str("\"\\uD801\\uDC01\"");   // valid high- / low-surrogate pair=
+    // parse_test_str("\"\\uD801\\uDC01\"");   // valid high- / low-surrogate pair=
     //
-    // test_parse_str("\"\\uDC01\"");      //low surrogate without preceding high surrogate
-    // test_parse_str("\"\\uD801\"");      //high surrogate without following low surrogate
+    // parse_test_str("\"\\uDC01\"");      //low surrogate without preceding high surrogate
+    // parse_test_str("\"\\uD801\"");      //high surrogate without following low surrogate
     //
-    // test_parse_str("\"\\uDC01\\uDC02\"");      //two low surrogates in a row
-    // test_parse_str("\"\\uD801\\uD802\"");      //two high surrogates in a row
+    // parse_test_str("\"\\uDC01\\uDC02\"");      //two low surrogates in a row
+    // parse_test_str("\"\\uD801\\uD802\"");      //two high surrogates in a row
 
 
-    test_parse_str("\"\\u0041\""); // A
-    test_parse_str("\"\\u0080\"");  // ''
+    parse_test_str("\"\\u0041\""); // A
+    parse_test_str("\"\\u0080\"");  // ''
 
-    test_parse_str("\"\\u0800\"");  // 'ࠀ'
+    parse_test_str("\"\\u0800\"");  // 'ࠀ'
 
-    test_parse_str("\"\\uD834\\uDD1E\"");
+    parse_test_str("\"\\uD834\\uDD1E\"");
 
-    test_parse_str("\"😀  \\uD83D\\uDE00\"");
+    parse_test_str("\"😀  \\uD83D\\uDE00\"");
 
-    test_parse_str("\"😀  \\U01F600\"");  // Our custom enhancement! Allows full unicode codepoint without surrogates
+    parse_test_str("\"😀  \\U01F600\"");  // Our custom enhancement! Allows full unicode codepoint without surrogates
 
 
     // the code that renders glyphs combines them into one glyph!!
-    test_parse_str("\" combining character: C with tail: \\u0043\\u0327\"");
+    parse_test_str("\" combining character: C with tail: \\u0043\\u0327\"");
 
     // Test: Combining character vs Precomposed
     // \u00E9 is 'é' (1 codepoint)
     // e\u0301 is 'e' + '´' (2 codepoints)
     printf("\n--- Combining Character Test ---\n");
-    test_parse_str("\"\\u00E9\"");
-    test_parse_str("\"e\\u0301\"");
+    parse_test_str("\"\\u00E9\"");
+    parse_test_str("\"e\\u0301\"");
     printf("Note: Both should look identical in the terminal, but 'raw bytes' count will differ.\n");
 
-    // test_parse_str("\"\\uABCDAPPLE\"");
+    // parse_test_str("\"\\uABCDAPPLE\"");
 }
 
 void test_null_parse(void) {
-    test_parse_str("null");
-    test_parse_str(" null ");
-    test_parse_str("nul");
-    test_parse_str("nu");
-    test_parse_str("n");
+    parse_test_str("null");
+    parse_test_str(" null ");
+    parse_test_str("nul");
+    parse_test_str("nu");
+    parse_test_str("n");
 
-    test_parse_str("number");
-    test_parse_str("next");
+    parse_test_str("number");
+    parse_test_str("next");
 
-    test_parse_str("nulll");
+    parse_test_str("nulll");
 }
 
 void test_true_parse(void) {
-    test_parse_str("true");
-    test_parse_str(" true ");
-    test_parse_str(" truetrue ");
-    test_parse_str(" true true");
-    test_parse_str(" tr true");
+    parse_test_str("true");
+    parse_test_str(" true ");
+    parse_test_str(" truetrue ");
+    parse_test_str(" true true");
+    parse_test_str(" tr true");
 }
 
 void test_false_parse(void) {
-    test_parse_str("false");
-    test_parse_str(" false ");
-    test_parse_str(" falsefalse ");
-    test_parse_str(" false false");
-    test_parse_str(" fals ");
+    parse_test_str("false");
+    parse_test_str(" false ");
+    parse_test_str(" falsefalse ");
+    parse_test_str(" false false");
+    parse_test_str(" fals ");
 }
 
 void test_number_parse(void) {
-    // test_parse_str("0");
-    // test_parse_str("1");
-    // test_parse_str("1.1");
-    // test_parse_str("-3.3");
-    // test_parse_str("-3.3e24");
-    // test_parse_str("5.3e-24");
-    // test_parse_str("5.67 moo");
-    // test_parse_str("[100000000000000000000]");
-    test_parse_str("[123123e100000]");
-    test_parse_str("[-123123e100000]");
-    test_parse_str("[0.4e00669999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999969999999006]");
-    test_parse_str("[0.4e-00669999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999969999999006]");
-    test_parse_str("[-0.4e-00669999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999969999999006]");
+    // parse_test_str("0");
+    // parse_test_str("1");
+    // parse_test_str("1.1");
+    // parse_test_str("-3.3");
+    // parse_test_str("-3.3e24");
+    // parse_test_str("5.3e-24");
+    // parse_test_str("5.67 moo");
+    // parse_test_str("[100000000000000000000]");
+    parse_test_str("[123123e100000]");
+    parse_test_str("[-123123e100000]");
+    parse_test_str("[0.4e00669999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999969999999006]");
+    parse_test_str("[0.4e-00669999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999969999999006]");
+    parse_test_str("[-0.4e-00669999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999969999999006]");
 
-    test_parse_str("[-123123123123123123123123123123]");
+    parse_test_str("[-123123123123123123123123123123]");
 }
 
 void test_array_parse(void) {
-    // test_parse_str("[]");
-    // test_parse_str("[1]");
-    // test_parse_str("[1, 2]");
-    // test_parse_str("[1 2]");
+    // parse_test_str("[]");
+    // parse_test_str("[1]");
+    // parse_test_str("[1, 2]");
+    // parse_test_str("[1 2]");
     //
-    // test_parse_str("[1, 2, true, false, null, 3.33, 4e20]");
+    // parse_test_str("[1, 2, true, false, null, 3.33, 4e20]");
     //
-    // test_parse_str("[ 1, 2]]");
+    // parse_test_str("[ 1, 2]]");
 
-    // test_parse_str("[ 1, ");
+    // parse_test_str("[ 1, ");
 //[ [1,2,3], [4,5,6], [true,false,null] ]
-    test_parse_str("[[1,2 ] ] ");
-    test_parse_str("[[1 ], [2] ] ");
-    test_parse_str("[[1,2] ] ");
-    test_parse_str("[[1,2],[3,4]] ");
-    test_parse_str("[ [1,2],[3,4]] ");
-    test_parse_str("[ [1,2], [3,4]] ");
-    test_parse_str("[ [1,2], [3,4] ] ");
+    parse_test_str("[[1,2 ] ] ");
+    parse_test_str("[[1 ], [2] ] ");
+    parse_test_str("[[1,2] ] ");
+    parse_test_str("[[1,2],[3,4]] ");
+    parse_test_str("[ [1,2],[3,4]] ");
+    parse_test_str("[ [1,2], [3,4]] ");
+    parse_test_str("[ [1,2], [3,4] ] ");
 
-    test_parse_str("[ [1,2,3], [4,5,6], [true,false,null] ] ");
+    parse_test_str("[ [1,2,3], [4,5,6], [true,false,null] ] ");
 
 }
 
 void test_parse_objects(void ) {
-    test_parse_str("{}");   // empty object is fine by the spec
+    parse_test_str("{}");   // empty object is fine by the spec
 
-    test_parse_str("{ \"foo\": null }");
+    parse_test_str("{ \"foo\": null }");
 
-    test_parse_str("{ \"one\": \"one\", \"two\" : 2, \"three\" : 3.33 }   ");
+    parse_test_str("{ \"one\": \"one\", \"two\" : 2, \"three\" : 3.33 }   ");
 
-    test_parse_str("{ \"one\": \"one\", \"two\" : 2, \"three\" : 3.33, \"null\" : null, \"true\":true, \"false\":false }");
+    parse_test_str("{ \"one\": \"one\", \"two\" : 2, \"three\" : 3.33, \"null\" : null, \"true\":true, \"false\":false }");
 
-    test_parse_str(" [{ \"name\": \"jelly bowl\", \"ff\": 5}, {\"name\": \"werewolf\", \"ff\": 10 }]");
+    parse_test_str(" [{ \"name\": \"jelly bowl\", \"ff\": 5}, {\"name\": \"werewolf\", \"ff\": 10 }]");
 }
+
+
+
 
 // Helper to see exactly what bytes are in a string
 static void debug_dump_bytes(const char *label, const char *s) {
@@ -1728,38 +1914,38 @@ static void test_hex_and_chars(void) {
 }
 
 void test_indeterminates(void) {
-    // test_parse_str("[\"日ш�\"]");
+    // parse_test_str("[\"日ш�\"]");
 
     // a really big int.
-    test_parse_str("[100000000000000000000]");  // parses as [ 1e+20 ]
+    parse_test_str("[100000000000000000000]");  // parses as [ 1e+20 ]
 
 
     // + overflow
-    test_parse_str("[123123e100000]"); // [ inf ]
+    parse_test_str("[123123e100000]"); // [ inf ]
 
     // - overflow
-    test_parse_str("[-123123e100000]");  // [ -inf ]
+    parse_test_str("[-123123e100000]");  // [ -inf ]
 
     // huge exp- parses as [ inf ]
-    test_parse_str("[0.4e00669999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999969999999006]");
+    parse_test_str("[0.4e00669999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999969999999006]");
 
     // too big negative int
-    test_parse_str("[-123123123123123123123123123123]");  // [ -1.23123e+29 ]
+    parse_test_str("[-123123123123123123123123123123]");  // [ -1.23123e+29 ]
 
     // number_double_huge_neg_exp.json
-    test_parse_str("[123.456e-789]");  // [ 0 ]
+    parse_test_str("[123.456e-789]");  // [ 0 ]
 
     //number_pos_double_huge_exp.json
-    test_parse_str("[1.5e+9999]"); // [ inf ]
+    parse_test_str("[1.5e+9999]"); // [ inf ]
 
     //number_real_underflow.json
-    test_parse_str("[123e-10000000]");  // [ 0 ]
+    parse_test_str("[123e-10000000]");  // [ 0 ]
 
     // number_very_big_negative_int.json  - parses a [ -2.37462e+47 ][ -2.37462e+47 ]
-    test_parse_str("[-237462374673276894279832749832423479823246327846]");
+    parse_test_str("[-237462374673276894279832749832423479823246327846]");
 
     // number_neg_int_huge_exp.json
-    test_parse_str("[-1e+9999]");  // [ -inf ]
+    parse_test_str("[-1e+9999]");  // [ -inf ]
 }
 
 #ifdef JSON_PARSER_2_MAIN
@@ -1786,7 +1972,7 @@ int main( ) {
     // printf("\\u0800: \u0800\n");
     // printf("\\U+0001f600: \U0001f600\n");
 
-    test_null_parse();
+    // test_null_parse();
     // test_true_parse();
     // test_false_parse();
     // test_number_parse();
@@ -1799,6 +1985,8 @@ int main( ) {
     // test_hex_and_chars();
 
     // test_indeterminates();
+
+    test_custom_flags();
 
 
 }
