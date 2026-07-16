@@ -129,13 +129,18 @@ TEST_F(JsonParserTest, n_structure_whitespace_formfeed_json) {
     EXPECT_EQ(err.err_type, JSON_ERR_UNEXPECTED_TEXT);
     EXPECT_EQ(err.parse_end, 1);
 
-    jsonp_define_whitespace_chars("\x20\x09\x0A\x0D\x0c");  // add formfeed
+    // todo (rob) this exposes an issue with this API call. In a multi-threaded environment, the next call to
+    // jsonp_parse will pick up the new whitespace definition. Perhaps we provide a global definition only at
+    // init time in jsonp_int and this cannot change. But then we allow per-context customization.
+    // so we'd need a create_context type method the user can use to set flags and options before calling
+    // jsonp_parse_with_context....
+    jsonp_define_whitespace_chars(" \t\n\r\f");  // add formfeed
 
     jval = jsonp_parse(test_fixture, &err, arena);
     EXPECT_NE(jval, nullptr) << "expected successful parse for: '" << test_fixture \
-        << "' after adding form-feed as white space character.";
+        << "' after adding form-feed as white space character, but parsing failed. err_type = " << err.err_type;
 
-    jsonp_define_whitespace_chars("\x20\x09\x0A\x0D");  // restore original
+    jsonp_define_whitespace_chars(JSON_WHITESPACE_CHARS_DEFAULT);  // restore original
 }
 
 
