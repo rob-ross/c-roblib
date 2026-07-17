@@ -41,26 +41,27 @@ char const * const BOM_UTF32_BE = "\x00\x00\xFE\xFF";
 char const * const BOM_UTF32_LE = "\xFF\xFE\x00\x00";
 
 
-typedef struct json_context_t {
-    const char *current_ptr;  // The current text being parsed, advances through the JSON text in the json member
-    const char *json_text; // full original JSON text string
-    uint32_t current_index; // the index of the character the lexer is scanning
-    uint32_t line;
-    uint32_t column;
-    uint32_t parse_start;
-    uint32_t parse_end;
-    uint32_t depth_current;
-    uint32_t depth_max;
-    uint64_t config_flags;
-    bool     ws_table[256];
-    char     error_msg[ERROR_MSG_BUFFER_SIZE + 1];
+typedef struct json_context_s {
+    const char     *current_ptr;   // The current text being parsed, advances through the JSON text in the json member
+    const char     *json_text;     // full original JSON text string
+    uint32_t       current_index; // the index of the character the lexer is scanning
+    uint32_t       line;
+    uint32_t       column;
+    uint32_t       parse_start;
+    uint32_t       parse_end;
+    uint32_t       depth_current;
+    uint32_t       depth_max;
+    jp_bitset_t    config_flags;
+    char           whitespace_chars[16];
+    bool           ws_table[256];
+    char           error_msg[ERROR_MSG_BUFFER_SIZE + 1];
 } JsonContext;
 
 // -----------------------------------------------------------------
 //      Forward Declarations
 // -----------------------------------------------------------------
-static JsonValue * pvt_parse_value(JsonContext *context, JsonError *error, Arena *arena );
-static JsonValue * pvt_parse_string(JsonContext *context, JsonError *error, Arena *arena );
+static JsonValue * pvt_parse_value(JsonContext *context, JsonParseError *error, Arena *arena );
+static JsonValue * pvt_parse_string(JsonContext *context, JsonParseError *error, Arena *arena );
 
 
 
@@ -70,7 +71,7 @@ static JsonValue * pvt_parse_string(JsonContext *context, JsonError *error, Aren
 
 // Using _Atomic ensures that setting a flag in one thread and reading it
 // to initialize a context in another thread is thread-safe and visible.
-static _Atomic(uint64_t) json_config_flags = 0;
+static _Atomic(jp_bitset_t) json_config_flags = 0;
 
 bool jsonp_is_flag_set(JsonConfigFlag flag) {
     return atomic_load(&json_config_flags) & ( 1 << flag) ;
@@ -81,24 +82,24 @@ static bool pvt_is_flag_set_lock_free(const JsonContext *context, const JsonConf
 }
 
 void jsonp_set_config_flag(JsonConfigFlag flag) {
-    uint64_t old = atomic_load(&json_config_flags);
+    jp_bitset_t old = atomic_load(&json_config_flags);
     while (!atomic_compare_exchange_weak(&json_config_flags, &old, old | (1 << flag)));
 }
 
-uint64_t jsonp_set_config_flags(const uint32_t flag_count, JsonConfigFlag const *flag) {
-    uint64_t set_flags = 0;
+
+
+void jsonp_clear_config_flag(JsonConfigFlag flag) {
+    jp_bitset_t old = atomic_load(&json_config_flags);
+    while (!atomic_compare_exchange_weak(&json_config_flags, &old, old & ~(1 << flag)));
+}
+
+jp_bitset_t jsonp_make_config_bitset(const uint32_t flag_count, JsonConfigFlag const *flag) {
+    jp_bitset_t set_flags = 0;
     for (uint32_t i = 0; i < flag_count; ++i) {
         set_flags |= ( 1 << flag[i]);
     }
     return set_flags;
 }
-
-
-void jsonp_clear_config_flag(JsonConfigFlag flag) {
-    uint64_t old = atomic_load(&json_config_flags);
-    while (!atomic_compare_exchange_weak(&json_config_flags, &old, old & ~(1 << flag)));
-}
-
 
 
 
@@ -169,9 +170,11 @@ static void pvt_advance(JsonContext *context, const int char_count) {
 }
 
 static void pvt_record_error(
-    const JsonContext *context, JsonError *error, const enum json_error_type err_type, const char *msg) {
+    const JsonContext *context, JsonParseError *error, const enum json_error_type_e err_type, const char *msg) {
 
-    strncpy(error->message, msg, ERROR_MSG_BUFFER_SIZE);
+    if (error->message != msg ) {
+        strncpy(error->message, msg, ERROR_MSG_BUFFER_SIZE);
+    }
     error->json = context->json_text;
     error->err_type = err_type;
     error->first_bad_char = context->current_index;
@@ -181,12 +184,12 @@ static void pvt_record_error(
     error->parse_end = context->parse_end;
 }
 
-static bool pvt_max_depth_exceeded(JsonContext *context, JsonError *error) {
+static bool pvt_max_depth_exceeded(JsonContext *context, JsonParseError *error) {
     if (context->depth_current > context->depth_max) {
-        snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE,
+        snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
             "max nested depth of %u exceeded", context->depth_max);
         context->parse_end = context->current_index;
-        pvt_record_error(context, error, JSON_ERR_MAX_NESTED_DEPTH_EXCEEDED, context->error_msg);
+        pvt_record_error(context, error, JSON_ERR_MAX_NESTED_DEPTH_EXCEEDED, error->message);
         return true;
     }
     return false;
@@ -217,12 +220,25 @@ JsonObjectEntry * jsonp_entry_for_key(const JsonValue *json_obj, char const * ke
     return nullptr;
 }
 
-static JsonObjectEntry * pvt_parse_one_entry(JsonContext *context, JsonError *error, Arena *arena) {
+static JsonObjectEntry * pvt_parse_one_entry(JsonContext *context, JsonParseError *error, Arena *arena) {
     pvt_skip_whitespace(context);
     context->parse_start = context->current_index;  // need this here since we aren't calling pvt_parse_value()
+    if (*context->current_ptr == '\0') {
+        context->parse_end = context->current_index;
+        snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "unexpected EOF, expected object key");
+        pvt_record_error(context, error, JSON_ERR_MISSING_OBJECT_KEY, error->message);
+        return nullptr;
+    }
+    if (*context->current_ptr != '"') {
+        context->parse_end = context->current_index;
+        snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "expected object key, got '%c'", *context->current_ptr );
+        pvt_record_error(context, error, JSON_ERR_MISSING_OBJECT_KEY, error->message);
+        return nullptr;
+    }
+
     JsonValue *key = pvt_parse_string(context, error, arena);
     if (!key) {
-        // error-out immediately
+        // pvt_parse_string() will have filled out error struct
         return nullptr;
     }
     pvt_skip_whitespace(context);
@@ -235,6 +251,13 @@ static JsonObjectEntry * pvt_parse_one_entry(JsonContext *context, JsonError *er
         return nullptr;
     }
     pvt_advance(context, 1);  // consume ':'
+    pvt_skip_whitespace(context);
+    if (*context->current_ptr == '\0') {
+        context->parse_end = context->current_index;
+        snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "unexpected EOF, expected object value");
+        pvt_record_error(context, error, JSON_ERR_MISSING_OBJECT_VALUE, error->message);
+        return nullptr;
+    }
 
     JsonValue *value = pvt_parse_value(context, error, arena);
     if (!value) {
@@ -255,7 +278,7 @@ static JsonObjectEntry * pvt_parse_one_entry(JsonContext *context, JsonError *er
     return joe;
 }
 
-static JsonValue * pvt_parse_object(JsonContext *context, JsonError *error, Arena *arena ) {
+static JsonValue * pvt_parse_object(JsonContext *context, JsonParseError *error, Arena *arena ) {
     // we recursively parse members of this object until we see end-of-object '}' char or run out of text
     // todo refactor to use stack DS and iterative algorithm instead of recursion
     context->depth_current++;
@@ -323,7 +346,6 @@ static JsonValue * pvt_parse_object(JsonContext *context, JsonError *error, Aren
         entries = pvt_add_json_object_entry_node(entries, joe, arena);
         num_entries++;
         pvt_skip_whitespace(context);
-
     }
 
     if (*context->current_ptr != '}' ) {
@@ -367,7 +389,7 @@ static JsonValueNode * pvt_add_json_value_node(JsonValueNode * first_node, JsonV
 }
 
 
-static JsonValue * pvt_parse_array(JsonContext *context, JsonError *error, Arena *arena) {
+static JsonValue * pvt_parse_array(JsonContext *context, JsonParseError *error, Arena *arena) {
     // we recursively parse elements of this array until we see end-of-array ']' char or run out of text
     // todo refactor to use stack DS and iterative algorithm instead of recursion
     context->depth_current++;
@@ -433,8 +455,9 @@ static JsonValue * pvt_parse_array(JsonContext *context, JsonError *error, Arena
         }
         elements = pvt_add_json_value_node(elements, value, arena);
         num_elements++;
+        pvt_skip_whitespace(context);
     }
-    pvt_skip_whitespace(context);
+    // pvt_skip_whitespace(context);
 
     if (*context->current_ptr != ']' ) {
         char const *msg = "unterminated array";
@@ -547,7 +570,7 @@ static uint32_t pvt_decode_utf8(const uint32_t num_bytes, uint8_t utf8_bytes[]) 
 
 
 // GEMINI AI READ: This is my work in progress. Do not delete it. Do not modify. Ignore this function.
-static StringBuilder * pvt_encode_utf8( JsonContext *context, JsonError *error, const uint32_t codepoint, StringBuilder *sb) {
+static StringBuilder * pvt_encode_utf8( JsonContext *context, JsonParseError *error, const uint32_t codepoint, StringBuilder *sb) {
     /**
      *  Rules for encoding Unicode codepoint into UTF-8:
      *  0. Unicode points U+D800 - U+DFFF are reserved as surrogate pairs in UTF-16 and are not allowed. Error.
@@ -563,17 +586,17 @@ static StringBuilder * pvt_encode_utf8( JsonContext *context, JsonError *error, 
         // error, reserved for surrogate pairs
         if (codepoint < 0xDC00 ) {
             // high/leading surrogate
-            snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE,
+            snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
         "'U+%.4X' is reserved as a high/leading surrogate and cannot be used as a codepoint.", codepoint);
             context->parse_end = context->current_index;
-            pvt_record_error(context, error, JSON_ERR_RESERVED_FOR_HIGH_SURROGATE, context->error_msg);
+            pvt_record_error(context, error, JSON_ERR_RESERVED_FOR_HIGH_SURROGATE, error->message);
             return nullptr;
         } else {
             // low/ trailing surrogate
-            snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE,
+            snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
         "'U+%.4X' is reserved as a low/trailing surrogate and cannot be used as a codepoint.", codepoint);
             context->parse_end = context->current_index;
-            pvt_record_error(context, error, JSON_ERR_RESERVED_FOR_LOW_SURROGATE, context->error_msg);
+            pvt_record_error(context, error, JSON_ERR_RESERVED_FOR_LOW_SURROGATE, error->message);
             return nullptr;
         }
     }
@@ -612,26 +635,26 @@ static StringBuilder * pvt_encode_utf8( JsonContext *context, JsonError *error, 
 
     } else {
         // error, codepoint out of range
-        snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE,
+        snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
     "'U+%.4X' is out of range and cannot be used as a codepoint.", codepoint);
         context->parse_end = context->current_index;
-        pvt_record_error(context, error, JSON_ERR_CODEPOINT_OUT_OF_RANGE, context->error_msg);
+        pvt_record_error(context, error, JSON_ERR_CODEPOINT_OUT_OF_RANGE, error->message);
         return nullptr;
     }
 
     return sb;
 }
 
-static uint32_t pvt_parse_hex_impl(JsonContext *context, JsonError *error, const uint32_t num_chars) {
+static uint32_t pvt_parse_hex_impl(JsonContext *context, JsonParseError *error, const uint32_t num_chars) {
     uint32_t result = 0;
     const char *json_ptr = context->current_ptr;
     for (uint32_t i = 0; i < num_chars; i++) {
         if (*json_ptr == '\0') {
             pvt_advance(context, i);
             context->parse_end = context->current_index;
-            snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE,
+            snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
                 "Unexpected EOF while parsing hex digit. (Expected %d hex digits, got %d)",  num_chars, i);
-            pvt_record_error(context, error, JSON_ERR_UNEXPECTED_EOF, context->error_msg);
+            pvt_record_error(context, error, JSON_ERR_UNEXPECTED_EOF, error->message);
             //  clang/clion linter doesn't see that record_error changes err_type.
             //   without this, it erroneously reports of unreachable code in calling methods
             error->err_type = JSON_ERR_UNEXPECTED_EOF;
@@ -640,9 +663,9 @@ static uint32_t pvt_parse_hex_impl(JsonContext *context, JsonError *error, const
         if (!isxdigit((unsigned char)*json_ptr)) {
             pvt_advance(context, i);
             context->parse_end = context->current_index;
-            snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE,
+            snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
                 "Invalid hex digit in Unicode escape: '%c'. (Expected %d hex digits, got %d)", *json_ptr, num_chars, i);
-            pvt_record_error(context, error, JSON_ERR_INVALID_UNICODE_ESCAPE, context->error_msg);
+            pvt_record_error(context, error, JSON_ERR_INVALID_UNICODE_ESCAPE, error->message);
             return 0;
         }
 
@@ -656,35 +679,35 @@ static uint32_t pvt_parse_hex_impl(JsonContext *context, JsonError *error, const
 }
 
 // try to parse 6 hex bytes from the stream. Report in error if we didn't find 6 hex bytes.
-static uint32_t pvt_parse_hex6(JsonContext *context, JsonError *error) {
+static uint32_t pvt_parse_hex6(JsonContext *context, JsonParseError *error) {
     return pvt_parse_hex_impl(context, error, 6);
 }
 
 // try to parse 4 hex bytes from the stream. Report in error if we didn't find 4 hex bytes.
-static uint16_t pvt_parse_hex4(JsonContext *context, JsonError *error) {
+static uint16_t pvt_parse_hex4(JsonContext *context, JsonParseError *error) {
     return pvt_parse_hex_impl(context, error, 4);
 }
 
 //  expect a valid continuation byte from 0x80 - 0xBF at current index
 // Return true if found, otherwise return false and report error
 static bool pvt_validate_utf8_continuation_byte(
-    JsonContext *context, JsonError *error,
+    JsonContext *context, JsonParseError *error,
     uint8_t current_byte, uint8_t start_range, uint8_t end_range) {
 
     uint8_t next_byte = *context->current_ptr;
 
     if ( !( next_byte >= start_range && next_byte <= end_range )) {
-        snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE,
+        snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
     "'0x%.2X' is an invalid UTF-8 continuation byte after '0x%.2X'", next_byte, current_byte);
         context->parse_end = context->current_index;
-        pvt_record_error(context, error, JSON_ERR_INVALID_UTF8_CONTINUATION_BYTE, context->error_msg);
+        pvt_record_error(context, error, JSON_ERR_INVALID_UTF8_CONTINUATION_BYTE, error->message);
         return false;
     }
 
     return true;
 }
 
-static bool pvt_validate_utf8(JsonContext *context, JsonError *error,  StringBuilder *sb) {
+static bool pvt_validate_utf8(JsonContext *context, JsonParseError *error,  StringBuilder *sb) {
     uint8_t stream_bytes[4] = {};
     uint8_t lead_byte = *context->current_ptr;;
     uint32_t num_bytes = 0;
@@ -736,10 +759,10 @@ static bool pvt_validate_utf8(JsonContext *context, JsonError *error,  StringBui
             //    If the second byte is 0x80 to 0x9F, overlong sequence
             current_byte = (uint8_t)*context->current_ptr;
             if ( current_byte >= 0x80 && current_byte <= 0x9F) {
-                snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE,
+                snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
             "'0x%.2X' is an invalid UTF-8 continuation byte and overlong sequence.", current_byte);
                 context->parse_end = context->current_index;
-                pvt_record_error(context, error, JSON_ERR_OVERLONG_SEQUENCE, context->error_msg);
+                pvt_record_error(context, error, JSON_ERR_OVERLONG_SEQUENCE, error->message);
                 return false;
             }
             if ( !pvt_validate_utf8_continuation_byte(context, error, lead_byte, 0xA0, 0xBF )) {
@@ -775,9 +798,9 @@ static bool pvt_validate_utf8(JsonContext *context, JsonError *error,  StringBui
             stream_bytes[num_bytes++] = current_byte;
             pvt_advance(context, 1);
             //happy path
-            sb_append_char(sb, stream_bytes[0]);
-            sb_append_char(sb, stream_bytes[1]);
-            sb_append_char(sb, stream_bytes[2]);
+            sb_append_char(sb, (char)stream_bytes[0]);
+            sb_append_char(sb, (char)stream_bytes[1]);
+            sb_append_char(sb, (char)stream_bytes[2]);
             return true;
         }
         if (lead_byte == 0xED) {
@@ -786,17 +809,17 @@ static bool pvt_validate_utf8(JsonContext *context, JsonError *error,  StringBui
             // if second byte in 0xA0 to 0xBF, encoding a surrogate : forbidden
             current_byte = (uint8_t)*context->current_ptr;
             if ( current_byte >= 0xA0 && current_byte <= 0xAF) {
-                snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE,
+                snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
             "'0x%.2X' is an invalid UTF-8 continuation byte and reserved for high surrogates.", current_byte);
                 context->parse_end = context->current_index;
-                pvt_record_error(context, error, JSON_ERR_RESERVED_FOR_HIGH_SURROGATE, context->error_msg);
+                pvt_record_error(context, error, JSON_ERR_RESERVED_FOR_HIGH_SURROGATE, error->message);
                 return false;
             }
             if ( current_byte >= 0xB0 && current_byte <= 0xBF) {
-                snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE,
+                snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
             "'0x%.2X' is an invalid UTF-8 continuation byte and reserved for low surrogates.", current_byte);
                 context->parse_end = context->current_index;
-                pvt_record_error(context, error, JSON_ERR_RESERVED_FOR_LOW_SURROGATE, context->error_msg);
+                pvt_record_error(context, error, JSON_ERR_RESERVED_FOR_LOW_SURROGATE, error->message);
                 return false;
             }
             if ( !pvt_validate_utf8_continuation_byte(context, error, lead_byte, 0x80, 0x9F )) {
@@ -852,10 +875,10 @@ static bool pvt_validate_utf8(JsonContext *context, JsonError *error,  StringBui
             //  If the second byte is 0x80 to 0x8F, overlong sequence.
             current_byte = (uint8_t)*context->current_ptr;
             if ( current_byte >= 0x80 && current_byte <= 0x8F) {
-                snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE,
+                snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
             "'0x%.2X' is an invalid UTF-8 continuation byte and overlong sequence.", current_byte);
                 context->parse_end = context->current_index;
-                pvt_record_error(context, error, JSON_ERR_OVERLONG_SEQUENCE, context->error_msg);
+                pvt_record_error(context, error, JSON_ERR_OVERLONG_SEQUENCE, error->message);
                 return false;
             }
             if ( !pvt_validate_utf8_continuation_byte(context, error, lead_byte, 0x90, 0xBF )) {
@@ -920,10 +943,10 @@ static bool pvt_validate_utf8(JsonContext *context, JsonError *error,  StringBui
             //  if second byte > 0x90, this exceeds legal Unicode limit
             current_byte = (uint8_t)*context->current_ptr;
             if ( current_byte >= 0x90 ) {
-                snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE,
+                snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
             "'0x%.2X' is an invalid UTF-8 continuation byte and out of range.", current_byte);
                 context->parse_end = context->current_index;
-                pvt_record_error(context, error, JSON_ERR_CODEPOINT_OUT_OF_RANGE, context->error_msg);
+                pvt_record_error(context, error, JSON_ERR_CODEPOINT_OUT_OF_RANGE, error->message);
                 return false;
             }
 
@@ -956,22 +979,22 @@ static bool pvt_validate_utf8(JsonContext *context, JsonError *error,  StringBui
 
     // C0-C1 is invalid.
     if (lead_byte == 0xC0 || lead_byte == 0xC1 ) {
-        snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE,
+        snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
     "'0x%.2X' is an invalid UTF-8 start byte and overlong sequence.", lead_byte);
         context->parse_end = context->current_index;
-        pvt_record_error(context, error, JSON_ERR_OVERLONG_SEQUENCE, context->error_msg);
+        pvt_record_error(context, error, JSON_ERR_OVERLONG_SEQUENCE, error->message);
         return false;
     }
 
-    snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE,
+    snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
 "'0x%.2X' is an invalid UTF-8 start byte.", lead_byte);
     context->parse_end = context->current_index;
-    pvt_record_error(context, error, JSON_ERR_INVALID_UTF8_START_BYTE, context->error_msg);
+    pvt_record_error(context, error, JSON_ERR_INVALID_UTF8_START_BYTE, error->message);
     return false;
 }
 
 // assumes *context->current_ptr == 'u' or 'U' and the previous character was a backslash '\'
-static StringBuilder * pvt_parse_unicode_escape( JsonContext *context, JsonError *error, Arena *arena, StringBuilder *sb_out ) {
+static StringBuilder * pvt_parse_unicode_escape( JsonContext *context, JsonParseError *error, Arena *arena, StringBuilder *sb_out ) {
     if (*context->current_ptr == 'U') {
         if ( !pvt_is_flag_set_lock_free(context, JSON_CONFIG_ALLOW_UNICODE_U_ESCAPE)) {
             // got a \U (uppercase U) Unicode escape but flag is not enabled
@@ -1001,10 +1024,10 @@ static StringBuilder * pvt_parse_unicode_escape( JsonContext *context, JsonError
     }
     if ( cp1 >= 0xDC00 && cp1 <= 0xDFFF ) {
         // A low surrogate that wasn't preceded by a high surrogate. This is an error.
-        snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE,
+        snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
             "Expected high surrogate \\uD800-\\uDBFF to precede low surrogate '\\u%4X', but none found.", cp1);
         context->parse_end = context->current_index;
-        pvt_record_error(context, error, JSON_ERR_NO_PRECEDING_HIGH_SURROGATE, context->error_msg);
+        pvt_record_error(context, error, JSON_ERR_NO_PRECEDING_HIGH_SURROGATE, error->message);
         return nullptr;
     }
     uint32_t cp = cp1;
@@ -1019,10 +1042,10 @@ static StringBuilder * pvt_parse_unicode_escape( JsonContext *context, JsonError
         // Check for enough remaining characters safely
         if (current_ptr[0] != '\\' || current_ptr[1] != 'u') {
             // no following low surrogate.
-            snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE,
+            snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
                 "Expected low surrogate escape \\uDC00-\\uDFFF to follow high surrogate '\\u%4X'.", cp1);
             context->parse_end = context->current_index;
-            pvt_record_error(context, error, JSON_ERR_NO_FOLLOWING_LOW_SURROGATE, context->error_msg);
+            pvt_record_error(context, error, JSON_ERR_NO_FOLLOWING_LOW_SURROGATE, error->message);
             return nullptr;
         }
         //we have a second Unicode escape immediately after the first.
@@ -1035,10 +1058,10 @@ static StringBuilder * pvt_parse_unicode_escape( JsonContext *context, JsonError
 
         if ( !(cp2 >= 0xDC00 && cp2 <= 0xDFFF )) {
             // no following low surrogate.
-            snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE,
+            snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
                 "Expected low surrogate to follow '\\u%4X', but found '\\u%4X' instead.", cp1, cp2);
             context->parse_end = context->current_index;
-            pvt_record_error(context, error, JSON_ERR_NO_FOLLOWING_LOW_SURROGATE, context->error_msg);
+            pvt_record_error(context, error, JSON_ERR_NO_FOLLOWING_LOW_SURROGATE, error->message);
             return nullptr;
         }
 
@@ -1059,7 +1082,7 @@ static StringBuilder * pvt_parse_unicode_escape( JsonContext *context, JsonError
 constexpr char QUOTE           = 0x22;  // "
 constexpr char REVERSE_SOLIDUS = 0x5c;  // \  backslash
 
-static JsonValue * pvt_parse_string(JsonContext *context, JsonError *error, Arena *arena ) {
+static JsonValue * pvt_parse_string(JsonContext *context, JsonParseError *error, Arena *arena ) {
     StringBuilder sb;
     sb_init(&sb, 16, "");
 
@@ -1140,8 +1163,9 @@ static JsonValue * pvt_parse_string(JsonContext *context, JsonError *error, Aren
                     }
                     break;
                 default:
-                    snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE, "Invalid escape sequence: \\%c", current_byte);
-                    pvt_record_error(context, error, JSON_ERR_INVALID_ESCAPE_SEQUENCE, context->error_msg);
+                    context->parse_end = context->current_index;
+                    snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "Invalid escape sequence: \\%c", current_byte);
+                    pvt_record_error(context, error, JSON_ERR_INVALID_ESCAPE_SEQUENCE, error->message);
                     sb_destroy(&sb);
                     return nullptr;
             }
@@ -1149,8 +1173,9 @@ static JsonValue * pvt_parse_string(JsonContext *context, JsonError *error, Aren
         } else if ( current_byte <= 0x1F) {
             // RFC 8259: Control characters U+0000 through U+001F MUST be escaped.
             // This means the literal bytes cannot appear here.
-            snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE, "Unexpected unescaped control character: 0x%.2X\n", current_byte);
-            pvt_record_error(context, error, JSON_ERR_UNESCAPED_CONTROL_CHAR, context->error_msg);
+            context->parse_end = context->current_index;
+            snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "Unexpected unescaped control character: 0x%.2X", current_byte);
+            pvt_record_error(context, error, JSON_ERR_UNESCAPED_CONTROL_CHAR, error->message);
             sb_destroy(&sb);
             return nullptr;
         } else {
@@ -1172,7 +1197,7 @@ static const char * const REGEX_NUMBER_STR = RSL "(-?(0|([1-9][0-9]*))(\\.[0-9]+
 static regex_t REGEX_NUMBER_PATTERN;
 constexpr int MATCH_FOUND = 0;
 
-static JsonValue * pvt_parse_number(JsonContext *context, JsonError *error, Arena *arena ) {
+static JsonValue * pvt_parse_number(JsonContext *context, JsonParseError *error, Arena *arena ) {
     JsonValue *value = nullptr;
 
     constexpr size_t max_groups = 4;
@@ -1181,8 +1206,8 @@ static JsonValue * pvt_parse_number(JsonContext *context, JsonError *error, Aren
     const int result = regexec( &REGEX_NUMBER_PATTERN, context->current_ptr, max_groups, pmatch, 0);
     int match_len =  (int)pmatch[0].rm_eo;
     if (result != MATCH_FOUND || match_len < 0) {
-        snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE, "expected number, got: %.*s", 100 ,context->current_ptr);
-        pvt_record_error(context, error, JSON_ERR_INVALID_NUMBER_FORMAT, context->error_msg);
+        snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "expected number, got: %.*s", 100 ,context->current_ptr);
+        pvt_record_error(context, error, JSON_ERR_INVALID_NUMBER_FORMAT, error->message);
         return nullptr;
     }
     auto start = pmatch[1].rm_so;
@@ -1231,7 +1256,7 @@ static JsonValue * pvt_parse_number(JsonContext *context, JsonError *error, Aren
 }
 
 static JsonValue *  pvt_parse_literal_impl(  JsonContext *context,
-                                                JsonError *error,
+                                                JsonParseError *error,
                                                 JsonValue *literal,
                                                 char const *key_word ) {
 
@@ -1239,7 +1264,7 @@ static JsonValue *  pvt_parse_literal_impl(  JsonContext *context,
     int current_index = context->current_index;
     char const * keyword_ptr = key_word;
     char const * text_ptr = context->current_ptr;
-    enum json_error_type err_type = JSON_ERR_NONE;
+    enum json_error_type_e err_type = JSON_ERR_NONE;
 
     while ( *keyword_ptr != '\0' && *text_ptr != '\0') {
         if (*text_ptr == '\n') {
@@ -1248,8 +1273,8 @@ static JsonValue *  pvt_parse_literal_impl(  JsonContext *context,
         }
         if (*keyword_ptr != *text_ptr) {
             err_type = JSON_ERR_UNEXPECTED_TEXT;
-            snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE,
-                "unexpected character:'%c', expected '%s'", *text_ptr, key_word);
+            snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
+                "unexpected character: '%c', expected '%s'", *text_ptr, key_word);
             break;
         }
         context->column++;
@@ -1265,10 +1290,10 @@ static JsonValue *  pvt_parse_literal_impl(  JsonContext *context,
     if ( err_type == JSON_ERR_NONE && *keyword_ptr != '\0') {
         // unexpected end of text
         err_type = JSON_ERR_UNEXPECTED_EOF;
-        snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE, "unexpected EOF, expected '%s'", key_word);
+        snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "unexpected EOF, expected '%s'", key_word);
     }
     if (err_type != JSON_ERR_NONE) {
-        pvt_record_error(context, error, err_type, context->error_msg);
+        pvt_record_error(context, error, err_type, error->message);
         return nullptr;
     }
 
@@ -1289,19 +1314,19 @@ constexpr size_t JSON_KEYWORD_FALSE_LEN = 5;
 constexpr char   JSON_KEYWORD_FALSE[JSON_KEYWORD_FALSE_LEN + 1] = "false";
 static JsonValue JSON_FALSE_VALUE = { .type = JSON_BOOLEAN, .u.boolean = false};
 
-static JsonValue *  pvt_parse_true(JsonContext *context, JsonError *error ) {
+static JsonValue *  pvt_parse_true(JsonContext *context, JsonParseError *error ) {
     return pvt_parse_literal_impl(context, error, &JSON_TRUE_VALUE, JSON_KEYWORD_TRUE );
 }
 
-static JsonValue *  pvt_parse_false(JsonContext *context, JsonError *error ) {
+static JsonValue *  pvt_parse_false(JsonContext *context, JsonParseError *error ) {
     return pvt_parse_literal_impl(context, error, &JSON_FALSE_VALUE, JSON_KEYWORD_FALSE );
 }
 
-static JsonValue *  pvt_parse_null(JsonContext *context, JsonError *error ) {
+static JsonValue *  pvt_parse_null(JsonContext *context, JsonParseError *error ) {
     return pvt_parse_literal_impl(context, error, &JSON_NULL_VALUE, JSON_KEYWORD_NULL );
 }
 
-static JsonValue *pvt_parse_value(JsonContext *context, JsonError *error, Arena *arena ) {
+static JsonValue *pvt_parse_value(JsonContext *context, JsonParseError *error, Arena *arena ) {
     pvt_skip_whitespace(context);
     context->parse_start = context->current_index;
     JsonValue *value = nullptr;
@@ -1333,8 +1358,8 @@ static JsonValue *pvt_parse_value(JsonContext *context, JsonError *error, Arena 
         default:
             if (error) {
                 context->parse_end = context->current_index;
-                snprintf(context->error_msg, ERROR_MSG_BUFFER_SIZE, "unexpected character:'%c'", *context->current_ptr);
-                pvt_record_error(context, error, JSON_ERR_UNEXPECTED_TEXT, context->error_msg);
+                snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "unexpected character: '%c'", *context->current_ptr);
+                pvt_record_error(context, error, JSON_ERR_UNEXPECTED_TEXT, error->message);
                 return nullptr;
             }
             break;
@@ -1358,7 +1383,7 @@ static bool pvt_starts_with_bom(const char json_text[static 1], const uint32_t n
     return true;
 }
 
-static bool pvt_is_rejected_due_to_bom(JsonContext *context, const char *json_text, JsonError *error) {
+static bool pvt_is_rejected_due_to_bom(JsonContext *context, const char *json_text, JsonParseError *error) {
     // UTF-16 and UTF-32 BOMs always cause failure
     if (pvt_starts_with_bom(json_text, 2, BOM_UTF16_BE) ||
             pvt_starts_with_bom(json_text, 2, BOM_UTF16_LE)) {
@@ -1393,21 +1418,21 @@ static bool pvt_is_rejected_due_to_bom(JsonContext *context, const char *json_te
     return false;
 }
 
-static JsonValue * pvt_jsonp_parse_impl(JsonContext *context, const char *json_text, JsonError *error, Arena *arena) {
+static JsonValue * pvt_jsonp_parse_impl(JsonContext *context, const char *json_text, JsonParseError *error, Arena *arena) {
     if (!json_text) {
-        *error = (JsonError){ .json=json_text, .message = "null json text", .err_type = JSON_ERR_NULL_TEXT};
+        *error = (JsonParseError){ .json=json_text, .message = "null json text", .err_type = JSON_ERR_NULL_TEXT};
         return nullptr;
     }
     if (json_text[0] == '\0') {
-        *error = (JsonError){.json=json_text, .message = "empty json text", .err_type = JSON_ERR_EMPTY_TEXT};
+        *error = (JsonParseError){.json=json_text, .message = "empty json text", .err_type = JSON_ERR_EMPTY_TEXT};
         return nullptr;
     }
 
     if (pvt_is_rejected_due_to_bom(context, json_text, error)) return nullptr;
 
     pvt_skip_whitespace(context);
-    if (json_text[0] == '\0') {
-        *error = (JsonError){.json=json_text, .message = "empty json text", .err_type = JSON_ERR_EMPTY_TEXT,
+    if ( *context->current_ptr == '\0') {
+        *error = (JsonParseError){.json=json_text, .message = "empty json text", .err_type = JSON_ERR_EMPTY_TEXT,
         .first_bad_char = context->current_index, .parse_end = context->current_index};
         return nullptr;
     }
@@ -1440,7 +1465,7 @@ static void pvt_init_context_ws_table(JsonContext *context) {
     }
 }
 
-JsonValue *jsonp_parse(const char *json_text, JsonError *error, Arena *arena) {
+JsonValue *jsonp_parse(const char *json_text, JsonParseError *error, Arena *arena) {
 
 
     JsonContext context = {
@@ -1454,7 +1479,7 @@ JsonValue *jsonp_parse(const char *json_text, JsonError *error, Arena *arena) {
     return value;
 }
 
-JsonValue *jsonp_parse_ex(const char *json_text, JsonError *error, Arena *arena, const uint32_t buffer_size) {
+JsonValue *jsonp_parse_ex(const char *json_text, JsonParseError *error, Arena *arena, const uint32_t buffer_size) {
     JsonContext context = {
         .current_ptr = json_text,
         .json_text = json_text,
@@ -1486,7 +1511,7 @@ constexpr int REGEX_COMPILE_SUCCESS = 0;
 static _Atomic(bool) is_initialized = false;
 
 // Canonical initializer
-Error jsonp_init_3(uint64_t config_flags, uint32_t max_depth, char const * whitespace_chars) {
+Error jsonp_init_3(jp_bitset_t config_flags, uint32_t max_depth, char const * whitespace_chars) {
     if (atomic_load(&is_initialized)) {
         return (Error){};
     }
@@ -1531,11 +1556,11 @@ Error jsonp_init_3(uint64_t config_flags, uint32_t max_depth, char const * white
     return (Error){};
 }
 
-Error jsonp_init_2(uint64_t config_flags, uint32_t max_depth) {
+Error jsonp_init_2(jp_bitset_t config_flags, uint32_t max_depth) {
     return jsonp_init_3(config_flags, max_depth, JSON_WHITESPACE_CHARS_DEFAULT);
 }
 
-Error jsonp_init_1(uint64_t config_flags) {
+Error jsonp_init_1(jp_bitset_t config_flags) {
     return jsonp_init_3( config_flags, JSON_DEPTH_MAX_DEFAULT, JSON_WHITESPACE_CHARS_DEFAULT);
 }
 
@@ -1544,7 +1569,17 @@ Error jsonp_init() {
     return jsonp_init_3(JSON_CONFIG_FLAGS_DEFAULT, JSON_DEPTH_MAX_DEFAULT, JSON_WHITESPACE_CHARS_DEFAULT);
 }
 
+JsonContext jsonp_empty_context(void) {
+    char const *ws = atomic_load(&pvt_whitespace_chars);
 
+    JsonContext c = {
+        .config_flags = atomic_load(&json_config_flags),
+        .depth_max = atomic_load(&pvt_depth_max),
+    };
+    strncpy(c.whitespace_chars, ws, sizeof c.whitespace_chars - 1);
+
+    return c;
+}
 
 // -----------------------------------------------------------------
 //      DESTROY
@@ -1620,13 +1655,13 @@ void jsonp_print_json_value(JsonValue *value) {
             printf("%g", value->u.n_double);
             break;
         case JSON_STRING:
-            printf("'%s'\n", value->u.string);
-            // todo temp
-            uint32_t len = strlen(value->u.string);
-            printf("raw bytes: %u ", len);
-            for (uint32_t i = 0; i < len; ++i) {
-                printf(" %.1X", (uint8_t)value->u.string[i]);
-            }
+            printf("'%s'", value->u.string);
+            // // todo temp
+            // uint32_t len = strlen(value->u.string);
+            // printf("raw bytes: %u ", len);
+            // for (uint32_t i = 0; i < len; ++i) {
+            //     printf(" %.1X", (uint8_t)value->u.string[i]);
+            // }
             break;
         case JSON_ARRAY:
             json_array_str(value);
@@ -1635,6 +1670,125 @@ void jsonp_print_json_value(JsonValue *value) {
             pvt_json_object_str(value);
             break;
     }
+}
+
+const char *jsonp_parse_error_type_name(const JsonParseErrType err_type) {
+    switch (err_type) {
+        /* 3. Expand the list to create the Switch Cases */
+#define X(name) case JSON_ERR_##name: return #name;
+        JSON_ERROR_LIST(X)
+#undef X
+    }
+    return "UNKNOWN_JSON_ERROR";
+    /*switch (err_type) {
+#define STR(x) case x: return #x
+        STR(JSON_ERR_NONE);
+        STR(JSON_ERR_NULL_TEXT);
+        STR(JSON_ERR_EMPTY_TEXT);
+        STR(JSON_ERR_UNEXPECTED_TEXT);
+        STR(JSON_ERR_UNESCAPED_CONTROL_CHAR);
+        STR(JSON_ERR_UNEXPECTED_EOF);
+        STR(JSON_ERR_UNTERMINATED_ARRAY);
+        STR(JSON_ERR_UNTERMINATED_STRING);
+        STR(JSON_ERR_UNTERMINATED_OBJECT);
+        STR(JSON_ERR_MISSING_COMMA);
+        STR(JSON_ERR_MISSING_COLON);
+        STR(JSON_ERR_INVALID_NUMBER_FORMAT);
+        STR(JSON_ERR_INVALID_ESCAPE_SEQUENCE);
+        STR(JSON_ERR_INVALID_UNICODE_ESCAPE);
+        STR(JSON_ERR_NO_PRECEDING_HIGH_SURROGATE);
+        STR(JSON_ERR_NO_FOLLOWING_LOW_SURROGATE);
+        STR(JSON_ERR_RESERVED_FOR_HIGH_SURROGATE);
+        STR(JSON_ERR_RESERVED_FOR_LOW_SURROGATE);
+        STR(JSON_ERR_CODEPOINT_OUT_OF_RANGE);
+        STR(JSON_ERR_INVALID_UTF8_START_BYTE);
+        STR(JSON_ERR_INVALID_UTF8_CONTINUATION_BYTE);
+        STR(JSON_ERR_OVERLONG_SEQUENCE);
+        STR(JSON_ERR_MAX_NESTED_DEPTH_EXCEEDED);
+        STR(JSON_ERR_UNEXPECTED_UTF16_ENCODING);
+        STR(JSON_ERR_UNEXPECTED_UTF32_ENCODING);
+        STR(JSON_ERR_BOM_NOT_ALLOWED);
+        STR(JSON_ERR_TRAILING_COMMA_NOT_ALLOWED);
+        STR(JSON_ERR_OUT_OF_MEMORY);
+        STR(JSON_ERR_COUNT);
+#undef STR
+    }
+    return "UNKNOWN_JSON_ERROR";*/
+}
+
+void jsonp_print_parse_error(JsonParseError *err) {
+    if (!err) {
+        printf("(JsonParseError)null\n");
+        return;
+    }
+    printf("%s=%d: line:%d col:%d pos:%d  %s\n", jsonp_parse_error_type_name(err->err_type),
+        err->err_type, err->line+1, err->column+1, err->first_bad_char,  err->message);
+
+    // printf("%s=%d: first bad char:%d, line:%d col:%d start:%d end:%d  %s\n", jsonp_parse_error_type_name(err->err_type),
+    //    err->err_type, err->first_bad_char,  err->line+1, err->column+1, err->parse_start, err->parse_end, err->message);
+
+    uint32_t err_pos = err->first_bad_char;
+    // if (err_pos < 80) {
+    //     // just print the first 80 characters of the JSON text
+    //     printf("%s\n", err->json);
+    //     return;
+    // }
+
+    // truncate around the err_pos, ideally 40 chars in each direction
+    // todo (rob) we have to count Unicode code points for this!!
+    // since 40 is the ideal midpoint, find out how many characters exist before err_pos
+    uint32_t start = err_pos < 40 ? 0 : err_pos - 40;
+
+    uint32_t chars_after_current = 0;
+    char const * end_ptr = err->json + err_pos;
+    while (*end_ptr++ != '\0' && chars_after_current < 40 ) {
+        chars_after_current++;
+    }
+
+    uint32_t end = err_pos + chars_after_current - 1; // should be the range of characters we want to print
+    uint32_t chars_to_display = end - start + 1;
+    StringBuilder sb = {};
+    sb_init( &sb, chars_to_display, "");
+    int chars_written = snprintf(sb.buffer, chars_to_display + 1, "%.*s", chars_to_display+1, err->json + start);
+    if ( chars_written <= 0) {
+        fprintf(stderr, "jsonp_print_parse_error: snprintf failed with return code: %d\n", chars_written);
+        sb_destroy(&sb);
+        return;
+    }
+
+    sb.length = chars_written;
+    sb.buffer[chars_written] = '\0';
+
+    // printf("chars_written: %d\n", chars_written);
+
+    // printf("%.*s\n", chars_to_display, err->json + start);
+    // "\n\r\t\f\v"
+    uint32_t num_replacements = sb_replace_match_chars(&sb, "\n\r\t\f\v", ' ');
+    // printf("number_replacements:%u\n", num_replacements);
+
+    char const *caret = "\033[91m^\033[0m";
+    uint32_t line_err_index = err_pos - start;
+
+    // insert right caret
+    if (line_err_index < (uint32_t)chars_written) {
+        sb_insert_str(&sb, caret, line_err_index + 1);
+    } else {
+        sb_append_str(&sb, caret);
+    }
+    // insert left caret
+    sb_insert_str(&sb, caret, line_err_index);
+
+    printf("%s\n", sb.buffer);
+
+    // prints caret on following line:
+    /*for (uint32_t i = 0; i < line_err_index ; ++i) {
+        putchar(' ');
+    }
+    // printf("^");
+    printf("%s", caret);
+    printf("\n");*/
+
+    sb_destroy(&sb);
 }
 
 //// ------------------------------------------------------------
@@ -1655,8 +1809,10 @@ void parse_test_str(char const * str) {
     ArenaErrResult aer = arena_create_arena( &arena, ONE_MIBIBYTE * 100);
     if ( aer.err ) {
         printf("arena_create_arena failed with %d, %s\n", aer.reported_err, aer.msg);
+        jsonp_destroy();
+        return;
     }
-    JsonError err = {.json = str};
+    JsonParseError err = {.json = str};
     printf("\nParsing json string '%s': \n", str);
     JsonValue *jval = jsonp_parse(str, &err, &arena);
     if (!jval) {
@@ -1674,20 +1830,23 @@ void parse_test_str(char const * str) {
 
 void parse_test_str_custom_init(
         char const * str,
-        uint64_t config_flags,
+        jp_bitset_t config_flags,
         uint32_t max_depth,
         char const * whitespace_chars )
 {
 
     if (! whitespace_chars ) whitespace_chars = JSON_WHITESPACE_CHARS_DEFAULT;
     Error err = jsonp_init_3( config_flags, max_depth,whitespace_chars );
+    if (err.err) {
+        printf("reported error: %d, message: %s\n", err.reported_err, err.msg);
+    }
 
     Arena arena = {};
     ArenaErrResult aer = arena_create_arena( &arena, ONE_MIBIBYTE * 100);
     if ( aer.err ) {
         printf("arena_create_arena failed with %d, %s\n", aer.reported_err, aer.msg);
     }
-    JsonError json_err = {};
+    JsonParseError json_err = {};
     printf("\nParsing json string '%s': \n", str);
     JsonValue *jval = jsonp_parse(str, &json_err, &arena);
     if (!jval) {
@@ -1705,9 +1864,42 @@ void parse_test_str_custom_init(
 
 }
 
+
+void simple_parse(char const *json_text) {
+
+    Error init_err = jsonp_init();
+    if (init_err.err) {
+        err_print(init_err);
+        jsonp_destroy();
+        return;
+    }
+
+    Arena arena = {};
+    ArenaErrResult aer = arena_create_arena( &arena, 1024 * 124);  // initially 1MB as an example. Grows as needed.
+    if ( aer.err ) {
+        printf("arena_create_arena failed with %d, %s\n", aer.reported_err, aer.msg);
+        jsonp_destroy();
+        return;
+    }
+
+    JsonParseError err = {};
+
+    JsonValue *jval = jsonp_parse(json_text, &err, &arena);
+    if (!jval) {
+        // handle error
+        jsonp_print_parse_error(&err);
+    } else {
+        jsonp_print_json_value(jval);
+        putchar('\n');
+    }
+
+    arena_destroy_arena(&arena);
+    jsonp_destroy();
+}
+
 void test_custom_flags(void) {
-    uint64_t my_custom_flags =
-        jsonp_set_config_flags( 3, (JsonConfigFlag[3]) {
+    jp_bitset_t my_custom_flags =
+        jsonp_make_config_bitset( 3, (JsonConfigFlag[3]) {
             JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_ARRAYS,
             JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_OBJECTS,
             JSON_CONFIG_ALLOW_UNICODE_U_ESCAPE
@@ -1948,6 +2140,53 @@ void test_indeterminates(void) {
     parse_test_str("[-1e+9999]");  // [ -inf ]
 }
 
+void test_json_test_suite_fails(void) {
+    simple_parse("{]");
+}
+
+void test_fails_for_reporting(void) {
+
+    // printf("Output:\n");
+    // simple_parse("1");
+    // simple_parse("[\"string\", -2, 3.2, -4e-2, true, false, null ]");
+    // simple_parse(
+    //     "{ \"nested array\": [ \"item 1\", \"item 2\", \"item 3\" ], "
+    //               "\"nested object\": { \"key 1\": \"value 1\", \"key 2\": \"value 2\", \"key 3\": \"value 3\" } }");
+    //
+    // // bad JSON text
+    printf("\nfailing parses:\n");
+    // printf("unterminated string\033[91m^\033[0m\033[91m^\033[0m\n");
+    //
+    // simple_parse("\"unterminated string");
+    // simple_parse("[ \"unterminated array\", 2 ");
+    // simple_parse("[ \"trailing comma\", 2,] ");
+    //
+    // char const *big_str = " [\n"
+    // "   { \"id\":  0,  \"name\": \"NULL ROOM\",         \"desc\":  \"\" }, \n"
+    // "   { \"id\":  1,  \"name\": \"Battlements\",       \"desc\":  \"You are out on the battlements of the Chateau. There is only one way back.\" }, \n"
+    // "   { \"id\":  2,  \"name\": \"Magician's Room\",   \"desc\":  \"This is an eerie room, where once magicians consorted with evil sprites and werebeasts. Exits lead in three directions. An evil smell comes from the south.\" }, \n"
+    // "   { \"id\":  3,  \"name\": \"Straw Mattress\",    \"desc\":  \"An old straw mattress lies in one corner. It has been ripped apart to find any treasure which was hidden in it. Light comes fitfully from a window to the north, and around the doors to south, east, and west.\" }, \n"
+    // "   { \"id\":  4,  \"name\": \"Wooden Panels\",     \"desc\":  \"This wooden-panelled room makes you feel damp and uncomfortable. There are three doors leading from this room, one made of iron. Your sixth sense warns you to choose carefully...\" }, \n"
+    // "   { \"id\":  5,  \"name\": \"Living Stone\",      \"desc\":  \"You ignore your intuition... A Spell of Living Stone, primed to trap the first intruder has been set on you. With your last seconds of life you have time only to feel profound regret...\" }, \n"
+    // "   { \"id\":  6,  \"name\": \"L-Shaped Room\",     \"desc\":  \"You are in an L-shaped room. Heavy parchment lines the walls. You can see through an archway to the east, but that is not the only exit from this room.\" }, \n"
+    // "   { \"id\":  7,  \"name\": \"Archway\",           \"desc\":  \"There is an archway to the west, leading to an L-shaped room. A door leads in the opposite direction.\" }, \n"
+    // "   { \"id\":  8,  \"name\": \"Kitchen\",           \"desc\":  \"This must be the Chateau's main kitchen, but any food left here has long rotted away. A door leads to the north, and there is one to the west.\" }, \n"
+    // "   { \"id\":  9,  \"name\": \"Black Dragon\",      \"desc\":  \"You find yourself in a small room, which makes you feel claustrophobic. There is a picture of a black dragon painted on the north wall, above the door.\" }, \n"
+    // "   { \"id\": 10,  \"name\": \"Landing\",           \"desc\":  \"A stairwell ends in this 'room', which is more of a landing than an actual room. The door to the north is made of iron, which has rusted over the centuries.\" }, \n"
+    // "   { \"id\": 11,  \"name\": \"Stone Archway\",     \"desc\":  \"There is a stone archway to the north. You are in a very long room.\\nFresh air blows down some stairs and rich red drapes cover the walls. You can see doors to the east.\" }, \n"
+    // "   { \"id\": 12,  \"name\": \"Whirling Smoke\",    \"desc\":  \"You have entered a room filled with swirling, choking smoke. You must leave quickly to remain healthy enough to continue your chosen quest.\" }, \n"
+    // "   { \"id\": 13,  \"name\": \"Charism Reduction\", \"desc\":  \"There is a mirror in the corner. You glance at it, and feel suddenly very ill.\\nYou realize the looking-glass has been infused with a Spell of Charisma Reduction... oh dear....\" }, \n"
+    // "   { \"id\": 14,  \"name\": \"White Marble\",      \"desc\":  \"This room is richly finished with a white marble floor. Strange footprints lead to the two doors from this room. Dare you follow them?\" }, \n"
+    // "   { \"id\": 15,  \"name\": \"Red Drapes\",        \"desc\":  \"You are in a long, long hallway, lined on each side with rich, red drapes.\\nThey are parted halfway down the east wall where there is a door.\" }, \n"
+    // "   { \"id\": 16,  \"name\": \"Yellow Room\",       \"desc\":  \"Someone has spent a long time painting this room a bright yellow.\\nYou remember reading that yellow is the Ancient Oracle's Color of Warning...\" }, \n"
+    // "   { \"id\": 17,  \"name\": \"Ladder\",            \"desc\":  \"As you stumble down the ladder you fall into the room. The ladder crashes down behind you. There is now no way back.\\nA small door leads east from this very cramped room.\" }, \n"
+    // "   { \"id\": 18,  \"name\": \"Hall of Mirrors\",   \"desc\":  \"You find yourself in the Hall of Mirrors, and see yourself reflected a hundred times or more. Through the bright glare you can make out doors in all directions. You notice the mirrors around the east door are heavily tarnished.\" }, \n"
+    // " ] ";
+    //
+    //
+    // simple_parse(big_str);
+}
+
 #ifdef JSON_PARSER_2_MAIN
 int main( ) {
     // Set locale to ensure printf doesn't mangle UTF-8 bytes based on system defaults
@@ -1986,7 +2225,9 @@ int main( ) {
 
     // test_indeterminates();
 
-    test_custom_flags();
+    // test_custom_flags();
+
+    test_json_test_suite_fails();
 
 
 }

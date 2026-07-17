@@ -47,7 +47,6 @@ true  = %x74.72.75.65       ; true
 
 #include "arena.h"
 #include "error_result.h"
-#include "bitset.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -120,8 +119,10 @@ struct json_object_entry_s {
     JsonValue *value;
 };
 
+/*
+// We are testing the use of X-macros below
 // if you insert or change order of these enum constants, update error_reporting_tests.txt as well
-typedef enum json_error_type {
+typedef enum json_error_type_e {
     JSON_ERR_NONE                           = 0,
     JSON_ERR_NULL_TEXT,
     JSON_ERR_EMPTY_TEXT,
@@ -151,25 +152,70 @@ typedef enum json_error_type {
     JSON_ERR_TRAILING_COMMA_NOT_ALLOWED,
     JSON_ERR_OUT_OF_MEMORY,
     JSON_ERR_COUNT
-} JsonErrType;
+} JsonParseErrType;
+*/
+
+/* 1. Define the Master List. JSON_ERR_ get prepended to each name via macro expansion */
+// if you insert or change order of these enum constants, update error_reporting_tests.txt as well
+
+#define JSON_ERROR_LIST(X) \
+    X(NONE) \
+    X(NULL_TEXT) \
+    X(EMPTY_TEXT) \
+    X(UNEXPECTED_TEXT) \
+    X(UNESCAPED_CONTROL_CHAR) \
+    X(UNEXPECTED_EOF) \
+    X(UNTERMINATED_ARRAY) \
+    X(UNTERMINATED_STRING) \
+    X(UNTERMINATED_OBJECT) \
+    X(MISSING_COMMA) \
+    X(MISSING_COLON) \
+    X(INVALID_NUMBER_FORMAT) \
+    X(INVALID_ESCAPE_SEQUENCE) \
+    X(INVALID_UNICODE_ESCAPE) \
+    X(NO_PRECEDING_HIGH_SURROGATE) \
+    X(NO_FOLLOWING_LOW_SURROGATE) \
+    X(RESERVED_FOR_HIGH_SURROGATE) \
+    X(RESERVED_FOR_LOW_SURROGATE) \
+    X(CODEPOINT_OUT_OF_RANGE) \
+    X(INVALID_UTF8_START_BYTE) \
+    X(INVALID_UTF8_CONTINUATION_BYTE) \
+    X(OVERLONG_SEQUENCE) \
+    X(MAX_NESTED_DEPTH_EXCEEDED) \
+    X(UNEXPECTED_UTF16_ENCODING) \
+    X(UNEXPECTED_UTF32_ENCODING) \
+    X(BOM_NOT_ALLOWED) \
+    X(TRAILING_COMMA_NOT_ALLOWED) \
+    X(MISSING_OBJECT_KEY) \
+    X(MISSING_OBJECT_VALUE) \
+    X(OUT_OF_MEMORY) \
+    X(COUNT)
+
+/* 2. Expand the list to create the Enum */
+typedef enum json_error_type_e {
+#define X(name) JSON_ERR_##name,
+    JSON_ERROR_LIST(X)
+#undef X
+} JsonParseErrType;
 
 constexpr uint32_t ERROR_MSG_BUFFER_SIZE = 1023;
 
-typedef struct json_error_s {
+typedef struct json_parse_error_s {
     const char *json;
-    enum json_error_type err_type;
+    enum json_error_type_e err_type;
     uint32_t first_bad_char; // position where parsing failed
     uint32_t line;
     uint32_t column;
     uint32_t parse_start;
     uint32_t parse_end;
     char     message[ERROR_MSG_BUFFER_SIZE + 1];
-} JsonError;
+} JsonParseError;
 
 typedef enum json_config_flag_e : uint64_t {
     JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_ARRAYS,
     JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_OBJECTS,
     JSON_CONFIG_ALLOW_UNICODE_U_ESCAPE, // allows Unicode escapes in form of \UXXXXXX (6 hex digits)
+    JSON_CONFIG_ALLOW_HEX_x_ESCAPE, // allows hex byte escapes in form of \xXX (2 hex digits)
     JSON_CONFIG_FAIL_ON_INT_OVERFLOW,  // when not set (default) will try to promote number to double
     JSON_CONFIG_FAIL_ON_FLOAT_OVERFLOW,
     // if set and the number is too small to be represented as a float, rejects the JSON text
@@ -188,15 +234,17 @@ typedef enum json_config_flag_e : uint64_t {
 
 } JsonConfigFlag;
 
-BITSET_DEFINE(JsonConfigFlagSet, 64);
+typedef uint64_t jp_bitset_t;
+
+typedef struct json_context_s JsonContext; // opaque type
 
 // -----------------------------------------------------------------
 //      DEFAULT VALUES
 // -----------------------------------------------------------------
 
-constexpr uint64_t JSON_CONFIG_FLAGS_DEFAULT     = 0;
-constexpr uint32_t JSON_DEPTH_MAX_DEFAULT        = 64;
-char const * const JSON_WHITESPACE_CHARS_DEFAULT = " \t\n\r";
+constexpr jp_bitset_t JSON_CONFIG_FLAGS_DEFAULT     = 0;
+constexpr uint32_t    JSON_DEPTH_MAX_DEFAULT        = 64;
+char const * const    JSON_WHITESPACE_CHARS_DEFAULT = " \t\n\r";
 
 
 // -----------------------------------------------------------------
@@ -205,9 +253,9 @@ char const * const JSON_WHITESPACE_CHARS_DEFAULT = " \t\n\r";
 
 // Must call at application startup to initialize the parser before first use.
 Error jsonp_init();
-Error jsonp_init_1(uint64_t config_flags);
-Error jsonp_init_2(uint64_t config_flags, uint32_t max_depth);
-Error jsonp_init_3(uint64_t config_flags, uint32_t max_depth, char const * whitespace_chars);
+Error jsonp_init_1(jp_bitset_t config_flags);
+Error jsonp_init_2(jp_bitset_t config_flags, uint32_t max_depth);
+Error jsonp_init_3(jp_bitset_t config_flags, uint32_t max_depth, char const * whitespace_chars);
 
 
 
@@ -226,7 +274,7 @@ void jsonp_destroy(void);
  *  %x0D Carriage return)
  *
  *  The C locale defines what counts as a space (via isspace()) as the above characters, and adds:
- *    form feed (’\f’),
+ *    form feed (`\\f`),
  *    vertical tab (’\v’)
  *  These are not included by default as white space characters in this parser.
  *
@@ -238,11 +286,11 @@ void jsonp_destroy(void);
 void jsonp_define_whitespace_chars( const char  *whitespace_chars );
 
 /* Main parsing functions */
-JsonValue *jsonp_parse(const char *json_text, JsonError *error, Arena *arena);
+JsonValue *jsonp_parse(const char *json_text, JsonParseError *error, Arena *arena);
 
 // version that takes an argument, buffer_size, which is the actual size of the JSON text buffer in bytes.
 // this method can report errors where it parsed successfully but did not use up the entire buffer
-JsonValue *jsonp_parse_ex(const char *json, JsonError *error, Arena *arena, uint32_t buffer_size);
+JsonValue *jsonp_parse_ex(const char *json, JsonParseError *error, Arena *arena, uint32_t buffer_size);
 
 // Searches the entries in the JSON object `json_obj` and returns the entry whose key matches the argument `key`.
 // Returns nullptr if there is no entry with this key.
@@ -257,7 +305,7 @@ void jsonp_print_json_value(JsonValue *value);
  *  the json_init() method's `config_flags` argument.
  *  Example:
  *     uint64_t my_custom_flags =
- *      jsonp_set_config_flags( 3, (JsonConfigFlag[3]) {
+ *      jsonp_make_config_bitset( 3, (JsonConfigFlag[3]) {
  *          JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_ARRAYS,
  *          JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_OBJECTS,
  *          JSON_CONFIG_ALLOW_UNICODE_U_ESCAPE
@@ -266,7 +314,7 @@ void jsonp_print_json_value(JsonValue *value);
  *     ...
  *
  */
-uint64_t jsonp_set_config_flags( uint32_t flag_count, JsonConfigFlag const *flag);
+jp_bitset_t jsonp_make_config_bitset( uint32_t flag_count, JsonConfigFlag const *flag);
 
 bool jsonp_is_flag_set(JsonConfigFlag flag);
 
@@ -283,7 +331,17 @@ void jsonp_clear_config_flag(JsonConfigFlag flag);
  */
 void jsonp_set_max_nesting_depth( uint32_t depth );
 
-void json_value_repr(JsonValue *value);
+/**
+ * Returns the string name of the JsonParseErrType constant.
+ * @param err_type The error type to convert.
+ * @return A constant string literal representing the enum name.
+ */
+const char *jsonp_parse_error_type_name(JsonParseErrType err_type);
+
+void jsonp_print_parse_error(JsonParseError *err);
+
+
+void jsonp_value_repr(JsonValue *value);
 
 #ifdef __cplusplus
 }

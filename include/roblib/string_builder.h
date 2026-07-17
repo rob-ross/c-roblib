@@ -40,7 +40,7 @@ StringBuilder * sb_init( StringBuilder *sb, uint32_t capacity, char const * str)
 void sb_destroy( StringBuilder *sb);
 
 
-StringBuilder * sb_append_char( StringBuilder *sb, unsigned char c);
+StringBuilder * sb_append_char( StringBuilder *sb, char c);
 StringBuilder * sb_append_str( StringBuilder *sb, char const *str);
 
 /**
@@ -58,14 +58,22 @@ uint32_t sb_capacity( StringBuilder *sb );
 void sb_copy_to(StringBuilder *sb, uint32_t buf_len, char out_buffer[static buf_len + 1]);
 
 // todo (rob) we need to make these insert methods utf-8 aware
-// StringBuilder * sb_insert_char( StringBuilder *sb, unsigned char c, uint32_t index);
-// StringBuilder * sb_insert_str( StringBuilder *sb, char const * str, uint32_t index);
+// StringBuilder * sb_insert_char( StringBuilder *sb, char c, uint32_t index);
+StringBuilder * sb_insert_str( StringBuilder *sb, char const * str, uint32_t index);
 
 /**
  *  Returns the length (character count).
  */
 uint32_t sb_length( StringBuilder *sb );
 
+/**
+ * Replaces all occurrences of any chars in `match_chars` with the `replacement_char`
+ * @param sb the StringBuilder object
+ * @param match_chars zero or more ASCII chars to replace
+ * @param replacement_char for each char in the `StringBuilder` in match_chars, replace with `replacement_char`
+ * @returns the number of replacements made. 0 indicates no replacements.
+ */
+uint32_t sb_replace_match_chars(StringBuilder *sb, char const * match_chars, char replacement_char);
 
 void sb_repr( StringBuilder *sb );
 

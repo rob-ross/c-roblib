@@ -45,19 +45,19 @@ extern "C" {
 
 
 #define ERROR_FIELDS \
-bool err; \
-int reported_err; \
-char msg[1024]; \
-void* err_obj;
+    bool err; \
+    int reported_err; \
+    char msg[1024]; \
+    void* err_obj;
 
 typedef struct error_fields_s {
     ERROR_FIELDS
 } ErrorFields;
 
 #define ERROR_BASE \
-union { \
-ErrorFields error; \
-struct {ERROR_FIELDS}; \
+    union { \
+        ErrorFields error; \
+        struct {ERROR_FIELDS}; \
 }
 
 typedef ERROR_BASE Error ;

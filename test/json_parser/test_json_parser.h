@@ -24,7 +24,7 @@ public:
 
 class JsonParserTest : public testing::Test {
 protected:
-    JsonError err{};
+    JsonParseError err{};
     Arena* arena = JsonParserEnvironment::arena;
 };
 

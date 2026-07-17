@@ -131,6 +131,7 @@ TEST_P(JsonTestSuiteParam, parse_json) {
             << "File: " << params.filename
             << "\nExpected failure but succeeded.\nContent: " << json_text;
         EXPECT_NE(err.err_type, JSON_ERR_NONE);
+        jsonp_print_parse_error(&err);
     }
 
 }

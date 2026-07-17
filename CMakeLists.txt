@@ -30,6 +30,7 @@ set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -O0 -g -fno-omit-frame-pointer \
 -Wno-gnu-include-next \
 -Wno-unused-parameter \
 -Wno-unused-function \
+-Wno-unused-variable \
 -Wno-gnu-anonymous-struct \
 -Wno-nested-anon-types \
 ")

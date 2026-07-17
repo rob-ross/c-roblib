@@ -9,6 +9,11 @@
 
 #include <stdint.h>
 
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // We could expand this to hundreds or thousands of flags.
 // each enum constant has to be a power of two, or can
 // represent the number of bits to left shift the number 1
@@ -23,10 +28,22 @@
  * The base structure used by generic functions.
  * Any struct defined with BITSET_DEFINE can be cast to this.
  */
+#if defined(__clang__)
+    #pragma clang diagnostic push
+    #pragma clang diagnostic ignored "-Wc99-extensions"
+#elif defined(__GNUC__)
+    #pragma GCC diagnostic push
+    #pragma GCC diagnostic ignored "-Wpedantic"
+#endif
 typedef struct {
     const size_t word_count;
     uint64_t words[];
 } BitSet;
+#if defined(__clang__)
+    #pragma clang diagnostic pop
+#elif defined(__GNUC__)
+    #pragma GCC diagnostic pop
+#endif
 
 /**
  * Macro to define and initialize a custom-sized bitset.
@@ -79,5 +96,10 @@ void bitset_set_multiple(void *set, size_t count, const uint32_t flags[]);
         const uint32_t _temp_flags[] = { __VA_ARGS__ }; \
         bitset_set_multiple((set_ptr), sizeof(_temp_flags)/sizeof(uint32_t), _temp_flags); \
     } while(0)
+
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif //C_ROBLIB_BITSET_H

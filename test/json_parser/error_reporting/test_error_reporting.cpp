@@ -20,7 +20,7 @@ extern "C" {
 struct JsonTestParam {
     std::string test_name;
     std::string json_text;
-    JsonErrType json_error_type;
+    JsonParseErrType json_error_type;
     uint32_t    first_bad_char;
     uint32_t    parse_start;
     uint32_t    parse_end;
@@ -92,7 +92,7 @@ public:
                     JsonTestParam param;
                     param.test_name = name;
                     param.json_text = unescape(json_text);
-                    param.json_error_type = static_cast<JsonErrType>(std::stoi(err_type_str));
+                    param.json_error_type = static_cast<JsonParseErrType>(std::stoi(err_type_str));
                     param.first_bad_char = static_cast<uint32_t>(std::stoul(bad_char_str));
                     param.parse_start = static_cast<uint32_t>(std::stoul(start_str));
                     param.parse_end = static_cast<uint32_t>(std::stoul(end_str));
