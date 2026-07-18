@@ -28,8 +28,8 @@ string_utf16BE_no_BOM|\x00\x5b\x00\x22\x00\xe9\x00\x22\x00\x5d|2|0|0|0
 string_utf16LE_no_BOM|\x5b\x00\x22\x00\xe9\x00\x22\x00\x5d\x00|6|1|0|1
 string_UTF-16LE_with_BOM|\xff\xfe\x5b\x00\x22\x00\xe9\x00\x22\x00\x5d\x00|23|2|0|2
 
-n_array_extra_comma_array|["",]|26|4|4|4
-n_array_extra_comma_object|{"foo" : 1, }|26|12|12|12
+n_array_extra_comma_array|["",]|26|3|3|4
+n_array_extra_comma_object|{"foo" : 1, }|26|10|10|12
 
 #  ||0|0|0|0
 

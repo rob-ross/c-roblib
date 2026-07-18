@@ -169,6 +169,25 @@ static void pvt_advance(JsonContext *context, const int char_count) {
     context->column         += char_count;
 }
 
+
+// Formats the `fmt` string with the single-byte character argument `c` for readability.
+// If `c` is a control character ( < 0x20 or > 0x7E) it will format `c` as a hex byte as 0xXX.
+// Otherwise, formats `c` as a char.
+static void pvt_format_error_message_char(
+    const uint32_t buffer_size, char msg_buffer[static buffer_size], const char c ) {
+
+    const unsigned char u_char  = (unsigned char)c;
+    if ( u_char < 0x20 || u_char > 0x7E) {
+        // display non-ascii and control chars as a hex escape.
+        snprintf(msg_buffer, buffer_size,
+            "0x%X", u_char );
+
+    } else {
+        snprintf(msg_buffer, buffer_size,
+            "'%c'", u_char );
+    }
+}
+
 static void pvt_record_error(
     const JsonContext *context, JsonParseError *error, const enum json_error_type_e err_type, const char *msg) {
 
@@ -183,6 +202,17 @@ static void pvt_record_error(
     error->parse_start = context->parse_start;
     error->parse_end = context->parse_end;
 }
+
+static void pvt_record_missing_comma_error(JsonContext *context, JsonParseError *error) {
+    int written = snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "expected comma, got ");
+    if (written > 0) {
+        pvt_format_error_message_char(ERROR_MSG_BUFFER_SIZE - written,
+            error->message + written, *context->current_ptr );
+    }
+    context->parse_end = context->current_index;
+    pvt_record_error(context, error, JSON_ERR_MISSING_COMMA, error->message);
+}
+
 
 static bool pvt_max_depth_exceeded(JsonContext *context, JsonParseError *error) {
     if (context->depth_current > context->depth_max) {
@@ -230,8 +260,14 @@ static JsonObjectEntry * pvt_parse_one_entry(JsonContext *context, JsonParseErro
         return nullptr;
     }
     if (*context->current_ptr != '"') {
+        // snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "expected object key, got '%c'", *context->current_ptr );
+        int written = snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "expected object key, got ");
+        if (written > 0) {
+            pvt_format_error_message_char(ERROR_MSG_BUFFER_SIZE - written,
+                error->message + written, *context->current_ptr );
+        }
+
         context->parse_end = context->current_index;
-        snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "expected object key, got '%c'", *context->current_ptr );
         pvt_record_error(context, error, JSON_ERR_MISSING_OBJECT_KEY, error->message);
         return nullptr;
     }
@@ -245,9 +281,8 @@ static JsonObjectEntry * pvt_parse_one_entry(JsonContext *context, JsonParseErro
 
     // need to parse a colon ":" here:
     if (*context->current_ptr != ':' ) {
-        char const *msg = "expected name-separator ':'";
         context->parse_end = context->current_index;
-        pvt_record_error(context, error, JSON_ERR_MISSING_COLON, msg);
+        pvt_record_error(context, error, JSON_ERR_MISSING_COLON, "expected name-separator ':'");
         return nullptr;
     }
     pvt_advance(context, 1);  // consume ':'
@@ -303,7 +338,7 @@ static JsonValue * pvt_parse_object(JsonContext *context, JsonParseError *error,
         JsonObjectEntry *joe = pvt_parse_one_entry(context, error, arena);
         if (!joe) {
             context->depth_current--;
-            return nullptr;  // error-out immediately
+            return nullptr;  // error report filled by previous call
         }
         entries = pvt_add_json_object_entry_node(entries, joe, arena);
         num_entries++;
@@ -315,12 +350,12 @@ static JsonValue * pvt_parse_object(JsonContext *context, JsonParseError *error,
         pvt_skip_whitespace(context);
         // expect ','
         if (*context->current_ptr != ',' ) {
-            context->parse_end = context->current_index;
-            pvt_record_error(context, error, JSON_ERR_MISSING_COMMA, "expected comma");
+            pvt_record_missing_comma_error(context, error);
             context->depth_current--;
             return nullptr;
         }
         // comma is expected delimiter between object entries
+        uint32_t comma_index = context->current_index; // save comma position for error reporting below
         pvt_advance(context, 1);  // consume ','
         pvt_skip_whitespace(context);
 
@@ -331,8 +366,10 @@ static JsonValue * pvt_parse_object(JsonContext *context, JsonParseError *error,
                 break;
             }
             // this is an error
-            context->parse_start = context->current_index;
+            // todo (rob) fix current_index so it points to the comma character for more accurate reporting
             context->parse_end = context->current_index;
+            context->current_index = comma_index;
+            context->parse_start = context->current_index;
             pvt_record_error(context, error, JSON_ERR_TRAILING_COMMA_NOT_ALLOWED, "trailing comma not allowed in object entry list");
             context->depth_current--;
             return nullptr;
@@ -349,9 +386,8 @@ static JsonValue * pvt_parse_object(JsonContext *context, JsonParseError *error,
     }
 
     if (*context->current_ptr != '}' ) {
-        char const *msg = "unterminated object";
         context->parse_end = context->current_index;
-        pvt_record_error(context, error, JSON_ERR_UNTERMINATED_OBJECT, msg);
+        pvt_record_error(context, error, JSON_ERR_UNTERMINATED_OBJECT, "missing closing brace '}'");
         context->depth_current--;
         return nullptr;
     }
@@ -391,7 +427,7 @@ static JsonValueNode * pvt_add_json_value_node(JsonValueNode * first_node, JsonV
 
 static JsonValue * pvt_parse_array(JsonContext *context, JsonParseError *error, Arena *arena) {
     // we recursively parse elements of this array until we see end-of-array ']' char or run out of text
-    // todo refactor to use stack DS and iterative algorithm instead of recursion
+    // todo refactor to use stack data structure and iterative algorithm instead of recursion
     context->depth_current++;
     if ( pvt_max_depth_exceeded(context, error)) {
         context->depth_current--;
@@ -412,7 +448,12 @@ static JsonValue * pvt_parse_array(JsonContext *context, JsonParseError *error, 
     if ( *context->current_ptr && *context->current_ptr != ']') {
         JsonValue *value = pvt_parse_value(context, error, arena);
         if (!value) {
-            context->parse_end = context->current_index;
+            // context->parse_end = context->current_index;
+            if (error->err_type == JSON_ERR_UNEXPECTED_TEXT) {
+                // use an error code more specific to the parsing context.
+                // The error message still contains the details of the error condition
+                error->err_type = JSON_ERR_MISSING_ARRAY_ELEMENT;
+            }
             context->depth_current--;
             return nullptr;  // error-out immediately
         }
@@ -425,12 +466,12 @@ static JsonValue * pvt_parse_array(JsonContext *context, JsonParseError *error, 
         pvt_skip_whitespace(context);
         //expect ','
         if (*context->current_ptr != ',' ) {
-            context->parse_end = context->current_index;
-            pvt_record_error(context, error, JSON_ERR_MISSING_COMMA, "expected comma");
+            pvt_record_missing_comma_error(context, error);
             context->depth_current--;
             return nullptr;
         }
         // comma is expected delimiter between array elements
+        uint32_t comma_index = context->current_index; // save for error reporting below
         pvt_advance(context, 1);  // consume ','
         pvt_skip_whitespace(context);
 
@@ -441,8 +482,10 @@ static JsonValue * pvt_parse_array(JsonContext *context, JsonParseError *error, 
                 break;
             }
             // this is an error
-            context->parse_start = context->current_index;
             context->parse_end = context->current_index;
+            context->current_index = comma_index;
+            context->parse_start = context->current_index;
+
             pvt_record_error(context, error, JSON_ERR_TRAILING_COMMA_NOT_ALLOWED, "trailing comma not allowed in array element list");
             context->depth_current--;
             return nullptr;
@@ -450,6 +493,11 @@ static JsonValue * pvt_parse_array(JsonContext *context, JsonParseError *error, 
 
         JsonValue *value = pvt_parse_value(context, error, arena);
         if (!value) {
+            if (error->err_type == JSON_ERR_UNEXPECTED_TEXT) {
+                // use an error code more specific to the parsing context.
+                // The error message still contains the details of the error condition
+                error->err_type = JSON_ERR_MISSING_ARRAY_ELEMENT;
+            }
             context->depth_current--;
             return nullptr;
         }
@@ -587,14 +635,14 @@ static StringBuilder * pvt_encode_utf8( JsonContext *context, JsonParseError *er
         if (codepoint < 0xDC00 ) {
             // high/leading surrogate
             snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
-        "'U+%.4X' is reserved as a high/leading surrogate and cannot be used as a codepoint.", codepoint);
+        "'U+%.4X' is reserved as a high/leading surrogate and cannot be used as a codepoint", codepoint);
             context->parse_end = context->current_index;
             pvt_record_error(context, error, JSON_ERR_RESERVED_FOR_HIGH_SURROGATE, error->message);
             return nullptr;
         } else {
             // low/ trailing surrogate
             snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
-        "'U+%.4X' is reserved as a low/trailing surrogate and cannot be used as a codepoint.", codepoint);
+        "'U+%.4X' is reserved as a low/trailing surrogate and cannot be used as a codepoint", codepoint);
             context->parse_end = context->current_index;
             pvt_record_error(context, error, JSON_ERR_RESERVED_FOR_LOW_SURROGATE, error->message);
             return nullptr;
@@ -636,7 +684,7 @@ static StringBuilder * pvt_encode_utf8( JsonContext *context, JsonParseError *er
     } else {
         // error, codepoint out of range
         snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
-    "'U+%.4X' is out of range and cannot be used as a codepoint.", codepoint);
+    "'U+%.4X' is out of range and cannot be used as a codepoint", codepoint);
         context->parse_end = context->current_index;
         pvt_record_error(context, error, JSON_ERR_CODEPOINT_OUT_OF_RANGE, error->message);
         return nullptr;
@@ -653,7 +701,7 @@ static uint32_t pvt_parse_hex_impl(JsonContext *context, JsonParseError *error, 
             pvt_advance(context, i);
             context->parse_end = context->current_index;
             snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
-                "Unexpected EOF while parsing hex digit. (Expected %d hex digits, got %d)",  num_chars, i);
+                "unexpected EOF while parsing hex digit. (expected %d hex digits, got %d)",  num_chars, i);
             pvt_record_error(context, error, JSON_ERR_UNEXPECTED_EOF, error->message);
             //  clang/clion linter doesn't see that record_error changes err_type.
             //   without this, it erroneously reports of unreachable code in calling methods
@@ -664,7 +712,7 @@ static uint32_t pvt_parse_hex_impl(JsonContext *context, JsonParseError *error, 
             pvt_advance(context, i);
             context->parse_end = context->current_index;
             snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
-                "Invalid hex digit in Unicode escape: '%c'. (Expected %d hex digits, got %d)", *json_ptr, num_chars, i);
+                "invalid hex digit in Unicode escape: '%c'. (expected %d hex digits, got %d)", *json_ptr, num_chars, i);
             pvt_record_error(context, error, JSON_ERR_INVALID_UNICODE_ESCAPE, error->message);
             return 0;
         }
@@ -760,7 +808,7 @@ static bool pvt_validate_utf8(JsonContext *context, JsonParseError *error,  Stri
             current_byte = (uint8_t)*context->current_ptr;
             if ( current_byte >= 0x80 && current_byte <= 0x9F) {
                 snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
-            "'0x%.2X' is an invalid UTF-8 continuation byte and overlong sequence.", current_byte);
+            "'0x%.2X' is an invalid UTF-8 continuation byte and an overlong sequence", current_byte);
                 context->parse_end = context->current_index;
                 pvt_record_error(context, error, JSON_ERR_OVERLONG_SEQUENCE, error->message);
                 return false;
@@ -810,14 +858,14 @@ static bool pvt_validate_utf8(JsonContext *context, JsonParseError *error,  Stri
             current_byte = (uint8_t)*context->current_ptr;
             if ( current_byte >= 0xA0 && current_byte <= 0xAF) {
                 snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
-            "'0x%.2X' is an invalid UTF-8 continuation byte and reserved for high surrogates.", current_byte);
+            "'0x%.2X' is an invalid UTF-8 continuation byte and reserved for high surrogates", current_byte);
                 context->parse_end = context->current_index;
                 pvt_record_error(context, error, JSON_ERR_RESERVED_FOR_HIGH_SURROGATE, error->message);
                 return false;
             }
             if ( current_byte >= 0xB0 && current_byte <= 0xBF) {
                 snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
-            "'0x%.2X' is an invalid UTF-8 continuation byte and reserved for low surrogates.", current_byte);
+            "'0x%.2X' is an invalid UTF-8 continuation byte and reserved for low surrogates", current_byte);
                 context->parse_end = context->current_index;
                 pvt_record_error(context, error, JSON_ERR_RESERVED_FOR_LOW_SURROGATE, error->message);
                 return false;
@@ -876,7 +924,7 @@ static bool pvt_validate_utf8(JsonContext *context, JsonParseError *error,  Stri
             current_byte = (uint8_t)*context->current_ptr;
             if ( current_byte >= 0x80 && current_byte <= 0x8F) {
                 snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
-            "'0x%.2X' is an invalid UTF-8 continuation byte and overlong sequence.", current_byte);
+            "'0x%.2X' is an invalid UTF-8 continuation byte and an overlong sequence", current_byte);
                 context->parse_end = context->current_index;
                 pvt_record_error(context, error, JSON_ERR_OVERLONG_SEQUENCE, error->message);
                 return false;
@@ -944,7 +992,7 @@ static bool pvt_validate_utf8(JsonContext *context, JsonParseError *error,  Stri
             current_byte = (uint8_t)*context->current_ptr;
             if ( current_byte >= 0x90 ) {
                 snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
-            "'0x%.2X' is an invalid UTF-8 continuation byte and out of range.", current_byte);
+            "'0x%.2X' is an invalid UTF-8 continuation byte and is out of range", current_byte);
                 context->parse_end = context->current_index;
                 pvt_record_error(context, error, JSON_ERR_CODEPOINT_OUT_OF_RANGE, error->message);
                 return false;
@@ -980,14 +1028,14 @@ static bool pvt_validate_utf8(JsonContext *context, JsonParseError *error,  Stri
     // C0-C1 is invalid.
     if (lead_byte == 0xC0 || lead_byte == 0xC1 ) {
         snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
-    "'0x%.2X' is an invalid UTF-8 start byte and overlong sequence.", lead_byte);
+    "'0x%.2X' is an invalid UTF-8 start byte and an overlong sequence", lead_byte);
         context->parse_end = context->current_index;
         pvt_record_error(context, error, JSON_ERR_OVERLONG_SEQUENCE, error->message);
         return false;
     }
 
     snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
-"'0x%.2X' is an invalid UTF-8 start byte.", lead_byte);
+"'0x%.2X' is an invalid UTF-8 start byte", lead_byte);
     context->parse_end = context->current_index;
     pvt_record_error(context, error, JSON_ERR_INVALID_UTF8_START_BYTE, error->message);
     return false;
@@ -1025,7 +1073,7 @@ static StringBuilder * pvt_parse_unicode_escape( JsonContext *context, JsonParse
     if ( cp1 >= 0xDC00 && cp1 <= 0xDFFF ) {
         // A low surrogate that wasn't preceded by a high surrogate. This is an error.
         snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
-            "Expected high surrogate \\uD800-\\uDBFF to precede low surrogate '\\u%4X', but none found.", cp1);
+            "expected high surrogate \\uD800-\\uDBFF to precede low surrogate '\\u%4X', but none found", cp1);
         context->parse_end = context->current_index;
         pvt_record_error(context, error, JSON_ERR_NO_PRECEDING_HIGH_SURROGATE, error->message);
         return nullptr;
@@ -1043,7 +1091,7 @@ static StringBuilder * pvt_parse_unicode_escape( JsonContext *context, JsonParse
         if (current_ptr[0] != '\\' || current_ptr[1] != 'u') {
             // no following low surrogate.
             snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
-                "Expected low surrogate escape \\uDC00-\\uDFFF to follow high surrogate '\\u%4X'.", cp1);
+                "expected low surrogate escape \\uDC00-\\uDFFF to follow high surrogate '\\u%4X'", cp1);
             context->parse_end = context->current_index;
             pvt_record_error(context, error, JSON_ERR_NO_FOLLOWING_LOW_SURROGATE, error->message);
             return nullptr;
@@ -1059,7 +1107,7 @@ static StringBuilder * pvt_parse_unicode_escape( JsonContext *context, JsonParse
         if ( !(cp2 >= 0xDC00 && cp2 <= 0xDFFF )) {
             // no following low surrogate.
             snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
-                "Expected low surrogate to follow '\\u%4X', but found '\\u%4X' instead.", cp1, cp2);
+                "expected low surrogate to follow '\\u%4X', but found '\\u%4X' instead", cp1, cp2);
             context->parse_end = context->current_index;
             pvt_record_error(context, error, JSON_ERR_NO_FOLLOWING_LOW_SURROGATE, error->message);
             return nullptr;
@@ -1164,7 +1212,7 @@ static JsonValue * pvt_parse_string(JsonContext *context, JsonParseError *error,
                     break;
                 default:
                     context->parse_end = context->current_index;
-                    snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "Invalid escape sequence: \\%c", current_byte);
+                    snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "invalid escape sequence: '\\%c'", current_byte);
                     pvt_record_error(context, error, JSON_ERR_INVALID_ESCAPE_SEQUENCE, error->message);
                     sb_destroy(&sb);
                     return nullptr;
@@ -1174,7 +1222,7 @@ static JsonValue * pvt_parse_string(JsonContext *context, JsonParseError *error,
             // RFC 8259: Control characters U+0000 through U+001F MUST be escaped.
             // This means the literal bytes cannot appear here.
             context->parse_end = context->current_index;
-            snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "Unexpected unescaped control character: 0x%.2X", current_byte);
+            snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "unescaped control character: 0x%.2X", current_byte);
             pvt_record_error(context, error, JSON_ERR_UNESCAPED_CONTROL_CHAR, error->message);
             sb_destroy(&sb);
             return nullptr;
@@ -1186,7 +1234,7 @@ static JsonValue * pvt_parse_string(JsonContext *context, JsonParseError *error,
     }
 
     context->parse_end = context->current_index;
-    pvt_record_error(context, error, JSON_ERR_UNTERMINATED_STRING, "No closing quote found.");
+    pvt_record_error(context, error, JSON_ERR_UNTERMINATED_STRING, "no closing quote found");
     sb_destroy(&sb);
     return nullptr;  // no closing quote found
 }
@@ -1197,6 +1245,9 @@ static const char * const REGEX_NUMBER_STR = RSL "(-?(0|([1-9][0-9]*))(\\.[0-9]+
 static regex_t REGEX_NUMBER_PATTERN;
 constexpr int MATCH_FOUND = 0;
 
+// todo (rob) we need to re-write this. The regex is convenient. But it doesn't give me insight into where
+// the JSON text deviates from a "number." To have better control for error reporting, we need to implement
+// the scanning code ourselves.
 static JsonValue * pvt_parse_number(JsonContext *context, JsonParseError *error, Arena *arena ) {
     JsonValue *value = nullptr;
 
@@ -1357,8 +1408,13 @@ static JsonValue *pvt_parse_value(JsonContext *context, JsonParseError *error, A
 
         default:
             if (error) {
+                int written = snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "unexpected character: ");
+                if (written > 0) {
+                    pvt_format_error_message_char(ERROR_MSG_BUFFER_SIZE - written,
+                        error->message + written, *context->current_ptr );
+                }
+
                 context->parse_end = context->current_index;
-                snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "unexpected character: '%c'", *context->current_ptr);
                 pvt_record_error(context, error, JSON_ERR_UNEXPECTED_TEXT, error->message);
                 return nullptr;
             }
@@ -1721,11 +1777,15 @@ void jsonp_print_parse_error(JsonParseError *err) {
         printf("(JsonParseError)null\n");
         return;
     }
-    printf("%s=%d: line:%d col:%d pos:%d  %s\n", jsonp_parse_error_type_name(err->err_type),
-        err->err_type, err->line+1, err->column+1, err->first_bad_char,  err->message);
+    // printf("%d:%s  line:%d col:%d pos:%d :  %s\n",
+    //     err->err_type, jsonp_parse_error_type_name(err->err_type),
+    //     err->line+1, err->column+1, err->first_bad_char,  err->message);
 
-    // printf("%s=%d: first bad char:%d, line:%d col:%d start:%d end:%d  %s\n", jsonp_parse_error_type_name(err->err_type),
-    //    err->err_type, err->first_bad_char,  err->line+1, err->column+1, err->parse_start, err->parse_end, err->message);
+    //todo (rob) temp debug
+    printf("%d:%s  line:%d col:%d pos:%d start:%d end:%d :  %s\n",
+        err->err_type, jsonp_parse_error_type_name(err->err_type),
+        err->line+1, err->column+1, err->first_bad_char, err->parse_start, err->parse_end, err->message);
+
 
     uint32_t err_pos = err->first_bad_char;
     // if (err_pos < 80) {

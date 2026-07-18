@@ -188,6 +188,7 @@ typedef enum json_error_type_e {
     X(TRAILING_COMMA_NOT_ALLOWED) \
     X(MISSING_OBJECT_KEY) \
     X(MISSING_OBJECT_VALUE) \
+    X(MISSING_ARRAY_ELEMENT) \
     X(OUT_OF_MEMORY) \
     X(COUNT)
 
