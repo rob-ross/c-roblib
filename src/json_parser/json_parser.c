@@ -170,18 +170,19 @@ static void pvt_advance(JsonContext *context, const uint32_t char_count) {
 }
 
 
-// Formats the `fmt` string with the single-byte character argument `c` for readability.
+// Writes to the argument buffer.
 // If `c` is a control character ( < 0x20 or > 0x7E) it will format `c` as a hex byte as 0xXX.
 // Otherwise, formats `c` as a char.
 static void pvt_format_error_message_char(
     const uint32_t buffer_size, char msg_buffer[static buffer_size], const char c ) {
 
     const unsigned char u_char  = (unsigned char)c;
-    if ( u_char < 0x20 || u_char > 0x7E) {
+    if ( u_char == 0x00 ) {
+        snprintf(msg_buffer, buffer_size, "NUL");
+    } else if ( u_char < 0x20 || u_char > 0x7E) {
         // display non-ascii and control chars as a hex escape.
         snprintf(msg_buffer, buffer_size,
-            "0x%X", u_char );
-
+            "0x%.2X", u_char );
     } else {
         snprintf(msg_buffer, buffer_size,
             "'%c'", u_char );
@@ -253,14 +254,13 @@ JsonObjectEntry * jsonp_entry_for_key(const JsonValue *json_obj, char const * ke
 static JsonObjectEntry * pvt_parse_one_entry(JsonContext *context, JsonParseError *error, Arena *arena) {
     pvt_skip_whitespace(context);
     context->parse_start = context->current_index;  // need this here since we aren't calling pvt_parse_value()
-    if (*context->current_ptr == '\0') {
-        context->parse_end = context->current_index;
-        snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "unexpected EOF, expected object key");
-        pvt_record_error(context, error, JSON_ERR_MISSING_OBJECT_KEY, error->message);
-        return nullptr;
-    }
+    // if (*context->current_ptr == '\0') {
+    //     context->parse_end = context->current_index;
+    //     snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "expected object key, got EOF");
+    //     pvt_record_error(context, error, JSON_ERR_MISSING_OBJECT_KEY, error->message);
+    //     return nullptr;
+    // }
     if (*context->current_ptr != '"') {
-        // snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "expected object key, got '%c'", *context->current_ptr );
         int written = snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "expected object key, got ");
         if (written > 0) {
             pvt_format_error_message_char(ERROR_MSG_BUFFER_SIZE - written,
@@ -288,8 +288,16 @@ static JsonObjectEntry * pvt_parse_one_entry(JsonContext *context, JsonParseErro
     pvt_advance(context, 1);  // consume ':'
     pvt_skip_whitespace(context);
     if (*context->current_ptr == '\0') {
+        // snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "unexpected EOF, expected object value");
+
+        int written =  snprintf(error->message, ERROR_MSG_BUFFER_SIZE,"expected object value for key '%s', got ", key->u.string);
+        if (written > 0) {
+            pvt_format_error_message_char(ERROR_MSG_BUFFER_SIZE - written,
+                error->message + written, *context->current_ptr );
+        }
+
+
         context->parse_end = context->current_index;
-        snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "unexpected EOF, expected object value");
         pvt_record_error(context, error, JSON_ERR_MISSING_OBJECT_VALUE, error->message);
         return nullptr;
     }
@@ -1125,7 +1133,7 @@ static StringBuilder * pvt_parse_unicode_escape( JsonContext *context, JsonParse
     return sb_out;
 }
 
-// todo we'll need to pass an Error record back with detailed error information. For now we return nullptr if error
+
 
 constexpr char QUOTE           = 0x22;  // "
 constexpr char REVERSE_SOLIDUS = 0x5c;  // \  backslash
@@ -1239,6 +1247,196 @@ static JsonValue * pvt_parse_string(JsonContext *context, JsonParseError *error,
     return nullptr;
 }
 
+
+static JsonValue * pvt_parse_number(JsonContext *context, JsonParseError *error, Arena *arena ) {
+    JsonValue *value = nullptr;
+    //context->parse_start has the first character in this number string, which we'll need to convert the parsed number
+    char cur_char = *context->current_ptr;
+    if (cur_char == '.') {
+        snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
+    "expected digit '0'-'9' before the decimal point");
+        context->parse_end = context->current_index;
+        pvt_record_error(context, error, JSON_ERR_INVALID_NUMBER_FORMAT, error->message);
+        return nullptr;
+    }
+
+    if (cur_char == '-') {
+        pvt_advance(context, 1);  // optional '-' is fine.
+        //must be followed by a digit
+        char c = *context->current_ptr;
+        if ( !(c >= '0' && c <= '9')) {
+            int written =  snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
+        "expected digit '0'-'9' after '-', got ");
+            if (written > 0) {
+                pvt_format_error_message_char(ERROR_MSG_BUFFER_SIZE - written,
+                    error->message + written, *context->current_ptr );
+            }
+            context->parse_end = context->current_index;
+            pvt_record_error(context, error, JSON_ERR_INVALID_NUMBER_FORMAT, error->message);
+            return nullptr;
+        }
+    }
+
+    // Number *must* start with 0 exactly once, or a digit 1-9 exactly once, followed by zero or more digits 0-9
+    cur_char = *context->current_ptr;
+    if ( !( cur_char >= '0' && cur_char <= '9')) {
+        int written =  snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
+            "numbers must start with a digit '0'-'9', got ");
+        if (written > 0) {
+            pvt_format_error_message_char(ERROR_MSG_BUFFER_SIZE - written,
+                error->message + written, *context->current_ptr );
+        }
+        context->parse_end = context->current_index;
+        pvt_record_error(context, error, JSON_ERR_INVALID_NUMBER_FORMAT, error->message);
+        return nullptr;
+    }
+
+    // -----------------------------------------------------------------
+    //      INTEGER PART
+    // -----------------------------------------------------------------
+
+    // here we know current char is '0'-'9'
+    if (cur_char == '0') {
+        pvt_advance(context, 1);
+        char c = *context->current_ptr;
+        // leading zero only valid if next character is a period, e or E
+        if ( c >= '0' && c <= '9') {
+            int written =  snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
+                "invalid leading zero. expected '.', 'e', or 'E', got ");
+            if (written > 0) {
+                pvt_format_error_message_char(ERROR_MSG_BUFFER_SIZE - written,
+                    error->message + written, *context->current_ptr );
+            }
+            context->parse_end = context->current_index;
+            pvt_record_error(context, error, JSON_ERR_INVALID_NUMBER_FORMAT, error->message);
+            return nullptr;
+        }
+        // leading zero only valid if next character is a period, e or E and not a digit
+        if (  c != '.' && c != 'e' && c != 'E' ) {
+            // we parsed a zero
+            value = arena_alloc(arena, sizeof(JsonValue) );
+            value->type = JSON_LONG;
+            value->u.n_long = 0;
+            return value;
+        }
+    } else {
+        // cur_char '1'-'9'
+        while (*context->current_ptr >= '0' && *context->current_ptr <= '9') {
+            pvt_advance(context, 1);
+        }
+    }
+
+    // -----------------------------------------------------------------
+    //          PARSE AS INTEGER
+    // -----------------------------------------------------------------
+
+    cur_char = *context->current_ptr;
+    if ( cur_char != '.' && cur_char != 'e' && cur_char != 'E') {
+        // we parsed an integer
+        value = arena_alloc(arena, sizeof(JsonValue) );
+        value->type = JSON_LONG;
+        errno = 0; // Reset errno before the calls
+        char *str_end =  nullptr;
+        char const * const num_start_pointer = context->json_text +  context->parse_start;
+        long val = strtol(num_start_pointer, &str_end, 10);
+        // todo (rob) error checking, promotion to double if needed
+        if (errno || str_end != context->current_ptr) {
+            printf("Error calling strtol: errno:%d, *str_end:%p, cur_ptr:%p\n", errno, str_end, context->current_ptr);
+        }
+        if (errno == ERANGE) {
+            // Promotion: If too big for long, use double to preserve magnitude (even if it becomes Infinity)
+            value->type = JSON_DOUBLE;
+            // value->u.n_double = strtod(num_start_pointer, nullptr);
+#ifdef _WIN32
+            value->u.n_double = _strtod_l(num_start_pointer, nullptr, _get_pure_c_locale());
+#else
+            value->u.n_double = strtod_l(num_start_pointer, nullptr, c_locale_obj);
+#endif
+
+            // todo (rob) if still too big we could try long double?
+
+        } else {
+            value->u.n_long = val;
+        }
+        return value;
+    }
+
+
+    // -----------------------------------------------------------------
+    //      FRACTIONAL PART
+    // -----------------------------------------------------------------
+
+    if (cur_char == '.' )  {
+        pvt_advance(context, 1);  // consume optional '.'
+        // expect one number
+        char c = *context->current_ptr;
+        if ( !(c >= '0' && c <= '9') ) {
+            int written =  snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "expected digit '0'-'9' after the decimal point, got ");
+            if (written > 0) {
+                pvt_format_error_message_char(ERROR_MSG_BUFFER_SIZE - written,
+                    error->message + written, *context->current_ptr );
+            }
+            context->parse_end = context->current_index;
+            pvt_record_error(context, error, JSON_ERR_INVALID_NUMBER_FORMAT, error->message);
+            return nullptr;
+        }
+        pvt_advance(context, 1); // consume first digit
+        // consume next N digits
+        while (*context->current_ptr >= '0' && *context->current_ptr <= '9') {
+            pvt_advance(context, 1);
+        }
+    }
+
+    cur_char = *context->current_ptr;
+    if ( cur_char == 'e' || cur_char == 'E' ) {
+        char const e_char = cur_char;  // save actual letter case for reporting
+        pvt_advance(context, 1);
+        char c = *context->current_ptr;
+        if ( c == '-' || c == '+' ) pvt_advance(context, 1); // consume optional -/+ char
+        // expect one number
+        c = *context->current_ptr;
+        if ( !(c >= '0' && c <= '9')) {
+            int written =  snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "expected digit '0'-'9' after '%c', got ", e_char);
+            if (written > 0) {
+                pvt_format_error_message_char(ERROR_MSG_BUFFER_SIZE - written,
+                    error->message + written, *context->current_ptr );
+            }
+            context->parse_end = context->current_index;
+            pvt_record_error(context, error, JSON_ERR_INVALID_NUMBER_FORMAT, error->message);
+            return nullptr;
+        }
+        pvt_advance(context, 1); // consume first digit
+        // consume next N digits
+        while (*context->current_ptr >= '0' && *context->current_ptr <= '9') {
+            pvt_advance(context, 1);
+        }
+    }
+
+    // -----------------------------------------------------------------
+    //          PARSE AS FLOATING POINT
+    // -----------------------------------------------------------------
+
+    // we've now parsed a float number
+    value = arena_alloc(arena, sizeof(JsonValue) );
+    value->type = JSON_DOUBLE;
+    errno = 0; // Reset errno before the calls
+    char *str_end =  nullptr;
+    char const * const num_start_pointer = context->json_text +  context->parse_start;
+    // value->u.n_double = strtod(num_start_pointer, &str_end);
+#ifdef _WIN32
+    value->u.n_double = _strtod_l(num_start_pointer, &str_end, _get_pure_c_locale());
+#else
+    value->u.n_double = strtod_l(num_start_pointer, &str_end, c_locale_obj);
+#endif
+    // Note: If strtod overflows, u.n_double will be +/- Infinity (HUGE_VAL).
+
+    // todo (rob) error checking
+    if (errno || str_end != context->current_ptr) {
+        printf("Error calling strtod_l: errno:%d, *str_end:%p, cur_ptr:%p\n", errno, str_end, context->current_ptr);
+    }
+    return value;
+}
+
 // RSL: "Regex Start of Line"
 #define RSL      "^"
 static const char * const REGEX_NUMBER_STR = RSL "(-?(0|([1-9][0-9]*))(\\.[0-9]+)?([eE][-+]?[0-9]+)?)";
@@ -1248,7 +1446,7 @@ constexpr int MATCH_FOUND = 0;
 // todo (rob) we need to re-write this. The regex is convenient. But it doesn't give me insight into where
 // the JSON text deviates from a "number." To have better control for error reporting, we need to implement
 // the scanning code ourselves.
-static JsonValue * pvt_parse_number(JsonContext *context, JsonParseError *error, Arena *arena ) {
+static JsonValue * pvt_parse_number_prev(JsonContext *context, JsonParseError *error, Arena *arena ) {
     JsonValue *value = nullptr;
 
     constexpr size_t max_groups = 4;
@@ -1277,7 +1475,7 @@ static JsonValue * pvt_parse_number(JsonContext *context, JsonParseError *error,
 
     errno = 0; // Reset errno before the calls
     if (is_double) {
-        value->type = JSON_FLOAT;
+        value->type = JSON_DOUBLE;
         // value->u.n_double = strtod(context->current_ptr, nullptr);
 #ifdef _WIN32
         value->u.n_double = _strtod_l(context->current_ptr, nullptr, _get_pure_c_locale());
@@ -1286,11 +1484,11 @@ static JsonValue * pvt_parse_number(JsonContext *context, JsonParseError *error,
 #endif
         // Note: If strtod overflows, u.n_double will be +/- Infinity (HUGE_VAL).
     } else {
-        value->type = JSON_INT;
+        value->type = JSON_LONG;
         long val = strtol(context->current_ptr, nullptr, 10);
         if (errno == ERANGE) {
             // Promotion: If too big for long, use double to preserve magnitude (even if it becomes Infinity)
-            value->type = JSON_FLOAT;
+            value->type = JSON_DOUBLE;
             // value->u.n_double = strtod(context->current_ptr, nullptr);
 #ifdef _WIN32
             value->u.n_double = _strtod_l(context->current_ptr, nullptr, _get_pure_c_locale());
@@ -1391,7 +1589,7 @@ static JsonValue *pvt_parse_value(JsonContext *context, JsonParseError *error, A
         case '"': /* Handle string */
             value = pvt_parse_string(context, error, arena);
             break;
-        case '-': case '0': case '1': case '2': case '3':
+        case '-': case '.': case '0': case '1': case '2': case '3':
         case '4': case '5': case '6': case '7': case '8': case '9':
             /* Handle number */
             value = pvt_parse_number(context,error, arena);
@@ -1507,7 +1705,7 @@ static JsonValue * pvt_jsonp_parse_impl(JsonContext *context, const char *json_t
 
     if (*context->current_ptr != '\0') {
         //we parsed the root value, but there is still text remaining in the JSON text, which is an error
-        pvt_record_error(context, error, JSON_ERR_UNEXPECTED_TEXT, "unexpected json text after parsing value");
+        pvt_record_error(context, error, JSON_ERR_UNEXPECTED_TEXT, "unexpected extra text after parsing a valid JSON value");
         return nullptr;
     }
     return value;
@@ -1569,7 +1767,7 @@ static _Atomic(bool) is_initialized = false;
 // Canonical initializer
 Error jsonp_init_3(jp_bitset_t config_flags, uint32_t max_depth, char const * whitespace_chars) {
     if (atomic_load(&is_initialized)) {
-        return (Error){};
+        return (Error){};  // already initialized, no-op, empty error
     }
 
     // Initialize Locale
@@ -1577,22 +1775,22 @@ Error jsonp_init_3(jp_bitset_t config_flags, uint32_t max_depth, char const * wh
     c_locale_obj = newlocale(LC_NUMERIC_MASK, "C", nullptr);
 #endif
 
-    int reti = regcomp(&REGEX_NUMBER_PATTERN, REGEX_NUMBER_STR, REG_EXTENDED);
-    if ( reti != REGEX_COMPILE_SUCCESS) {
-        // free resources and return error
-        const char *ws = atomic_exchange(&pvt_whitespace_chars, nullptr);
-        if (ws) {
-            free((void*)ws);
-        }
-        char msgbuf[100];
-        regerror(reti, &REGEX_NUMBER_PATTERN, msgbuf, sizeof(msgbuf));
-        fprintf(stderr, "Regex compilation failed for '%s': %s\n", REGEX_NUMBER_STR, msgbuf);
-        Error result =  (Error){ .err = true, .reported_err = reti, .err_obj = (void*)REGEX_NUMBER_STR };
-        strncpy(result.msg, msgbuf, sizeof msgbuf);
-        result.msg[ sizeof msgbuf - 1 ] = '\0';
-        // ReSharper disable once CppDFAMemoryLeak
-        return result; // Exit early on compilation error
-    }
+    // int reti = regcomp(&REGEX_NUMBER_PATTERN, REGEX_NUMBER_STR, REG_EXTENDED);
+    // if ( reti != REGEX_COMPILE_SUCCESS) {
+    //     // free resources and return error
+    //     const char *ws = atomic_exchange(&pvt_whitespace_chars, nullptr);
+    //     if (ws) {
+    //         free((void*)ws);
+    //     }
+    //     char msgbuf[100];
+    //     regerror(reti, &REGEX_NUMBER_PATTERN, msgbuf, sizeof(msgbuf));
+    //     fprintf(stderr, "Regex compilation failed for '%s': %s\n", REGEX_NUMBER_STR, msgbuf);
+    //     Error result =  (Error){ .err = true, .reported_err = reti, .err_obj = (void*)REGEX_NUMBER_STR };
+    //     strncpy(result.msg, msgbuf, sizeof msgbuf);
+    //     result.msg[ sizeof msgbuf - 1 ] = '\0';
+    //     // ReSharper disable once CppDFAMemoryLeak
+    //     return result; // Exit early on compilation error
+    // }
 
     // Initialize Whitespace (Copy the argument)
     // ReSharper disable once CppDFAMemoryLeak
@@ -1704,11 +1902,14 @@ void jsonp_print_json_value(JsonValue *value) {
         case JSON_NUMBER:
             printf("%g", value->u.n_number);
             break;
-        case JSON_INT:
+        case JSON_LONG:
             printf("%ld", value->u.n_long);
             break;
-        case JSON_FLOAT:
+        case JSON_DOUBLE:
             printf("%g", value->u.n_double);
+            break;
+        case JSON_LONG_DOUBLE:
+            printf("%Lg", value->u.n_long_double);
             break;
         case JSON_STRING:
             printf("'%s'", value->u.string);
@@ -1827,16 +2028,19 @@ void jsonp_print_parse_error(JsonParseError *err) {
     // printf("number_replacements:%u\n", num_replacements);
 
     char const *caret = "\033[91m^\033[0m";
+    char const *left_caret = "\033[91m>\033[0m";
+    char const *right_caret = "\033[91m<\033[0m";
+
     uint32_t line_err_index = err_pos - start;
 
     // insert right caret
     if (line_err_index < (uint32_t)chars_written) {
-        sb_insert_str(&sb, caret, line_err_index + 1);
+        sb_insert_str(&sb, right_caret, line_err_index + 1);
     } else {
-        sb_append_str(&sb, caret);
+        sb_append_str(&sb, right_caret);
     }
     // insert left caret
-    sb_insert_str(&sb, caret, line_err_index);
+    sb_insert_str(&sb, left_caret, line_err_index);
 
     printf("%s\n", sb.buffer);
 
@@ -2082,14 +2286,37 @@ void test_false_parse(void) {
 }
 
 void test_number_parse(void) {
-    // parse_test_str("0");
-    // parse_test_str("1");
-    // parse_test_str("1.1");
-    // parse_test_str("-3.3");
-    // parse_test_str("-3.3e24");
-    // parse_test_str("5.3e-24");
-    // parse_test_str("5.67 moo");
-    // parse_test_str("[100000000000000000000]");
+    parse_test_str("\\x43");
+    parse_test_str("-");
+    parse_test_str("-A");
+
+    parse_test_str("-0");
+    parse_test_str("0");
+    parse_test_str("0a");
+    parse_test_str("1");
+    parse_test_str("-22");
+    parse_test_str("333");
+    parse_test_str("-4444");
+    parse_test_str("55555");
+    parse_test_str("-666666");
+    parse_test_str("7777777");
+    parse_test_str("-88888888");
+    parse_test_str("999999999");
+
+    parse_test_str(".");
+    parse_test_str("0.");
+    parse_test_str("-0.");
+    parse_test_str("1.");
+    parse_test_str("-2.");
+    parse_test_str(".1");
+    parse_test_str("-.22");
+
+    parse_test_str("1.1");
+    parse_test_str("-3.3");
+    parse_test_str("-3.3e24");
+    parse_test_str("5.3e-24");
+    parse_test_str("5.67 moo");
+    parse_test_str("[100000000000000000000]");
     parse_test_str("[123123e100000]");
     parse_test_str("[-123123e100000]");
     parse_test_str("[0.4e00669999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999969999999006]");
@@ -2097,6 +2324,10 @@ void test_number_parse(void) {
     parse_test_str("[-0.4e-00669999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999969999999006]");
 
     parse_test_str("[-123123123123123123123123123123]");
+
+    parse_test_str("[2.e3]");
+    parse_test_str("[0.1.2]");
+
 }
 
 void test_array_parse(void) {
@@ -2206,20 +2437,22 @@ void test_json_test_suite_fails(void) {
 
 void test_fails_for_reporting(void) {
 
-    // printf("Output:\n");
-    // simple_parse("1");
-    // simple_parse("[\"string\", -2, 3.2, -4e-2, true, false, null ]");
-    // simple_parse(
-    //     "{ \"nested array\": [ \"item 1\", \"item 2\", \"item 3\" ], "
-    //               "\"nested object\": { \"key 1\": \"value 1\", \"key 2\": \"value 2\", \"key 3\": \"value 3\" } }");
-    //
-    // // bad JSON text
-    printf("\nfailing parses:\n");
     // printf("unterminated string\033[91m^\033[0m\033[91m^\033[0m\n");
-    //
-    // simple_parse("\"unterminated string");
-    // simple_parse("[ \"unterminated array\", 2 ");
-    // simple_parse("[ \"trailing comma\", 2,] ");
+
+
+    printf("Output:\n");
+    simple_parse("1");
+    simple_parse("[\"string\", -2, 3.2, -4e-2, true, false, null ]");
+    simple_parse(
+        "{ \"nested array\": [ \"item 1\", \"item 2\", \"item 3\" ], "
+                  "\"nested object\": { \"key 1\": \"value 1\", \"key 2\": \"value 2\", \"key 3\": \"value 3\" } }");
+
+    // bad JSON text
+    printf("\nfailing parses:\n");
+
+    simple_parse("\"unterminated string ");
+    simple_parse("[ \"unterminated array\", 2 ");
+    simple_parse("[ \"trailing comma\", 2,] ");
     //
     // char const *big_str = " [\n"
     // "   { \"id\":  0,  \"name\": \"NULL ROOM\",         \"desc\":  \"\" }, \n"
@@ -2274,7 +2507,7 @@ int main( ) {
     // test_null_parse();
     // test_true_parse();
     // test_false_parse();
-    // test_number_parse();
+    test_number_parse();
     // test_array_parse();
     // test_parse_objects();
     // test_parse_unicode_escapes();
@@ -2287,7 +2520,8 @@ int main( ) {
 
     // test_custom_flags();
 
-    test_json_test_suite_fails();
+    // test_fails_for_reporting();
+    // test_json_test_suite_fails();
 
 
 }
