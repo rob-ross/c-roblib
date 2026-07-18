@@ -1450,8 +1450,8 @@ static const char * const REGEX_NUMBER_STR = RSL "(-?(0|([1-9][0-9]*))(\\.[0-9]+
 static regex_t REGEX_NUMBER_PATTERN;
 constexpr int MATCH_FOUND = 0;
 
-
-static JsonValue * pvt_parse_number_prev(JsonContext *context, JsonParseError *error, Arena *arena ) {
+// not used, but kept for future reference as  way to use regex to parse a json value
+static JsonValue * pvt_parse_number_regex(JsonContext *context, JsonParseError *error, Arena *arena ) {
     JsonValue *value = nullptr;
 
     constexpr size_t max_groups = 4;
@@ -1775,11 +1775,15 @@ Error jsonp_init_3(jp_bitset_t config_flags, uint32_t max_depth, char const * wh
         return (Error){};  // already initialized, no-op, empty error
     }
 
-    // Initialize Locale
+    // Initialize Locale. This is needed by strtod_l/_strtod_l, to correctly parse JSON floats. Some locales
+    // use the comma as the decimal point, so JSON floats will fail to convert to a float
+    // if we don't use the C locale for parsing them.
 #ifndef _WIN32
     c_locale_obj = newlocale(LC_NUMERIC_MASK, "C", nullptr);
 #endif
 
+    //  Not used, but I want to keep for future reference. I rewrote pvt_parse_number() so it doesn't use C regex.
+    // but this code is a template for how to compile an _Atomic regex with error checking.
     // int reti = regcomp(&REGEX_NUMBER_PATTERN, REGEX_NUMBER_STR, REG_EXTENDED);
     // if ( reti != REGEX_COMPILE_SUCCESS) {
     //     // free resources and return error
@@ -1909,6 +1913,9 @@ void jsonp_print_json_value(JsonValue *value) {
             break;
         case JSON_LONG:
             printf("%ld", value->u.n_long);
+            break;
+        case JSON_LONG_LONG:
+            printf("%lld", value->u.n_long_long);
             break;
         case JSON_DOUBLE:
             printf("%g", value->u.n_double);
@@ -2326,6 +2333,7 @@ void test_number_parse(void) {
 
     parse_test_str("[2.e3]");
     parse_test_str("[0.1.2]");
+    parse_test_str("[1,]");  // jsonp_print_parse_error: snprintf failed with return code: 0
 
 }
 
