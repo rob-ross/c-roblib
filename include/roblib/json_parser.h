@@ -41,38 +41,16 @@ The literal names MUST be lowercase.  No other literal names are allowed.
 extern "C" {
 #endif
 
-// enum Token {
-//     TOK_TRUE,
-//     TOK_FALSE,
-//     TOK_NULL,
-//     TOK_LEFT_BRACKET,
-//     TOK_RIGHT_BRACKET,
-//     TOK_LEFT_BRACE,
-//     TOK_RIGHT_BRACE,
-//     TOK_COLON,
-//     TOK_COMMA,
-//     // We are lexing and parsing at the same time in this parser, so these "tokens" really represent a type of AST node
-//     TOK_STRING, // this is actually a value, not a token... but so are true, false, and null. hmmm...???
-//     TOK_NUMBER, // also not a token, a value.
-//
-// };
-
-// typedef struct {
-//     const char *pattern_string;
-//     regex_t compiled_regex;
-//     const char *name; // For easier identification in output
-//     enum Token token;
-// } RegexPattern;
-
 
 typedef enum json_type{
     JSON_NULL,
     JSON_BOOLEAN,
 
     // We need to be able to distinguish ints from floats when we parse and write values.
-    JSON_NUMBER,
+    JSON_NUMBER,  // generic JSON number type. Implemented as a double.
     JSON_LONG,
     JSON_DOUBLE,
+    JSON_LONG_LONG,
     JSON_LONG_DOUBLE,  // for future use. long double == double on my machine :(
 
     JSON_STRING,
@@ -88,9 +66,10 @@ struct json_value_s {
     union {
         int boolean;
         union {
-            long   n_long;
-            double n_double;
-            double n_number;
+            long        n_long;
+            double      n_double;
+            double      n_number;
+            long long   n_long_long;
             long double n_long_double;
         };
         const char *string;
