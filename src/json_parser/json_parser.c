@@ -163,7 +163,7 @@ void jsonp_set_max_nesting_depth( const uint32_t depth) {
 
 
 // advance the parser state based on the current parse window
-static void pvt_advance(JsonContext *context, const int char_count) {
+static void pvt_advance(JsonContext *context, const uint32_t char_count) {
     context->current_ptr    += char_count;
     context->current_index  += char_count;
     context->column         += char_count;
@@ -508,7 +508,7 @@ static JsonValue * pvt_parse_array(JsonContext *context, JsonParseError *error, 
     // pvt_skip_whitespace(context);
 
     if (*context->current_ptr != ']' ) {
-        char const *msg = "unterminated array";
+        char const *msg = "missing closing bracket ']'";
         context->parse_end = context->current_index;
         pvt_record_error(context, error, JSON_ERR_UNTERMINATED_ARRAY, msg);
         context->depth_current--;
@@ -584,7 +584,7 @@ constexpr uint8_t continue_bits = 0b10000000;  // 0x80
 
 // assumes the UTF-8 bytes are correct and well-ordered. No error checking is done here.
 // Returns the decoded Unicode codepoint value or UINT32_MAX if error occurred.
-static uint32_t pvt_decode_utf8(const uint32_t num_bytes, uint8_t utf8_bytes[]) {
+static uint32_t pvt_decode_utf8(const uint32_t num_bytes, uint8_t const utf8_bytes[]) {
     uint32_t codepoint = 0;
     switch  (num_bytes) {
         case 1:
@@ -650,14 +650,14 @@ static StringBuilder * pvt_encode_utf8( JsonContext *context, JsonParseError *er
     }
 
     if (codepoint <= 127 ) {
-        sb_append_char(sb, (uint8_t)codepoint);
+        sb_append_char(sb, (char)codepoint);
     } else if (codepoint <= 0x07FF ) {
         // encode as two UTF-8 bytes
         //110xxxxx 10xxxxxx
         uint8_t first  = 0b11000000    | (uint8_t)( codepoint >> 6 );
         uint8_t second = continue_bits | (uint8_t)( codepoint & continue_mask );
-        sb_append_char(sb, first);
-        sb_append_char(sb, second);
+        sb_append_char(sb, (char)first);
+        sb_append_char(sb, (char)second);
 
     } else if (codepoint <= 0xFFFF) {
         // encode as three UTF-8 bytes
@@ -665,9 +665,9 @@ static StringBuilder * pvt_encode_utf8( JsonContext *context, JsonParseError *er
         uint8_t first  = 0b11100000    | (uint8_t)( codepoint >> 12 ) ;
         uint8_t second = continue_bits | (uint8_t)( codepoint >> 6 & continue_mask);
         uint8_t third  = continue_bits | (uint8_t)( codepoint      & continue_mask );
-        sb_append_char(sb, first);
-        sb_append_char(sb, second);
-        sb_append_char(sb, third);
+        sb_append_char(sb, (char)first);
+        sb_append_char(sb, (char)second);
+        sb_append_char(sb, (char)third);
 
     } else if (codepoint <= 0x10FFFF) {
         // encode as four UTF-8 bytes
@@ -676,10 +676,10 @@ static StringBuilder * pvt_encode_utf8( JsonContext *context, JsonParseError *er
         uint8_t second  = continue_bits | (uint8_t)( codepoint >> 12 & continue_mask);
         uint8_t third   = continue_bits | (uint8_t)( codepoint >>  6 & continue_mask);
         uint8_t fourth  = continue_bits | (uint8_t)( codepoint       & continue_mask );
-        sb_append_char(sb, first);
-        sb_append_char(sb, second);
-        sb_append_char(sb, third);
-        sb_append_char(sb, fourth);
+        sb_append_char(sb, (char)first);
+        sb_append_char(sb, (char)second);
+        sb_append_char(sb, (char)third);
+        sb_append_char(sb, (char)fourth);
 
     } else {
         // error, codepoint out of range
@@ -766,7 +766,7 @@ static bool pvt_validate_utf8(JsonContext *context, JsonParseError *error,  Stri
     // -----------------------------------------------------------------
 
     if (lead_byte <= 127 ) {
-        sb_append_char(sb, lead_byte);
+        sb_append_char(sb, (char)lead_byte);
         pvt_advance(context, 1);
         return true;
     }
@@ -789,8 +789,8 @@ static bool pvt_validate_utf8(JsonContext *context, JsonParseError *error,  Stri
         stream_bytes[num_bytes++] = current_byte;
         pvt_advance(context, 1);
         //happy path
-        sb_append_char(sb, stream_bytes[0]);
-        sb_append_char(sb, stream_bytes[1]);
+        sb_append_char(sb, (char)stream_bytes[0]);
+        sb_append_char(sb, (char)stream_bytes[1]);
         return true;
     }
 
@@ -825,9 +825,9 @@ static bool pvt_validate_utf8(JsonContext *context, JsonParseError *error,  Stri
             stream_bytes[num_bytes++] = current_byte;
             pvt_advance(context, 1);
             //happy path
-            sb_append_char(sb, stream_bytes[0]);
-            sb_append_char(sb, stream_bytes[1]);
-            sb_append_char(sb, stream_bytes[2]);
+            sb_append_char(sb, (char)stream_bytes[0]);
+            sb_append_char(sb, (char)stream_bytes[1]);
+            sb_append_char(sb, (char)stream_bytes[2]);
             return true;
         }
         if ( lead_byte >= 0xE1 && lead_byte <= 0xEC ) {
@@ -882,9 +882,9 @@ static bool pvt_validate_utf8(JsonContext *context, JsonParseError *error,  Stri
             stream_bytes[num_bytes++] = current_byte;
             pvt_advance(context, 1);
             //happy path
-            sb_append_char(sb, stream_bytes[0]);
-            sb_append_char(sb, stream_bytes[1]);
-            sb_append_char(sb, stream_bytes[2]);
+            sb_append_char(sb, (char)stream_bytes[0]);
+            sb_append_char(sb, (char)stream_bytes[1]);
+            sb_append_char(sb, (char)stream_bytes[2]);
             return true;
         }
         if ( lead_byte == 0xEE || lead_byte == 0xEF) {
@@ -903,9 +903,9 @@ static bool pvt_validate_utf8(JsonContext *context, JsonParseError *error,  Stri
             stream_bytes[num_bytes++] = current_byte;
             pvt_advance(context, 1);
             //happy path
-            sb_append_char(sb, stream_bytes[0]);
-            sb_append_char(sb, stream_bytes[1]);
-            sb_append_char(sb, stream_bytes[2]);
+            sb_append_char(sb, (char)stream_bytes[0]);
+            sb_append_char(sb, (char)stream_bytes[1]);
+            sb_append_char(sb, (char)stream_bytes[2]);
             return true;
         }
     }
@@ -947,10 +947,10 @@ static bool pvt_validate_utf8(JsonContext *context, JsonParseError *error,  Stri
             stream_bytes[num_bytes++] = current_byte;
             pvt_advance(context, 1);
             //happy path
-            sb_append_char(sb, stream_bytes[0]);
-            sb_append_char(sb, stream_bytes[1]);
-            sb_append_char(sb, stream_bytes[2]);
-            sb_append_char(sb, stream_bytes[3]);
+            sb_append_char(sb, (char)stream_bytes[0]);
+            sb_append_char(sb, (char)stream_bytes[1]);
+            sb_append_char(sb, (char)stream_bytes[2]);
+            sb_append_char(sb, (char)stream_bytes[3]);
 
             return true;
         }
@@ -977,10 +977,10 @@ static bool pvt_validate_utf8(JsonContext *context, JsonParseError *error,  Stri
             stream_bytes[num_bytes++] = current_byte;
             pvt_advance(context, 1);
             //happy path
-            sb_append_char(sb, stream_bytes[0]);
-            sb_append_char(sb, stream_bytes[1]);
-            sb_append_char(sb, stream_bytes[2]);
-            sb_append_char(sb, stream_bytes[3]);
+            sb_append_char(sb, (char)stream_bytes[0]);
+            sb_append_char(sb, (char)stream_bytes[1]);
+            sb_append_char(sb, (char)stream_bytes[2]);
+            sb_append_char(sb, (char)stream_bytes[3]);
 
             return true;
         }
@@ -1016,10 +1016,10 @@ static bool pvt_validate_utf8(JsonContext *context, JsonParseError *error,  Stri
             stream_bytes[num_bytes++] = current_byte;
             pvt_advance(context, 1);
             //happy path
-            sb_append_char(sb, stream_bytes[0]);
-            sb_append_char(sb, stream_bytes[1]);
-            sb_append_char(sb, stream_bytes[2]);
-            sb_append_char(sb, stream_bytes[3]);
+            sb_append_char(sb, (char)stream_bytes[0]);
+            sb_append_char(sb, (char)stream_bytes[1]);
+            sb_append_char(sb, (char)stream_bytes[2]);
+            sb_append_char(sb, (char)stream_bytes[3]);
 
             return true;
         }
@@ -1175,7 +1175,7 @@ static JsonValue * pvt_parse_string(JsonContext *context, JsonParseError *error,
                 case '"':
                 case '\\':
                 case '/':
-                    sb_append_char(&sb, current_byte);
+                    sb_append_char(&sb, (char)current_byte);
                     pvt_advance(context, 1);
                     break;
                 case 'b':
@@ -1234,9 +1234,9 @@ static JsonValue * pvt_parse_string(JsonContext *context, JsonParseError *error,
     }
 
     context->parse_end = context->current_index;
-    pvt_record_error(context, error, JSON_ERR_UNTERMINATED_STRING, "no closing quote found");
+    pvt_record_error(context, error, JSON_ERR_UNTERMINATED_STRING, "missing closing quote '\"' ");
     sb_destroy(&sb);
-    return nullptr;  // no closing quote found
+    return nullptr;
 }
 
 // RSL: "Regex Start of Line"
@@ -1312,7 +1312,7 @@ static JsonValue *  pvt_parse_literal_impl(  JsonContext *context,
                                                 char const *key_word ) {
 
     context->parse_start = context->current_index;
-    int current_index = context->current_index;
+    uint32_t current_index = context->current_index;
     char const * keyword_ptr = key_word;
     char const * text_ptr = context->current_ptr;
     enum json_error_type_e err_type = JSON_ERR_NONE;
@@ -1574,13 +1574,13 @@ Error jsonp_init_3(jp_bitset_t config_flags, uint32_t max_depth, char const * wh
 
     // Initialize Locale
 #ifndef _WIN32
-    c_locale_obj = newlocale(LC_NUMERIC_MASK, "C", (locale_t)0);
+    c_locale_obj = newlocale(LC_NUMERIC_MASK, "C", nullptr);
 #endif
 
     int reti = regcomp(&REGEX_NUMBER_PATTERN, REGEX_NUMBER_STR, REG_EXTENDED);
     if ( reti != REGEX_COMPILE_SUCCESS) {
         // free resources and return error
-        const char *ws = atomic_exchange(&pvt_whitespace_chars, NULL);
+        const char *ws = atomic_exchange(&pvt_whitespace_chars, nullptr);
         if (ws) {
             free((void*)ws);
         }
