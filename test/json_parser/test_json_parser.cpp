@@ -126,7 +126,7 @@ TEST_F(JsonParserTest, n_structure_whitespace_formfeed_json) {
     char const * test_fixture = "[\x0c]";  // literal Form feed character
     JsonValue *jval = jsonp_parse(test_fixture, &err, arena);
     EXPECT_EQ(jval, nullptr) << "expected fail to parse with embedded formfeed";
-    EXPECT_EQ(err.err_type, JSON_ERR_UNEXPECTED_TEXT);
+    EXPECT_EQ(err.err_type, JSON_ERR_MISSING_ARRAY_ELEMENT);
     EXPECT_EQ(err.parse_end, 1);
 
     // todo (rob) this exposes an issue with this API call. In a multi-threaded environment, the next call to
@@ -255,8 +255,8 @@ TEST_P(JsonParserInts, TestDoubles) {
     JsonValue *jval = jsonp_parse(input_json.c_str(), &err, arena);
 
     ASSERT_NE(jval, nullptr) << "Failed to parse: " << input_json << err.message;
-    EXPECT_EQ(jval->type, JSON_INT);
-    if (jval->type == JSON_INT) {
+    EXPECT_EQ(jval->type, JSON_LONG);
+    if (jval->type == JSON_LONG) {
         EXPECT_EQ(jval->u.n_long, expected_value);
     }
 }
@@ -284,8 +284,8 @@ TEST_P(JsonParserFloats, TestDoubles) {
     JsonValue *jval = jsonp_parse(input_json.c_str(), &err, arena);
 
     ASSERT_NE(jval, nullptr) << "Failed to parse: " << input_json;
-    EXPECT_EQ(jval->type, JSON_FLOAT);
-    if (jval->type == JSON_FLOAT) {
+    EXPECT_EQ(jval->type, JSON_DOUBLE);
+    if (jval->type == JSON_DOUBLE) {
         EXPECT_DOUBLE_EQ(jval->u.n_double, expected_value);
     }
 }

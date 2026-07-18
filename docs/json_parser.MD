@@ -79,37 +79,58 @@ void simple_parse(char const *json_text) {
         jsonp_destroy();
         return;
     }
-    
-    ArenaErrResult aer = arena_create_arena( &arena, 1024 * 124);  // initally 1MB as an example. Grows as needed.
+
+    Arena arena = {};
+    ArenaErrResult aer = arena_create_arena( &arena, 1024 * 124);  // initially 1MB as an example. Grows as needed.
     if ( aer.err ) {
         printf("arena_create_arena failed with %d, %s\n", aer.reported_err, aer.msg);
         jsonp_destroy();
         return;
     }
-    
+
     JsonParseError err = {};
-    
+
     JsonValue *jval = jsonp_parse(json_text, &err, &arena);
     if (!jval) {
         // handle error
-        printf("parse error: %d\n", err.err_type);
+        jsonp_print_parse_error(&err);
     } else {
         jsonp_print_json_value(jval);
+        putchar('\n');
     }
-    
+
     arena_destroy_arena(&arena);
     jsonp_destroy();
 }
 
 int main(void) {
+    printf("Output:\n");
     simple_parse("1");
-    putchar('\n');
     simple_parse("[\"string\", -2, 3.2, -4e-2, true, false, null ]");
-    putchar('\n');
     simple_parse(
         "{ \"nested array\": [ \"item 1\", \"item 2\", \"item 3\" ], "
                   "\"nested object\": { \"key 1\": \"value 1\", \"key 2\": \"value 2\", \"key 3\": \"value 3\" } }");
-    putchar('\n');
-}
 
+    // bad JSON text
+    printf("\nfailing parses:\n");
+
+    simple_parse("\"unterminated string ");
+    simple_parse("[ \"unterminated array\", 2 ");
+    simple_parse("[ \"trailing comma\", 2,] ");
+}
+```
+Produces the following output:
+```text
+Output:
+1
+[ 'string', -2, 3.2, -0.04, true, false, null ]
+{ 'nested array' : [ 'item 1', 'item 2', 'item 3' ], 'nested object' : { 'key 1' : 'value 1', 'key 2' : 'value 2', 'key 3' : 'value 3' } }
+
+failing parses:
+7:UNTERMINATED_STRING  line:1 col:22 pos:21 start:0 end:21 :  missing closing quote '"' 
+"unterminated string ^^
+6:UNTERMINATED_ARRAY  line:1 col:27 pos:26 start:24 end:26 :  missing closing bracket ']'
+[ "unterminated array", 2 ^^
+26:TRAILING_COMMA_NOT_ALLOWED  line:1 col:23 pos:21 start:21 end:22 :  trailing comma not allowed in array element list
+[ "trailing comma", 2^,^] 
 ```

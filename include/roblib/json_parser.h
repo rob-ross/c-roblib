@@ -24,19 +24,8 @@ ws = *(
         %x0D )  ; Carriage return
 
 
-A JSON value MUST be an object, array, number, or string, or one of the following three literal names:
-   false
-   null
-   true
-
 The literal names MUST be lowercase.  No other literal names are allowed.
    value = false / null / true / object / array / number / string
-
-false = %x66.61.6c.73.65    ; false
-null  = %x6e.75.6c.6c       ; null
-true  = %x74.72.75.65       ; true
-
-
 */
 #pragma once
 
@@ -52,28 +41,28 @@ true  = %x74.72.75.65       ; true
 extern "C" {
 #endif
 
-enum Token {
-    TOK_TRUE,
-    TOK_FALSE,
-    TOK_NULL,
-    TOK_LEFT_BRACKET,
-    TOK_RIGHT_BRACKET,
-    TOK_LEFT_BRACE,
-    TOK_RIGHT_BRACE,
-    TOK_COLON,
-    TOK_COMMA,
-    // We are lexing and parsing at the same time in this parser, so these "tokens" really represent a type of AST node
-    TOK_STRING, // this is actually a value, not a token... but so are true, false, and null. hmmm...???
-    TOK_NUMBER, // also not a token, a value.
+// enum Token {
+//     TOK_TRUE,
+//     TOK_FALSE,
+//     TOK_NULL,
+//     TOK_LEFT_BRACKET,
+//     TOK_RIGHT_BRACKET,
+//     TOK_LEFT_BRACE,
+//     TOK_RIGHT_BRACE,
+//     TOK_COLON,
+//     TOK_COMMA,
+//     // We are lexing and parsing at the same time in this parser, so these "tokens" really represent a type of AST node
+//     TOK_STRING, // this is actually a value, not a token... but so are true, false, and null. hmmm...???
+//     TOK_NUMBER, // also not a token, a value.
+//
+// };
 
-};
-
-typedef struct {
-    const char *pattern_string;
-    regex_t compiled_regex;
-    const char *name; // For easier identification in output
-    enum Token token;
-} RegexPattern;
+// typedef struct {
+//     const char *pattern_string;
+//     regex_t compiled_regex;
+//     const char *name; // For easier identification in output
+//     enum Token token;
+// } RegexPattern;
 
 
 typedef enum json_type{
@@ -82,8 +71,9 @@ typedef enum json_type{
 
     // We need to be able to distinguish ints from floats when we parse and write values.
     JSON_NUMBER,
-    JSON_INT,
-    JSON_FLOAT,
+    JSON_LONG,
+    JSON_DOUBLE,
+    JSON_LONG_DOUBLE,  // for future use. long double == double on my machine :(
 
     JSON_STRING,
     JSON_ARRAY,
@@ -101,6 +91,7 @@ struct json_value_s {
             long   n_long;
             double n_double;
             double n_number;
+            long double n_long_double;
         };
         const char *string;
         struct {
@@ -279,7 +270,6 @@ void jsonp_destroy(void);
  *    vertical tab (’\v’)
  *  These are not included by default as white space characters in this parser.
  *
- *  todo (rob) this currently is limited to ASCII characters. Should we support any Unicode codepoint?
  *
  * @param whitespace_chars the characters that should be treated as white space characters.
  *
