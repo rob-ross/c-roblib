@@ -228,12 +228,90 @@ Error jsonp_init_1(jp_bitset_t config_flags);
 Error jsonp_init_2(jp_bitset_t config_flags, uint32_t max_depth);
 Error jsonp_init_3(jp_bitset_t config_flags, uint32_t max_depth, char const * whitespace_chars);
 
-
-
 // call when done with parsing module, frees up resources acquired in init().
 void jsonp_destroy(void);
 
+// -----------------------------------------------------------------
+//      PARSING
+// -----------------------------------------------------------------
 
+JsonValue *jsonp_parse(const char *json_text, JsonParseError *error, Arena *arena);
+JsonValue *jsonp_parse_using_context(const char *json_text, JsonParseError *error, Arena *arena, JsonContext *context );
+
+
+// version that takes an argument, buffer_size, which is the actual size of the JSON text buffer in bytes.
+// this method can report errors where it parsed successfully but did not use up the entire buffer
+JsonValue *jsonp_parse_ex(const char *json, JsonParseError *error, Arena *arena, uint32_t buffer_size);
+
+
+//// ------------------------------------------------------------
+////
+////    GLOBAL STATE
+////
+//// ------------------------------------------------------------
+
+jp_bitset_t   jsonp_get_config_bitset();
+uint32_t      jsonp_get_max_depth();
+char const *  jsonp_get_defined_whitespace_chars();
+
+
+//// ------------------------------------------------------------
+////
+////    CONTEXT SPECIFIC METHODS
+////
+//// ------------------------------------------------------------
+
+// caller must free(context) when done with it.
+JsonContext *jsonp_copy_global_context();
+// caller must free(context) when done with it.
+JsonContext *jsonp_get_empty_context();
+
+// -----------------------------------------------------------------
+//      CONFIG FLAGS
+// -----------------------------------------------------------------
+
+/**
+ *  Sets the JsonConfigFlag flags in a jp_bitset_t and returns them to the caller.
+ *  The value returned from this function can be used as
+ *  the json_init() method's `config_flags` argument.
+ *  Example:
+ *     uint64_t my_custom_flags =
+ *      jsonp_make_config_flag_bitset( 3, (JsonConfigFlag[3]) {
+ *          JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_ARRAYS,
+ *          JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_OBJECTS,
+ *          JSON_CONFIG_ALLOW_UNICODE_U_ESCAPE
+ *     });
+ *     Error err = jsonp_init_1(my_custom_flags);
+ *     ...
+ *
+ */
+jp_bitset_t jsonp_make_config_flag_bitset( uint32_t flag_count, JsonConfigFlag const flags[]);
+
+
+jp_bitset_t  jsonp_get_context_config_bitset( JsonContext *context );
+void jsonp_set_context_config_bitset( JsonContext *context, jp_bitset_t bitset);
+
+bool jsonp_is_context_config_flag_set( const JsonContext *context, JsonConfigFlag flag);
+void jsonp_set_context_config_flag( JsonContext *context, JsonConfigFlag flag);
+void jsonp_clear_context_config_flag( JsonContext *context, JsonConfigFlag flag);
+
+// -----------------------------------------------------------------
+//      MAX DEPTH
+// -----------------------------------------------------------------
+
+/**
+ *  Sets the maximum nesting depth allowed in the JSON text. If depth is exceeded, the JSON text is
+ *  rejected as invalid.
+ *  The default is specified in DEPTH_MAX_DEFAULT
+ *  @param max_depth the maximum allowed nesting depth of the JSON text structure.
+ */
+void jsonp_set_context_max_depth(JsonContext *context, uint32_t max_depth);
+
+// -----------------------------------------------------------------
+//      WHITESPACE
+// -----------------------------------------------------------------
+
+const char  * jsonp_get_context_whitespace_chars( JsonContext *context);
 
 /**
  * Specifies what the parser considers as white space. Replaces the existing definition.
@@ -249,18 +327,16 @@ void jsonp_destroy(void);
  *    vertical tab (’\v’)
  *  These are not included by default as white space characters in this parser.
  *
+ *  Only supports max 16 chars. Chars after the 16th are ignored.
  *
+ *
+ * @param context
  * @param whitespace_chars the characters that should be treated as white space characters.
  *
  */
-void jsonp_define_whitespace_chars( const char  *whitespace_chars );
+void jsonp_set_context_whitespace_chars( JsonContext *context, const char  *whitespace_chars );
 
-/* Main parsing functions */
-JsonValue *jsonp_parse(const char *json_text, JsonParseError *error, Arena *arena);
 
-// version that takes an argument, buffer_size, which is the actual size of the JSON text buffer in bytes.
-// this method can report errors where it parsed successfully but did not use up the entire buffer
-JsonValue *jsonp_parse_ex(const char *json, JsonParseError *error, Arena *arena, uint32_t buffer_size);
 
 // Searches the entries in the JSON object `json_obj` and returns the entry whose key matches the argument `key`.
 // Returns nullptr if there is no entry with this key.
@@ -269,37 +345,6 @@ JsonObjectEntry * jsonp_entry_for_key(const JsonValue *json_obj, char const * ke
 // print a string representation of the JSON graph to the console
 void jsonp_print_json_value(JsonValue *value);
 
-/**
- *  Sets the JsonConfigFlag flags in a uint6t_t and returns it them to the caller.
- *  The value returned from this function can be used as
- *  the json_init() method's `config_flags` argument.
- *  Example:
- *     uint64_t my_custom_flags =
- *      jsonp_make_config_bitset( 3, (JsonConfigFlag[3]) {
- *          JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_ARRAYS,
- *          JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_OBJECTS,
- *          JSON_CONFIG_ALLOW_UNICODE_U_ESCAPE
- *     });
- *     Error err = jsonp_init_1(my_custom_flags);
- *     ...
- *
- */
-jp_bitset_t jsonp_make_config_bitset( uint32_t flag_count, JsonConfigFlag const *flag);
-
-bool jsonp_is_flag_set(JsonConfigFlag flag);
-
-void jsonp_set_config_flag(JsonConfigFlag flag);
-
-
-void jsonp_clear_config_flag(JsonConfigFlag flag);
-
-/**
- *  Sets the maximum nesting depth allowed in the JSON text. If depth is exceeded, the JSON text is
- *  rejected as invalid.
- *  The default is specified in DEPTH_MAX_DEFAULT
- *  @param depth the maximum allowed nesting depth of the JSON text structure.
- */
-void jsonp_set_max_nesting_depth( uint32_t depth );
 
 /**
  * Returns the string name of the JsonParseErrType constant.

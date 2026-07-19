@@ -73,6 +73,7 @@ typedef struct json_context_s {
 // -----------------------------------------------------------------
 static JsonValue * pvt_parse_value(JsonContext *context, JsonParseError *error, Arena *arena );
 static JsonValue * pvt_parse_string(JsonContext *context, JsonParseError *error, Arena *arena );
+static void pvt_init_context_whitespace_table(JsonContext *context);
 
 
 
@@ -84,27 +85,20 @@ static JsonValue * pvt_parse_string(JsonContext *context, JsonParseError *error,
 // to initialize a context in another thread is thread-safe and visible.
 static _Atomic(jp_bitset_t) json_config_flags = 0;
 
-bool jsonp_is_flag_set(JsonConfigFlag flag) {
-    return atomic_load(&json_config_flags) & ( 1 << flag) ;
-}
 
-static bool pvt_is_flag_set_lock_free(const JsonContext *context, const JsonConfigFlag flag) {
+bool jsonp_is_context_config_flag_set(const JsonContext *context, const JsonConfigFlag flag) {
     return context->config_flags & ( 1 << flag) ;
 }
 
-void jsonp_set_config_flag(JsonConfigFlag flag) {
-    jp_bitset_t old = atomic_load(&json_config_flags);
-    while (!atomic_compare_exchange_weak(&json_config_flags, &old, old | (1 << flag)));
+void jsonp_set_context_config_flag( JsonContext *context, JsonConfigFlag flag) {
+    context->config_flags |= (1 << flag);
 }
 
-
-
-void jsonp_clear_config_flag(JsonConfigFlag flag) {
-    jp_bitset_t old = atomic_load(&json_config_flags);
-    while (!atomic_compare_exchange_weak(&json_config_flags, &old, old & ~(1 << flag)));
+void jsonp_clear_context_config_flag( JsonContext *context, JsonConfigFlag flag) {
+    context->config_flags &= ~(1 << flag);
 }
 
-jp_bitset_t jsonp_make_config_bitset(const uint32_t flag_count, JsonConfigFlag const *flag) {
+jp_bitset_t jsonp_make_config_flag_bitset(const uint32_t flag_count, JsonConfigFlag const *flag) {
     jp_bitset_t set_flags = 0;
     for (uint32_t i = 0; i < flag_count; ++i) {
         set_flags |= ( 1 << flag[i]);
@@ -127,22 +121,10 @@ static locale_t c_locale_obj;
 static _locale_t c_locale_obj;
 #endif
 
-void jsonp_define_whitespace_chars( const char *whitespace_chars ) {
+void jsonp_set_context_whitespace_chars( JsonContext *context, const char  *whitespace_chars ) {
     if (!whitespace_chars) return;
-
-    // ReSharper disable once CppDFAMemoryLeak
-    char *new_ws = (char *)malloc(strlen(whitespace_chars) + 1);
-    if (new_ws) {
-        strcpy(new_ws, whitespace_chars);
-
-        // Swap the new pointer into the atomic global.
-        // We cast to (void*) to free the old pointer since free doesn't care about const.
-        const char *old_ws = atomic_exchange(&pvt_whitespace_chars, (const char *)new_ws);
-
-        if (old_ws) {
-            free((void *)old_ws);
-        }
-    }
+    snprintf(context->whitespace_chars, sizeof(context->whitespace_chars), "%s", whitespace_chars);
+    pvt_init_context_whitespace_table(context);
 }
 
 static inline bool pvt_is_json_whitespace(JsonContext *context, const unsigned char c) {
@@ -168,10 +150,9 @@ static void pvt_skip_whitespace(JsonContext *context) {
 
 static _Atomic(uint32_t) pvt_depth_max = JSON_DEPTH_MAX_DEFAULT;
 
-void jsonp_set_max_nesting_depth( const uint32_t depth) {
-    atomic_store(&pvt_depth_max, depth);
+void jsonp_set_context_max_depth(JsonContext *context, uint32_t max_depth){
+    context->depth_max = max_depth;
 }
-
 
 // advance the parser state based on the current parse window
 static void pvt_advance(JsonContext *context, const uint32_t char_count) {
@@ -379,8 +360,8 @@ static JsonValue * pvt_parse_object(JsonContext *context, JsonParseError *error,
         pvt_skip_whitespace(context);
 
         if (*context->current_ptr == '}') {
-            // we have a comma without another entry
-            if (pvt_is_flag_set_lock_free(context, JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_OBJECTS)) {
+            // we had a comma without another entry
+            if (jsonp_is_context_config_flag_set(context, JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_OBJECTS)) {
                 // this allowed
                 break;
             }
@@ -495,7 +476,7 @@ static JsonValue * pvt_parse_array(JsonContext *context, JsonParseError *error, 
 
         if (*context->current_ptr == ']') {
             // we have a comma without another value
-            if (pvt_is_flag_set_lock_free(context, JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_ARRAYS)) {
+            if (jsonp_is_context_config_flag_set(context, JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_ARRAYS)) {
                 // this allowed
                 break;
             }
@@ -1062,7 +1043,7 @@ static bool pvt_validate_utf8(JsonContext *context, JsonParseError *error,  Stri
 // assumes *context->current_ptr == 'u' or 'U' and the previous character was a backslash '\'
 static StringBuilder * pvt_parse_unicode_escape( JsonContext *context, JsonParseError *error, Arena *arena, StringBuilder *sb_out ) {
     if (*context->current_ptr == 'U') {
-        if ( !pvt_is_flag_set_lock_free(context, JSON_CONFIG_ALLOW_UNICODE_U_ESCAPE)) {
+        if ( !jsonp_is_context_config_flag_set(context, JSON_CONFIG_ALLOW_UNICODE_U_ESCAPE)) {
             // got a \U (uppercase U) Unicode escape but flag is not enabled
             context->parse_end = context->current_index;
             pvt_record_error(context, error, JSON_ERR_INVALID_ESCAPE_SEQUENCE,
@@ -1351,7 +1332,7 @@ static JsonValue * pvt_parse_number(JsonContext *context, JsonParseError *error,
         long val = strtol(num_start_pointer, &str_end, 10);
         assert(str_end == context->current_ptr) ;
         if (errno || str_end != context->current_ptr) {
-            printf("Error calling strtol: errno:%d, *str_end:%p, cur_ptr:%p\n", errno, str_end, context->current_ptr);
+            // printf("Error calling strtol: errno:%d, *str_end:%p, cur_ptr:%p\n", errno, str_end, context->current_ptr);
         }
         if (errno == ERANGE) {
             // Promotion: If too big for long, use double to preserve magnitude (even if it becomes Infinity)
@@ -1439,7 +1420,7 @@ static JsonValue * pvt_parse_number(JsonContext *context, JsonParseError *error,
     // Note: If strtod overflows, u.n_double will be +/- Infinity (HUGE_VAL).
 
     if (errno || str_end != context->current_ptr) {
-        printf("Error calling strtod_l: errno:%d, *str_end:%p, cur_ptr:%p\n", errno, str_end, context->current_ptr);
+        // printf("Error calling strtod_l: errno:%d, *str_end:%p, cur_ptr:%p\n", errno, str_end, context->current_ptr);
     }
     return value;
 }
@@ -1662,7 +1643,7 @@ static bool pvt_is_rejected_due_to_bom(JsonContext *context, const char *json_te
 
     // utf8 BOM behavior controlled by flag JSON_CONFIG_FAIL_ON_INITIAL_BOM
     if (pvt_starts_with_bom(json_text, 3, BOM_UTF8)  ) {
-        if (pvt_is_flag_set_lock_free(context, JSON_CONFIG_FAIL_ON_INITIAL_BOM)) {
+        if (jsonp_is_context_config_flag_set(context, JSON_CONFIG_FAIL_ON_INITIAL_BOM)) {
             pvt_advance(context, 3);
             context->parse_end = context->current_index;
             pvt_record_error(context, error, JSON_ERR_BOM_NOT_ALLOWED,
@@ -1716,36 +1697,73 @@ static JsonValue * pvt_jsonp_parse_impl(JsonContext *context, const char *json_t
     return value;
 }
 
-static void pvt_init_context_ws_table(JsonContext *context) {
-    const char *ws = atomic_load(&pvt_whitespace_chars);
+static void pvt_init_context_whitespace_table(JsonContext *context) {
+    const char *ws = context->whitespace_chars;
+    // create lookup table for O(1) lookups for pvt_is_json_whitespace()
     memset(context->ws_table, 0, sizeof(context->ws_table));
     while (*ws) {
         context->ws_table[(unsigned char)*ws++] = true;
     }
 }
 
+JsonContext *jsonp_new_empty_context() {
+    JsonContext *context = (JsonContext *)calloc(1, sizeof(JsonContext));
+    return context;
+}
+
+void pvt_write_global_state(JsonContext *context) {
+    context->config_flags = atomic_load(&json_config_flags);
+    context->depth_max    = atomic_load(&pvt_depth_max);
+    const char *ws        = atomic_load(&pvt_whitespace_chars);
+    snprintf(context->whitespace_chars, sizeof(context->whitespace_chars), "%s", ws);
+    pvt_init_context_whitespace_table(context);
+}
+
+// caller must free(context) when done with it.
+JsonContext *jsonp_copy_global_context() {
+    JsonContext *context  = (JsonContext *)calloc(1, sizeof(JsonContext));
+    pvt_write_global_state(context);
+    return context;
+}
+
+
+// reset to initial states all state-related members of the context.
+// Does not affect depth_max, config_flags, whitespace_chars, or ws_table.
+static void pvt_reset_context(JsonContext *context) {
+    context->current_ptr    = nullptr;
+    context->json_text      = nullptr;
+    context->current_index  = 0;
+    context->line           = 0;
+    context->column         = 0;
+    context->parse_start    = 0;
+    context->parse_end      = 0;
+    context->depth_current  = 0;
+    memset(context->error_msg, '\0', ERROR_MSG_BUFFER_SIZE + 1 );
+}
+
+JsonValue *jsonp_parse_using_context(const char *json_text, JsonParseError *error, Arena *arena, JsonContext *context ) {
+    pvt_reset_context(context);
+    context->current_ptr = json_text;
+    context->json_text = json_text;
+    return pvt_jsonp_parse_impl(context, json_text, error, arena);
+}
+
 JsonValue *jsonp_parse(const char *json_text, JsonParseError *error, Arena *arena) {
+    JsonContext context = {};
+    pvt_write_global_state(&context);
+    context.current_ptr = json_text;
+    context.json_text = json_text;
 
-
-    JsonContext context = {
-        .current_ptr = json_text,
-        .json_text = json_text,
-        .config_flags = atomic_load(&json_config_flags),
-        .depth_max = atomic_load(&pvt_depth_max)
-    };
-    pvt_init_context_ws_table(&context);
     JsonValue *value = pvt_jsonp_parse_impl(&context, json_text, error, arena);
     return value;
 }
 
 JsonValue *jsonp_parse_ex(const char *json_text, JsonParseError *error, Arena *arena, const uint32_t buffer_size) {
-    JsonContext context = {
-        .current_ptr = json_text,
-        .json_text = json_text,
-        .config_flags = atomic_load(&json_config_flags),
-        .depth_max = atomic_load(&pvt_depth_max)
-    };
-    pvt_init_context_ws_table(&context);
+    JsonContext context = {};
+    pvt_write_global_state(&context);
+    context.current_ptr = json_text;
+    context.json_text = json_text;
+
     JsonValue *value = pvt_jsonp_parse_impl(&context, json_text, error, arena);
     if (!value) return nullptr;
 
@@ -2169,7 +2187,7 @@ void simple_parse(char const *json_text) {
 
 void test_custom_flags(void) {
     jp_bitset_t my_custom_flags =
-        jsonp_make_config_bitset( 3, (JsonConfigFlag[3]) {
+        jsonp_make_config_flag_bitset( 3, (JsonConfigFlag[3]) {
             JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_ARRAYS,
             JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_OBJECTS,
             JSON_CONFIG_ALLOW_UNICODE_U_ESCAPE

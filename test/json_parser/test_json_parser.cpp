@@ -83,14 +83,17 @@ TEST_F(JsonParserTest, TestArrayTrailingCommas) {
     EXPECT_EQ(jval, nullptr) << "expected nullptr";
     EXPECT_EQ(err.err_type, JSON_ERR_TRAILING_COMMA_NOT_ALLOWED);
 
-    bool flag_was_set = jsonp_is_flag_set(JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_ARRAYS);
-    jsonp_set_config_flag(JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_ARRAYS);
-    jval = jsonp_parse(test_fixture, &err, arena);
+    JsonContext *context = jsonp_copy_global_context();
+
+    bool flag_was_set = jsonp_is_context_config_flag_set(context, JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_ARRAYS);
+    jsonp_set_context_config_flag(context, JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_ARRAYS);
+    jval = jsonp_parse_using_context(test_fixture, &err, arena, context);
     EXPECT_NE(jval, nullptr) << "expected successful parse for: " << test_fixture;
     EXPECT_EQ(err.err_type, 0) << "expected no error for: " << test_fixture;
 
     //restore flag
-    if (!flag_was_set)  jsonp_clear_config_flag(JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_ARRAYS);
+    if (!flag_was_set)  jsonp_clear_context_config_flag(context, JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_ARRAYS);
+    free(context);
 }
 
 TEST_F(JsonParserTest, TestObjectTrailingCommas) {
@@ -99,15 +102,19 @@ TEST_F(JsonParserTest, TestObjectTrailingCommas) {
     EXPECT_EQ(jval, nullptr) << "expected nullptr";
     EXPECT_EQ(err.err_type, JSON_ERR_TRAILING_COMMA_NOT_ALLOWED);
 
+    JsonContext *context = jsonp_copy_global_context();
 
-    bool flag_was_set = jsonp_is_flag_set(JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_OBJECTS);
-    jsonp_set_config_flag(JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_OBJECTS);
-    jval = jsonp_parse(test_fixture, &err, arena);
+    bool flag_was_set = jsonp_is_context_config_flag_set(context, JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_OBJECTS);
+    jsonp_set_context_config_flag(context, JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_OBJECTS);
+    jval = jsonp_parse_using_context(test_fixture, &err, arena, context);
     EXPECT_NE(jval, nullptr) << "expected successful parse for: " << test_fixture;
     EXPECT_EQ(err.err_type, JSON_ERR_NONE) << "expected no error for: " << test_fixture;
+    if (err.err_type) jsonp_print_parse_error(&err);
 
     //restore flag
-    if (!flag_was_set)  jsonp_clear_config_flag(JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_OBJECTS);
+    if (!flag_was_set)  jsonp_clear_context_config_flag(context, JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_OBJECTS);
+
+    free(context);
 }
 
 TEST_F(JsonParserTest, n_multidigit_number_then_00_json) {
@@ -129,18 +136,20 @@ TEST_F(JsonParserTest, n_structure_whitespace_formfeed_json) {
     EXPECT_EQ(err.err_type, JSON_ERR_MISSING_ARRAY_ELEMENT);
     EXPECT_EQ(err.parse_end, 1);
 
-    // todo (rob) this exposes an issue with this API call. In a multi-threaded environment, the next call to
-    // jsonp_parse will pick up the new whitespace definition. Perhaps we provide a global definition only at
-    // init time in jsonp_int and this cannot change. But then we allow per-context customization.
-    // so we'd need a create_context type method the user can use to set flags and options before calling
-    // jsonp_parse_with_context....
-    jsonp_define_whitespace_chars(" \t\n\r\f");  // add formfeed
+    JsonContext *context = jsonp_copy_global_context();
 
-    jval = jsonp_parse(test_fixture, &err, arena);
+    jsonp_set_context_whitespace_chars(context, " \t\n\r\f");  // add form-feed
+
+    jval = jsonp_parse_using_context(test_fixture, &err, arena, context);
     EXPECT_NE(jval, nullptr) << "expected successful parse for: '" << test_fixture \
         << "' after adding form-feed as white space character, but parsing failed. err_type = " << err.err_type;
+    if (!jval) {
+        jsonp_print_parse_error(&err);
+    }
 
-    jsonp_define_whitespace_chars(JSON_WHITESPACE_CHARS_DEFAULT);  // restore original
+    jsonp_set_context_whitespace_chars(context, JSON_WHITESPACE_CHARS_DEFAULT);  // restore original
+
+    free(context);
 }
 
 
