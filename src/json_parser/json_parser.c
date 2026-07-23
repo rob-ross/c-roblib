@@ -52,9 +52,32 @@ static char const * const BOM_UTF32_BE = "\x00\x00\xFE\xFF";
 static char const * const BOM_UTF32_LE = "\xFF\xFE\x00\x00";
 
 
+
+
+// -----------------------------------------------------------------
+//      READER FUNCTIONS
+// -----------------------------------------------------------------
+
+typedef size_t (*read_fn)( void *context, unsigned char *buffer, size_t max_bytes);
+typedef int (*next_char_fn)(void *context);
+typedef int (*current_char_fn)(void *context);
+typedef int (*peek_next_char_fn)(void *context);
+typedef int (*peek_lookahead_chars_fn)( void *context, uint32_t lookahead);
+
+
+typedef struct {
+    void                    *context;
+    read_fn                 read;
+    next_char_fn            next_char;
+    current_char_fn         current_char;
+    peek_next_char_fn       peek_next_char;
+    peek_lookahead_chars_fn peek_lookahead_chars;
+} Input;
+
 typedef struct json_context_s {
     const char     *current_ptr;   // The current text being parsed, advances through the JSON text in the json member
     const char     *json_text;     // full original JSON text string
+    Input          *input;
     uint32_t       current_index; // the index of the character the lexer is scanning
     uint32_t       line;
     uint32_t       column;
@@ -69,25 +92,122 @@ typedef struct json_context_s {
     char           error_msg[ERROR_MSG_BUFFER_SIZE + 1];
 } JsonContext;
 
-// -----------------------------------------------------------------
-//      READER FUNCTIONS
-// -----------------------------------------------------------------
-
-typedef size_t (*read_fn)(
-    void *context,
-    unsigned char *buffer,
-    size_t max_bytes);
 
 typedef struct
 {
-    read_fn read;
-    void *context;
-} Input;
+    int socket_fd;
+} SocketSource;
 
-size_t file_read(...);
+
+
 size_t socket_read(...);
-size_t memory_read(...);
 size_t http_read(...);
+
+// -----------------------------------------------------------------
+//      File
+// -----------------------------------------------------------------
+
+size_t file_read( void *context, unsigned char *buffer, size_t max_bytes )
+{
+    FILE *fp = (FILE*)context;
+
+    return fread(buffer, 1, max_bytes, fp);
+}
+
+int file_next_char(void *context)
+{
+    return fgetc((FILE *)context);
+}
+
+static void pvt_jsonp_parse_json_file() {
+    FILE *fp = fopen("example.json", "rb");
+
+    if (!fp) {
+        // handle error
+        return;
+    }
+
+    Input input = {
+        .read = file_read,
+        .context = fp
+    };
+
+    // jsonp_parse_json_impl(&input);
+    int close_err = fclose(fp);
+}
+
+// -----------------------------------------------------------------
+//      String
+// -----------------------------------------------------------------
+
+typedef struct {
+    const char *json_text;
+    size_t length;
+    size_t position;
+} StringSource;
+
+size_t string_read( void *context, unsigned char *buffer, size_t max_bytes)
+{
+    StringSource *src = context;
+
+    size_t remaining = src->length - src->position;
+
+    if (remaining == 0)
+        return 0;
+
+    if (remaining > max_bytes)
+        remaining = max_bytes;
+
+    memcpy(buffer,
+           src->json_text + src->position,
+           remaining);
+
+    src->position += remaining;
+
+    return remaining;
+}
+
+int string_next_char(void *context)
+{
+    StringSource *s = context;
+
+    if (s->position == s->length)
+        return EOF;
+
+    return s->json_text[s->position++];
+}
+
+int string_current_char(void *context) {
+    StringSource *s = context;
+
+    if (s->position == s->length)
+        return EOF;
+
+    return s->json_text[s->position];
+}
+
+int string_peek_next_char(void *context) {
+    StringSource *s = context;
+
+    if (s->position + 1 >= s->length)
+        return EOF;
+
+    return s->json_text[s->position + 1];
+}
+
+// we only intend to support max lookahead of 2
+int string_peek_lookahead_chars(void *context, uint32_t lookahead ) {
+    StringSource *s = context;
+
+    if (s->position + lookahead >= s->length)
+        return EOF;
+
+    return s->json_text[s->position + lookahead];
+}
+
+
+
+
 
 
 
@@ -101,8 +221,26 @@ static void pvt_init_context_whitespace_table(JsonContext *context);
 static char pvt_peek_char(JsonContext const *context);
 static bool pvt_starts_with_bom(const char json_text[static 1], const uint32_t n_bytes, char const bom_bytes[static n_bytes]);
 static bool pvt_is_rejected_due_to_bom(JsonContext *context, const char *json_text, JsonParseError *error);
+JsonValue *jsonp_parse_input(Input *input, JsonParseError *error, Arena *arena);
+JsonValue *jsonp_parse_string_impl( Input *input, JsonParseError *error, Arena *arena);
 
 
+
+JsonValue * jsonp_parse_json_string(const char *json_text, JsonParseError *error, Arena *arena) {
+
+    StringSource ss = { .json_text = json_text, .length = strlen(json_text), .position = 0};
+    Input input = {
+        .context = (void*)&ss,
+        .read =  string_read,
+        .next_char = string_next_char,
+        .current_char = string_current_char,
+        .peek_next_char = string_peek_next_char,
+        .peek_lookahead_chars = string_peek_lookahead_chars
+    };
+
+    return jsonp_parse_string_impl(&input, error, arena);
+
+}
 
 
 // -----------------------------------------------------------------
@@ -1514,8 +1652,6 @@ static JsonValue *  pvt_parse_literal_impl(  JsonContext *context,
         keyword_ptr++;
     }
 
-
-
     context->parse_end = current_index;
 
     if ( err_type == JSON_ERR_NONE && *keyword_ptr != '\0') {
@@ -1524,6 +1660,7 @@ static JsonValue *  pvt_parse_literal_impl(  JsonContext *context,
         snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "unexpected EOF, expected '%s'", key_word);
     }
     if (err_type != JSON_ERR_NONE) {
+        context->parse_end = context->current_index;
         pvt_record_error(context, error, err_type, error->message);
         return nullptr;
     }
@@ -1817,6 +1954,20 @@ JsonValue *jsonp_parse(const char *json_text, JsonParseError *error, Arena *aren
     JsonValue *value = pvt_jsonp_parse_impl(&context, json_text, error, arena);
     return value;
 }
+
+JsonValue *jsonp_parse_string_impl( Input *input, JsonParseError *error, Arena *arena) {
+    JsonContext context = {};
+    pvt_write_global_state(&context);
+    context.input = input;
+
+    // todo temp
+    context.json_text = ((StringSource*)input->context)->json_text;
+    context.current_ptr = ((StringSource*)input->context)->json_text;
+
+    JsonValue *value = pvt_jsonp_parse_impl(&context,  context.json_text, error, arena);
+    return value;
+}
+
 
 JsonValue *jsonp_parse_ex(const char *json_text, JsonParseError *error, Arena *arena, const uint32_t buffer_size) {
     JsonContext context = {};
@@ -2561,10 +2712,10 @@ int main( ) {
     // printf("\\u0800: \u0800\n");
     // printf("\\U+0001f600: \U0001f600\n");
 
-    // test_null_parse();
-    // test_true_parse();
-    // test_false_parse();
-    test_number_parse();
+    test_null_parse();
+    test_true_parse();
+    test_false_parse();
+    // test_number_parse();
     // test_array_parse();
     // test_parse_objects();
     // test_parse_unicode_escapes();
