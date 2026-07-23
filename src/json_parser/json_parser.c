@@ -69,6 +69,29 @@ typedef struct json_context_s {
 } JsonContext;
 
 // -----------------------------------------------------------------
+//      READER FUNCTIONS
+// -----------------------------------------------------------------
+
+typedef size_t (*read_fn)(
+    void *context,
+    unsigned char *buffer,
+    size_t max_bytes);
+
+typedef struct
+{
+    read_fn read;
+    void *context;
+} Input;
+
+size_t file_read(...);
+size_t socket_read(...);
+size_t memory_read(...);
+size_t http_read(...);
+
+
+
+
+// -----------------------------------------------------------------
 //      Forward Declarations
 // -----------------------------------------------------------------
 static JsonValue * pvt_parse_value(JsonContext *context, JsonParseError *error, Arena *arena );
@@ -1565,6 +1588,12 @@ static JsonValue *pvt_parse_value(JsonContext *context, JsonParseError *error, A
     pvt_skip_whitespace(context);
     context->parse_start = context->current_index;
     JsonValue *value = nullptr;
+
+    /**
+    *while ((n = input->read(ctx, buf, sizeof(buf))) > 0)
+    parser_feed(parser, buf, n);
+     */
+
     switch (*context->current_ptr) {
         case '{': /* Handle object */
             value = pvt_parse_object(context, error, arena);
