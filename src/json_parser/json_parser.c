@@ -30,7 +30,7 @@
  *  2. file writer to save JSON to disk
  *  3. file parser, to parse a json file document instead of a string
  *  4. implement current config flags behaviors in code
- *  5. remove ability to set global flags after init
+
  *  6. add ability to set flags on context
  *  7. add ability to change depth on context
  *  8. add ability to change whitespace on context
@@ -1726,6 +1726,20 @@ JsonContext *jsonp_copy_global_context() {
     return context;
 }
 
+/**
+ *  Allocate a new empty JsonContext for use in `jsonp_parse_using_context`.
+ *  Caller must free(context) when done with it.
+ * @return A newly allocated, zero-initialized JsonContext.
+ *  See:
+ *  `jsonp_set_context_config_bitset`, `jsonp_set_context_config_flag`, `jsonp_set_context_max_depth`,
+ *  and `jsonp_set_context_whitespace_chars` to configure this context before use.
+ */
+JsonContext *jsonp_empty_context(void) {
+    JsonContext *context  = (JsonContext *)calloc(1, sizeof(JsonContext));
+    context->whitespace_chars[0] = '\0'; // empty string
+    return context;
+}
+
 
 // reset to initial states all state-related members of the context.
 // Does not affect depth_max, config_flags, whitespace_chars, or ws_table.
@@ -1850,17 +1864,6 @@ Error jsonp_init() {
     return jsonp_init_3(JSON_CONFIG_FLAGS_DEFAULT, JSON_DEPTH_MAX_DEFAULT, JSON_WHITESPACE_CHARS_DEFAULT);
 }
 
-JsonContext jsonp_empty_context(void) {
-    char const *ws = atomic_load(&pvt_whitespace_chars);
-
-    JsonContext c = {
-        .config_flags = atomic_load(&json_config_flags),
-        .depth_max = atomic_load(&pvt_depth_max),
-    };
-    strncpy(c.whitespace_chars, ws, sizeof c.whitespace_chars - 1);
-
-    return c;
-}
 
 // -----------------------------------------------------------------
 //      DESTROY
