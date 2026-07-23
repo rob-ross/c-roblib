@@ -258,7 +258,7 @@ void jsonp_destroy(void);
 
 JsonValue * jsonp_parse(const char *json_text, JsonParseError *error, Arena *arena);
 JsonValue * jsonp_parse_using_context(const char *json_text, JsonParseError *error, Arena *arena, JsonContext *context );
-JsonValue * jsonp_parse_json_string(const char *json_text, JsonParseError *error, Arena *arena) ;
+JsonValue * jsonp_parse_string(const char *json_text, JsonParseError *error, Arena *arena) ;
 
 // version that takes an argument, buffer_size, which is the actual size of the JSON text buffer in bytes.
 // this method can report errors where it parsed successfully but did not use up the entire buffer
