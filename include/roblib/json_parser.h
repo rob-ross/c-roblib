@@ -358,6 +358,13 @@ const char  * jsonp_get_context_whitespace_chars( JsonContext *context);
 void jsonp_set_context_whitespace_chars( JsonContext *context, const char  *whitespace_chars );
 
 
+// -----------------------------------------------------------------
+//      Decimal Seperator Char
+// -----------------------------------------------------------------
+
+char jsonp_get_context_decimal_separator( JsonContext *context );
+
+void jsonp_set_context_decimal_separator( JsonContext *context, char c);
 
 // Searches the entries in the JSON object `json_obj` and returns the entry whose key matches the argument `key`.
 // Returns nullptr if there is no entry with this key.
