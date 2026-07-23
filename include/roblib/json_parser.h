@@ -223,6 +223,27 @@ char const * const    JSON_WHITESPACE_CHARS_DEFAULT = " \t\n\r";
 // -----------------------------------------------------------------
 
 // Must call at application startup to initialize the parser before first use.
+/**
+ *  Notes:
+ *  init() is intended to be called once before the parser is used
+ *  destroy() is intended to be called when done using the parser, before the application terminates.
+ *  However, this isn't mandatory. init() and destory() calls can bracket a call to jsonp_parse(). It's just more
+ *  efficient to only call init() once.
+ *
+ *  init() sets the value of global variables used by all calls to API methods from multiple threads.
+ *  These globals are the bitset config flags, the max depth of nested structures, and the definition of whitespace characters.
+ *  These globals are used to initialize a JsonContext when one is not explicitly provided. They become the default values
+ *  used by every new JsonContext. But these variables can be changed on a per-JsonContext basis. Thus, every JsonContext
+ *  has its own private versions of these variables. Thus, all calls to API methods are thread-safe.
+ *
+ *  Even if multiple threads are running API methods and another thread calls jsonp_destroy(), those methods will run
+ *  to successful completion as they do not rely on any global state. (hmmm, except for running on Windows, which
+ *  requires the c_locale_obj. ...WINDOWS!!! GRRR)
+ *
+ * @return Error if initialization failed
+ *
+ * // todo (rob) macro for jsonp_init() to support default argument values
+ */
 Error jsonp_init();
 Error jsonp_init_1(jp_bitset_t config_flags);
 Error jsonp_init_2(jp_bitset_t config_flags, uint32_t max_depth);
