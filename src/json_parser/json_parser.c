@@ -45,11 +45,11 @@
 //      BOM CONSTANTS
 // -----------------------------------------------------------------
 
-char const * const BOM_UTF8     = "\xEF\xBB\xBF";
-char const * const BOM_UTF16_BE = "\xFE\xFF";
-char const * const BOM_UTF16_LE = "\xFF\xFE";
-char const * const BOM_UTF32_BE = "\x00\x00\xFE\xFF";
-char const * const BOM_UTF32_LE = "\xFF\xFE\x00\x00";
+static char const * const BOM_UTF8     = "\xEF\xBB\xBF";
+static char const * const BOM_UTF16_BE = "\xFE\xFF";
+static char const * const BOM_UTF16_LE = "\xFF\xFE";
+static char const * const BOM_UTF32_BE = "\x00\x00\xFE\xFF";
+static char const * const BOM_UTF32_LE = "\xFF\xFE\x00\x00";
 
 
 typedef struct json_context_s {
@@ -1868,7 +1868,7 @@ JsonContext jsonp_empty_context(void) {
 
 void jsonp_destroy(void) {
     if (atomic_exchange(&is_initialized, false)) {
-        regfree(&REGEX_NUMBER_PATTERN);
+        // regfree(&REGEX_NUMBER_PATTERN);
 #ifndef _WIN32
         freelocale(c_locale_obj);
 #endif
