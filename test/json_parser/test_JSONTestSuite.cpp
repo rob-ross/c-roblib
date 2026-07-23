@@ -120,7 +120,7 @@ TEST_P(JsonTestSuiteParam, parse_json) {
 
     // Pass the explicit size to the parser so it doesn't stop at embedded nulls
     // JsonValue *jval = json_parse_ex(json_text.c_str(), json_text.size(), &err, arena);
-    JsonValue *jval = jsonp_parse(json_text.c_str(), &err, arena);
+    JsonValue *jval = jsonp_parse_string(json_text.c_str(), &err, arena);
     if (params.should_pass) {
         EXPECT_NE(jval, nullptr)
             << "File: " << params.filename
@@ -169,6 +169,7 @@ INSTANTIATE_TEST_SUITE_P(
     ParamNameGenerator
 );
 
+// indeterminate tests that should pass have been moved into the /pass directory
 // INSTANTIATE_TEST_SUITE_P(
 //     Indeterminate_as_Pass,
 //     JsonTestSuiteParam,
@@ -176,6 +177,7 @@ INSTANTIATE_TEST_SUITE_P(
 //     ParamNameGenerator
 // );
 
+// indeterminate tests that should pass have been moved into the /pass directory
 INSTANTIATE_TEST_SUITE_P(
     Indeterminate_as_Fail,
     JsonTestSuiteParam,

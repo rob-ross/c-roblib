@@ -226,8 +226,11 @@ JsonValue *jsonp_parse_string_impl( Input *input, JsonParseError *error, Arena *
 
 
 
-JsonValue * jsonp_parse_json_string(const char *json_text, JsonParseError *error, Arena *arena) {
-
+JsonValue * jsonp_parse_string(const char *json_text, JsonParseError *error, Arena *arena) {
+    if (!json_text) {
+        *error = (JsonParseError){ .json=json_text, .message = "null json text", .err_type = JSON_ERR_NULL_TEXT};
+        return nullptr;
+    }
     StringSource ss = { .json_text = json_text, .length = strlen(json_text), .position = 0};
     Input input = {
         .context = (void*)&ss,
@@ -1618,9 +1621,7 @@ static JsonValue * pvt_parse_number(JsonContext *context, JsonParseError *error,
     if (errno || str_end != context->current_ptr) {
         // printf("Error calling strtod_l: errno:%d, *str_end:%p, cur_ptr:%p\n", errno, str_end, context->current_ptr);
     }
-    if (errno || str_end != context->current_ptr) {
-        // printf("Error calling strtod_l: errno:%d, *str_end:%p, cur_ptr:%p\n", errno, str_end, context->current_ptr);
-    }
+
     return value;
 }
 
@@ -2285,7 +2286,9 @@ void parse_test_str(char const * str) {
     }
     JsonParseError err = {.json = str};
     printf("\nParsing json string '%s': \n", str);
-    JsonValue *jval = jsonp_parse(str, &err, &arena);
+    // JsonValue *jval = jsonp_parse(str, &err, &arena);
+    JsonValue *jval = jsonp_parse_string(str, &err, &arena);
+
     if (!jval) {
         printf("ERROR %d: first_bad_char:%d, line:%d col:%d start:%d end:%d  %s\n",
            err.err_type, err.first_bad_char,  err.line, err.column, err.parse_start, err.parse_end, err.message);
@@ -2319,7 +2322,7 @@ void parse_test_str_custom_init(
     }
     JsonParseError json_err = {};
     printf("\nParsing json string '%s': \n", str);
-    JsonValue *jval = jsonp_parse(str, &json_err, &arena);
+    JsonValue *jval = jsonp_parse_string(str, &json_err, &arena);
     if (!jval) {
         printf("ERROR %d: first_bad_char:%d, line:%d col:%d start:%d end:%d  %s\n",
            json_err.err_type, json_err.first_bad_char,  json_err.line, json_err.column, json_err.parse_start,
@@ -2355,7 +2358,7 @@ void simple_parse(char const *json_text) {
 
     JsonParseError err = {};
 
-    JsonValue *jval = jsonp_parse(json_text, &err, &arena);
+    JsonValue *jval = jsonp_parse_string(json_text, &err, &arena);
     if (!jval) {
         // handle error
         jsonp_print_parse_error(&err);
@@ -2713,9 +2716,9 @@ int main( ) {
     // printf("\\U+0001f600: \U0001f600\n");
 
     test_null_parse();
-    test_true_parse();
-    test_false_parse();
-    // test_number_parse();
+    // test_true_parse();
+    // test_false_parse();
+    test_number_parse();
     // test_array_parse();
     // test_parse_objects();
     // test_parse_unicode_escapes();
@@ -2726,9 +2729,9 @@ int main( ) {
 
     // test_indeterminates();
 
-    // test_custom_flags();
+    test_custom_flags();
 
-    // test_fails_for_reporting();
+    test_fails_for_reporting();
     // test_json_test_suite_fails();
 
 
