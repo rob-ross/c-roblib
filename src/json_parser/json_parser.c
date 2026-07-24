@@ -72,7 +72,7 @@ typedef void (*advance_n_bytes_fn)( void *context, uint32_t num_bytes);
 
 
 typedef struct {
-    void                    *context;
+    void                    *input_context;
     read_fn                 read;
     next_char_fn            next_char;
     current_char_fn         current_char;
@@ -361,19 +361,19 @@ static void pvt_advance(JsonContext *context, const uint32_t char_count) {
     context->current_index  += char_count;
     context->column         += char_count;
 
-    context->input->advance_n_bytes(context->input->context, char_count);
+    context->input->advance_n_bytes(context->input->input_context, char_count);
 }
 
 static char pvt_current_char(JsonContext const *context) {
     Input *input = context->input;
     // return *context->current_ptr;
-    return (char)input->current_char(input->context);
+    return (char)input->current_char(input->input_context);
 }
 
 // todo (rob) temp during refactor, this could error out if buffer is at EOF
 static char pvt_peek_next_char(JsonContext const *context) {
     Input *input = context->input;
-    return (char)input->peek_next_char(input->context);
+    return (char)input->peek_next_char(input->input_context);
     // return context->current_ptr[1];
 }
 
@@ -1799,13 +1799,13 @@ static JsonValue *pvt_parse_value(JsonContext *context, JsonParseError *error, A
 static JsonValue * pvt_jsonp_parse_impl(JsonContext *context, const char *json_text, JsonParseError *error, Arena *arena) {
     Input * input = context->input;
 
-    if (!input->context) {
+    if (!input->input_context) {
         *error = (JsonParseError){ .json="nullptr", .message = "null Input source", .err_type = JSON_ERR_NULL_TEXT};
         return nullptr;
     }
 
 
-    int peek_char = input->current_char(input->context);
+    int peek_char = input->current_char(input->input_context);
     if (peek_char == EOF) {
         *error = (JsonParseError){.json=json_text, .message = "empty json text", .err_type = JSON_ERR_EMPTY_TEXT};
         return nullptr;
@@ -1858,7 +1858,7 @@ static bool pvt_starts_with_bom(JsonContext const *context,
 
     Input *input = context->input;
     for (uint32_t i = 0; i < n_bytes; ++i) {
-        if ( input->peek_lookahead_chars(input->context, i) != (unsigned char)bom_bytes[i]) {
+        if ( input->peek_lookahead_chars(input->input_context, i) != (unsigned char)bom_bytes[i]) {
             return false;
         }
     }
@@ -2006,7 +2006,7 @@ static void pvt_reset_context(JsonContext *context) {
 
 Input pvt_get_string_input_source( StringSourceInputContext *ss) {
     Input input = {
-        .context                = (void*)ss,
+        .input_context                = (void*)ss,
         .read                   = string_read,
         .next_char              = string_next_char,
         .current_char           = string_current_char,
@@ -2024,8 +2024,8 @@ JsonValue *jsonp_parse_string_using_context(const char *json_text, JsonParseErro
     context->input = &input;
 
     // todo temp
-    context->json_text   = ((StringSourceInputContext*)input.context)->json_text;
-    context->current_ptr = ((StringSourceInputContext*)input.context)->json_text;
+    context->json_text   = ((StringSourceInputContext*)input.input_context)->json_text;
+    context->current_ptr = ((StringSourceInputContext*)input.input_context)->json_text;
 
     return pvt_jsonp_parse_impl(context, json_text, error, arena);
 }
@@ -2049,8 +2049,8 @@ JsonValue * jsonp_parse_string(const char *json_text, JsonParseError *error, Are
     context.input = &input;
 
     // todo temp
-    context.json_text = ((StringSourceInputContext*)input.context)->json_text;
-    context.current_ptr = ((StringSourceInputContext*)input.context)->json_text;
+    context.json_text = ((StringSourceInputContext*)input.input_context)->json_text;
+    context.current_ptr = ((StringSourceInputContext*)input.input_context)->json_text;
 
     JsonValue *value = pvt_jsonp_parse_impl(&context,  context.json_text, error, arena);
     return value;
@@ -2068,8 +2068,8 @@ JsonValue *jsonp_parse_string_ex(const char *json_text, JsonParseError *error, A
     context.input = &input;
 
     // todo temp
-    context.json_text = ((StringSourceInputContext*)input.context)->json_text;
-    context.current_ptr = ((StringSourceInputContext*)input.context)->json_text;
+    context.json_text = ((StringSourceInputContext*)input.input_context)->json_text;
+    context.current_ptr = ((StringSourceInputContext*)input.input_context)->json_text;
 
     JsonValue *value = pvt_jsonp_parse_impl(&context, json_text, error, arena);
     if (!value) return nullptr;
@@ -2089,7 +2089,7 @@ JsonValue *jsonp_parse_string_ex(const char *json_text, JsonParseError *error, A
 
 Input pvt_get_file_input_source( FileSourceInputContext *fs) {
     Input input = {
-        .context                = (void*)fs,
+        .input_context                = (void*)fs,
         .read                   = file_read,
         .next_char              = file_next_char,
         .current_char           = file_current_char,
