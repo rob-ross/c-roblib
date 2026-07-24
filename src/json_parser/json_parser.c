@@ -47,12 +47,11 @@
 //      BOM CONSTANTS
 // -----------------------------------------------------------------
 
-static char const * const BOM_UTF8     = "\xEF\xBB\xBF";
-static char const * const BOM_UTF16_BE = "\xFE\xFF";
-static char const * const BOM_UTF16_LE = "\xFF\xFE";
-static char const * const BOM_UTF32_BE = "\x00\x00\xFE\xFF";
-static char const * const BOM_UTF32_LE = "\xFF\xFE\x00\x00";
-
+static constexpr uint8_t BOM_UTF8[]     = { 0xEF, 0xBB, 0xBF };
+static constexpr uint8_t BOM_UTF16_BE[] = { 0xFE, 0xFF };
+static constexpr uint8_t BOM_UTF16_LE[] = { 0xFF, 0xFE };
+static constexpr uint8_t BOM_UTF32_BE[] = { 0x00, 0x00, 0xFE, 0xFF };
+static constexpr uint8_t BOM_UTF32_LE[] = { 0xFF, 0xFE, 0x00, 0x00 };
 
 
 
@@ -229,13 +228,13 @@ long string_read( void *context, unsigned char *buffer, size_t max_bytes) {
 
 int string_current_char(void *context) {
     StringSourceInputContext *src = context;
-    if (src->current_index_byte == src->length_bytes) return EOF;
+    if (src->current_index_byte == src->length_bytes) return (unsigned char)src->json_text[src->length_bytes];
     return (unsigned char)src->json_text[src->current_index_byte];
 }
 
 int string_next_char(void *context) {
     StringSourceInputContext *src = context;
-    if (src->current_index_byte == src->length_bytes) return EOF;
+    if (src->current_index_byte == src->length_bytes) return (unsigned char)src->json_text[src->length_bytes];
     return (unsigned char)src->json_text[src->current_index_byte++];
 }
 
@@ -275,10 +274,10 @@ void string_advance_n_bytes( void *context, uint32_t num_bytes) {
 static JsonValue * pvt_parse_value(JsonContext *context, JsonParseError *error, Arena *arena );
 static JsonValue * pvt_parse_string(JsonContext *context, JsonParseError *error, Arena *arena );
 static void pvt_init_context_whitespace_table(JsonContext *context);
-static char pvt_peek_char(JsonContext const *context);
-static bool pvt_starts_with_bom(const char json_text[static 1], const uint32_t n_bytes, char const bom_bytes[static n_bytes]);
-static bool pvt_is_rejected_due_to_bom(JsonContext *context, const char *json_text, JsonParseError *error);
-static void pvt_advance(JsonContext *context, const uint32_t char_count);
+static char pvt_current_char(JsonContext const *context);
+static bool pvt_starts_with_bom(JsonContext const *context, uint32_t n_bytes, uint8_t const bom_bytes[static n_bytes]);
+static bool pvt_is_rejected_due_to_bom(JsonContext *context, JsonParseError *error);
+static void pvt_advance(JsonContext *context, uint32_t char_count);
 
 
 // -----------------------------------------------------------------
@@ -330,7 +329,7 @@ static inline bool pvt_is_json_whitespace(JsonContext *context, const unsigned c
 
 static void pvt_skip_whitespace(JsonContext *context) {
     char c;
-    while ( c = pvt_peek_char(context), pvt_is_json_whitespace(context, (const unsigned char)c ) ) {
+    while ( c = pvt_current_char(context), pvt_is_json_whitespace(context, (const unsigned char)c ) ) {
 
     // while ( pvt_is_json_whitespace(context, (const unsigned char)pvt_peek_char(context)) ) {
         if ( c == '\n' || c == '\r') {
@@ -363,7 +362,7 @@ static void pvt_advance(JsonContext *context, const uint32_t char_count) {
     context->input->advance_n_bytes(context->input->context, char_count);
 }
 
-static char pvt_peek_char(JsonContext const *context) {
+static char pvt_current_char(JsonContext const *context) {
     Input *input = context->input;
     // return *context->current_ptr;
     return (char)input->current_char(input->context);
@@ -371,7 +370,9 @@ static char pvt_peek_char(JsonContext const *context) {
 
 // todo (rob) temp during refactor, this could error out if buffer is at EOF
 static char pvt_peek_next_char(JsonContext const *context) {
-    return context->current_ptr[1];
+    Input *input = context->input;
+    return (char)input->peek_next_char(input->context);
+    // return context->current_ptr[1];
 }
 
 // Writes to the argument buffer.
@@ -383,6 +384,8 @@ static void pvt_format_error_message_char(
     const unsigned char u_char  = (unsigned char)c;
     if ( u_char == 0x00 ) {
         snprintf(msg_buffer, buffer_size, "NUL");
+    } else if ( u_char == 0xFF) {
+        snprintf(msg_buffer, buffer_size, "EOF");
     } else if ( u_char < 0x20 || u_char > 0x7E) {
         // display non-ascii and control chars as a hex escape.
         snprintf(msg_buffer, buffer_size,
@@ -412,7 +415,7 @@ static void pvt_record_missing_comma_error(JsonContext *context, JsonParseError 
     int written = snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "expected comma, got ");
     if (written > 0) {
         pvt_format_error_message_char(ERROR_MSG_BUFFER_SIZE - written,
-            error->message + written, pvt_peek_char(context) );
+            error->message + written, pvt_current_char(context) );
     }
     context->parse_end = context->current_index;
     pvt_record_error(context, error, JSON_ERR_MISSING_COMMA, error->message);
@@ -471,11 +474,11 @@ static JsonObjectEntry * pvt_parse_one_entry(JsonContext *context, JsonParseErro
     //     pvt_record_error(context, error, JSON_ERR_MISSING_OBJECT_KEY, error->message);
     //     return nullptr;
     // }
-    if (pvt_peek_char(context) != '"') {
+    if (pvt_current_char(context) != '"') {
         int written = snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "expected object key, got ");
         if (written > 0) {
             pvt_format_error_message_char(ERROR_MSG_BUFFER_SIZE - written,
-                error->message + written, pvt_peek_char(context) );
+                error->message + written, pvt_current_char(context) );
         }
 
         context->parse_end = context->current_index;
@@ -491,20 +494,20 @@ static JsonObjectEntry * pvt_parse_one_entry(JsonContext *context, JsonParseErro
     pvt_skip_whitespace(context);
 
     // need to parse a colon ":" here:
-    if (pvt_peek_char(context) != ':' ) {
+    if (pvt_current_char(context) != ':' ) {
         context->parse_end = context->current_index;
         pvt_record_error(context, error, JSON_ERR_MISSING_COLON, "expected name-separator ':'");
         return nullptr;
     }
     pvt_advance(context, 1);  // consume ':'
     pvt_skip_whitespace(context);
-    if (pvt_peek_char(context) == '\0') {
+    if (pvt_current_char(context) == '\0') {
         // snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "unexpected EOF, expected object value");
 
         int written =  snprintf(error->message, ERROR_MSG_BUFFER_SIZE,"expected object value for key '%s', got ", key->u.string);
         if (written > 0) {
             pvt_format_error_message_char(ERROR_MSG_BUFFER_SIZE - written,
-                error->message + written, pvt_peek_char(context) );
+                error->message + written, pvt_current_char(context) );
         }
 
 
@@ -553,7 +556,7 @@ static JsonValue * pvt_parse_object(JsonContext *context, JsonParseError *error,
     pvt_skip_whitespace(context);
 
     //parse first entry, then parse (comma, element)s until '}' or EOF
-    if ( pvt_peek_char(context) && pvt_peek_char(context) != '}') {
+    if ( pvt_current_char(context) && pvt_current_char(context) != '}') {
         JsonObjectEntry *joe = pvt_parse_one_entry(context, error, arena);
         if (!joe) {
             context->depth_current--;
@@ -565,10 +568,10 @@ static JsonValue * pvt_parse_object(JsonContext *context, JsonParseError *error,
     }
 
 
-    while ( pvt_peek_char(context) && pvt_peek_char(context) != '}' ) {
+    while ( pvt_current_char(context) && pvt_current_char(context) != '}' ) {
         pvt_skip_whitespace(context);
         // expect ','
-        if (pvt_peek_char(context) != ',' ) {
+        if (pvt_current_char(context) != ',' ) {
             pvt_record_missing_comma_error(context, error);
             context->depth_current--;
             return nullptr;
@@ -578,7 +581,7 @@ static JsonValue * pvt_parse_object(JsonContext *context, JsonParseError *error,
         pvt_advance(context, 1);  // consume ','
         pvt_skip_whitespace(context);
 
-        if (pvt_peek_char(context) == '}') {
+        if (pvt_current_char(context) == '}') {
             // we had a comma without another entry
             if (jsonp_is_context_config_flag_set(context, JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_OBJECTS)) {
                 // this allowed
@@ -603,7 +606,7 @@ static JsonValue * pvt_parse_object(JsonContext *context, JsonParseError *error,
         pvt_skip_whitespace(context);
     }
 
-    if (pvt_peek_char(context) != '}' ) {
+    if (pvt_current_char(context) != '}' ) {
         context->parse_end = context->current_index;
         pvt_record_error(context, error, JSON_ERR_UNTERMINATED_OBJECT, "missing closing brace '}'");
         context->depth_current--;
@@ -663,7 +666,7 @@ static JsonValue * pvt_parse_array(JsonContext *context, JsonParseError *error, 
     pvt_skip_whitespace(context);
 
     //parse first element, then parse (comma, element)s until ']' or EOF
-    if ( pvt_peek_char(context) && pvt_peek_char(context) != ']') {
+    if ( pvt_current_char(context) && pvt_current_char(context) != ']') {
         JsonValue *value = pvt_parse_value(context, error, arena);
         if (!value) {
             // context->parse_end = context->current_index;
@@ -680,10 +683,10 @@ static JsonValue * pvt_parse_array(JsonContext *context, JsonParseError *error, 
         pvt_skip_whitespace(context);
     }
 
-    while ( pvt_peek_char(context) && pvt_peek_char(context) != ']' ) {
+    while ( pvt_current_char(context) && pvt_current_char(context) != ']' ) {
         pvt_skip_whitespace(context);
         //expect ','
-        if (pvt_peek_char(context) != ',' ) {
+        if (pvt_current_char(context) != ',' ) {
             pvt_record_missing_comma_error(context, error);
             context->depth_current--;
             return nullptr;
@@ -693,7 +696,7 @@ static JsonValue * pvt_parse_array(JsonContext *context, JsonParseError *error, 
         pvt_advance(context, 1);  // consume ','
         pvt_skip_whitespace(context);
 
-        if (pvt_peek_char(context) == ']') {
+        if (pvt_current_char(context) == ']') {
             // we have a comma without another value
             if (jsonp_is_context_config_flag_set(context, JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_ARRAYS)) {
                 // this allowed
@@ -725,7 +728,7 @@ static JsonValue * pvt_parse_array(JsonContext *context, JsonParseError *error, 
     }
     // pvt_skip_whitespace(context);
 
-    if (pvt_peek_char(context) != ']' ) {
+    if (pvt_current_char(context) != ']' ) {
         char const *msg = "missing closing bracket ']'";
         context->parse_end = context->current_index;
         pvt_record_error(context, error, JSON_ERR_UNTERMINATED_ARRAY, msg);
@@ -914,7 +917,7 @@ static StringBuilder * pvt_encode_utf8( JsonContext *context, JsonParseError *er
 static uint32_t pvt_parse_hex_impl(JsonContext *context, JsonParseError *error, const uint32_t num_chars) {
     uint32_t result = 0;
     for (uint32_t i = 0; i < num_chars; i++) {
-        const char next_char = pvt_peek_char(context);
+        const char next_char = pvt_current_char(context);
         if (next_char == '\0') {
             context->parse_end = context->current_index;
             snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
@@ -957,7 +960,7 @@ static bool pvt_validate_utf8_continuation_byte(
     JsonContext *context, JsonParseError *error,
     uint8_t current_byte, uint8_t start_range, uint8_t end_range) {
 
-    uint8_t next_byte = pvt_peek_char(context);
+    uint8_t next_byte = pvt_current_char(context);
 
     if ( !( next_byte >= start_range && next_byte <= end_range )) {
         snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
@@ -972,7 +975,7 @@ static bool pvt_validate_utf8_continuation_byte(
 
 static bool pvt_validate_utf8(JsonContext *context, JsonParseError *error,  StringBuilder *sb) {
     uint8_t stream_bytes[4] = {};
-    uint8_t lead_byte = pvt_peek_char(context);;
+    uint8_t lead_byte = pvt_current_char(context);;
     uint32_t num_bytes = 0;
     stream_bytes[num_bytes++] = lead_byte;
 
@@ -1000,7 +1003,7 @@ static bool pvt_validate_utf8(JsonContext *context, JsonParseError *error,  Stri
         if ( !pvt_validate_utf8_continuation_byte(context, error, lead_byte, 0x80, 0xBF )) {
             return false;
         }
-        current_byte = (uint8_t)pvt_peek_char(context);
+        current_byte = (uint8_t)pvt_current_char(context);
         stream_bytes[num_bytes++] = current_byte;
         pvt_advance(context, 1);
         //happy path
@@ -1020,7 +1023,7 @@ static bool pvt_validate_utf8(JsonContext *context, JsonParseError *error,  Stri
             pvt_advance(context, 1);
             //  expect next byte in 0xA0-BF, then 0x80-BF
             //    If the second byte is 0x80 to 0x9F, overlong sequence
-            current_byte = (uint8_t)pvt_peek_char(context);
+            current_byte = (uint8_t)pvt_current_char(context);
             if ( current_byte >= 0x80 && current_byte <= 0x9F) {
                 snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
             "'0x%.2X' is an invalid UTF-8 continuation byte and an overlong sequence", current_byte);
@@ -1036,7 +1039,7 @@ static bool pvt_validate_utf8(JsonContext *context, JsonParseError *error,  Stri
             if ( !pvt_validate_utf8_continuation_byte(context, error, lead_byte, 0x80, 0xBF )) {
                 return false;
             }
-            current_byte = (uint8_t)pvt_peek_char(context);
+            current_byte = (uint8_t)pvt_current_char(context);
             stream_bytes[num_bytes++] = current_byte;
             pvt_advance(context, 1);
             //happy path
@@ -1051,13 +1054,13 @@ static bool pvt_validate_utf8(JsonContext *context, JsonParseError *error,  Stri
             if ( !pvt_validate_utf8_continuation_byte(context, error, lead_byte, 0x80, 0xBF )) {
                 return false;
             }
-            current_byte = (uint8_t)pvt_peek_char(context);
+            current_byte = (uint8_t)pvt_current_char(context);
             stream_bytes[num_bytes++] = current_byte;
             pvt_advance(context, 1);
             if ( !pvt_validate_utf8_continuation_byte(context, error, lead_byte, 0x80, 0xBF )) {
                 return false;
             }
-            current_byte = (uint8_t)pvt_peek_char(context);
+            current_byte = (uint8_t)pvt_current_char(context);
             stream_bytes[num_bytes++] = current_byte;
             pvt_advance(context, 1);
             //happy path
@@ -1070,7 +1073,7 @@ static bool pvt_validate_utf8(JsonContext *context, JsonParseError *error,  Stri
             pvt_advance(context, 1);
             //expect next byte in 0x80-9F, then x80-BF
             // if second byte in 0xA0 to 0xBF, encoding a surrogate : forbidden
-            current_byte = (uint8_t)pvt_peek_char(context);
+            current_byte = (uint8_t)pvt_current_char(context);
             if ( current_byte >= 0xA0 && current_byte <= 0xAF) {
                 snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
             "'0x%.2X' is an invalid UTF-8 continuation byte and reserved for high surrogates", current_byte);
@@ -1093,7 +1096,7 @@ static bool pvt_validate_utf8(JsonContext *context, JsonParseError *error,  Stri
             if ( !pvt_validate_utf8_continuation_byte(context, error, lead_byte, 0x80, 0xBF )) {
                 return false;
             }
-            current_byte = (uint8_t)pvt_peek_char(context);
+            current_byte = (uint8_t)pvt_current_char(context);
             stream_bytes[num_bytes++] = current_byte;
             pvt_advance(context, 1);
             //happy path
@@ -1108,13 +1111,13 @@ static bool pvt_validate_utf8(JsonContext *context, JsonParseError *error,  Stri
             if ( !pvt_validate_utf8_continuation_byte(context, error, lead_byte, 0x80, 0xBF )) {
                 return false;
             }
-            current_byte = (uint8_t)pvt_peek_char(context);
+            current_byte = (uint8_t)pvt_current_char(context);
             stream_bytes[num_bytes++] = current_byte;
             pvt_advance(context, 1);
             if ( !pvt_validate_utf8_continuation_byte(context, error, lead_byte, 0x80, 0xBF )) {
                 return false;
             }
-            current_byte = (uint8_t)pvt_peek_char(context);
+            current_byte = (uint8_t)pvt_current_char(context);
             stream_bytes[num_bytes++] = current_byte;
             pvt_advance(context, 1);
             //happy path
@@ -1136,7 +1139,7 @@ static bool pvt_validate_utf8(JsonContext *context, JsonParseError *error,  Stri
             pvt_advance(context, 1);
             // expect next byte in 0x90-BF, then next two in x80-BF
             //  If the second byte is 0x80 to 0x8F, overlong sequence.
-            current_byte = (uint8_t)pvt_peek_char(context);
+            current_byte = (uint8_t)pvt_current_char(context);
             if ( current_byte >= 0x80 && current_byte <= 0x8F) {
                 snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
             "'0x%.2X' is an invalid UTF-8 continuation byte and an overlong sequence", current_byte);
@@ -1152,13 +1155,13 @@ static bool pvt_validate_utf8(JsonContext *context, JsonParseError *error,  Stri
             if ( !pvt_validate_utf8_continuation_byte(context, error, lead_byte, 0x80, 0xBF )) {
                 return false;
             }
-            current_byte = (uint8_t)pvt_peek_char(context);
+            current_byte = (uint8_t)pvt_current_char(context);
             stream_bytes[num_bytes++] = current_byte;
             pvt_advance(context, 1);
             if ( !pvt_validate_utf8_continuation_byte(context, error, lead_byte, 0x80, 0xBF )) {
                 return false;
             }
-            current_byte = (uint8_t)pvt_peek_char(context);
+            current_byte = (uint8_t)pvt_current_char(context);
             stream_bytes[num_bytes++] = current_byte;
             pvt_advance(context, 1);
             //happy path
@@ -1176,19 +1179,19 @@ static bool pvt_validate_utf8(JsonContext *context, JsonParseError *error,  Stri
             if ( !pvt_validate_utf8_continuation_byte(context, error, lead_byte, 0x80, 0xBF )) {
                 return false;
             }
-            current_byte = (uint8_t)pvt_peek_char(context);
+            current_byte = (uint8_t)pvt_current_char(context);
             stream_bytes[num_bytes++] = current_byte;
             pvt_advance(context, 1);
             if ( !pvt_validate_utf8_continuation_byte(context, error, lead_byte, 0x80, 0xBF )) {
                 return false;
             }
-            current_byte = (uint8_t)pvt_peek_char(context);
+            current_byte = (uint8_t)pvt_current_char(context);
             stream_bytes[num_bytes++] = current_byte;
             pvt_advance(context, 1);
             if ( !pvt_validate_utf8_continuation_byte(context, error, lead_byte, 0x80, 0xBF )) {
                 return false;
             }
-            current_byte = (uint8_t)pvt_peek_char(context);
+            current_byte = (uint8_t)pvt_current_char(context);
             stream_bytes[num_bytes++] = current_byte;
             pvt_advance(context, 1);
             //happy path
@@ -1204,7 +1207,7 @@ static bool pvt_validate_utf8(JsonContext *context, JsonParseError *error,  Stri
             pvt_advance(context, 1);
             // expect next byte in 0x80-8F, then next two in x80-BF
             //  if second byte > 0x90, this exceeds legal Unicode limit
-            current_byte = (uint8_t)pvt_peek_char(context);
+            current_byte = (uint8_t)pvt_current_char(context);
             if ( current_byte >= 0x90 ) {
                 snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
             "'0x%.2X' is an invalid UTF-8 continuation byte and is out of range", current_byte);
@@ -1221,13 +1224,13 @@ static bool pvt_validate_utf8(JsonContext *context, JsonParseError *error,  Stri
             if ( !pvt_validate_utf8_continuation_byte(context, error, lead_byte, 0x80, 0xBF )) {
                 return false;
             }
-            current_byte = (uint8_t)pvt_peek_char(context);
+            current_byte = (uint8_t)pvt_current_char(context);
             stream_bytes[num_bytes++] = current_byte;
             pvt_advance(context, 1);
             if ( !pvt_validate_utf8_continuation_byte(context, error, lead_byte, 0x80, 0xBF )) {
                 return false;
             }
-            current_byte = (uint8_t)pvt_peek_char(context);
+            current_byte = (uint8_t)pvt_current_char(context);
             stream_bytes[num_bytes++] = current_byte;
             pvt_advance(context, 1);
             //happy path
@@ -1258,7 +1261,7 @@ static bool pvt_validate_utf8(JsonContext *context, JsonParseError *error,  Stri
 
 // assumes pvt_peek_char(context) == 'u' or 'U' and the previous character was a backslash '\'
 static StringBuilder * pvt_parse_unicode_escape( JsonContext *context, JsonParseError *error, Arena *arena, StringBuilder *sb_out ) {
-    if (pvt_peek_char(context) == 'U') {
+    if (pvt_current_char(context) == 'U') {
         if ( !jsonp_is_context_config_flag_set(context, JSON_CONFIG_ALLOW_UNICODE_U_ESCAPE)) {
             // got a \U (uppercase U) Unicode escape but flag is not enabled
             context->parse_end = context->current_index;
@@ -1301,7 +1304,7 @@ static StringBuilder * pvt_parse_unicode_escape( JsonContext *context, JsonParse
         // RFC 8259: To escape an extended character (>U+FFFF), it must be
         // represented as a 12-character sequence encoding the UTF-16 surrogate pair.
         // Non-standard escapes like \UXXXXXXXX are not supported.
-        const char current_char = pvt_peek_char(context);
+        const char current_char = pvt_current_char(context);
 
         // Check for enough remaining characters safely
         if (current_char != '\\' || pvt_peek_next_char(context) != 'u') {
@@ -1355,7 +1358,7 @@ static JsonValue * pvt_parse_string(JsonContext *context, JsonParseError *error,
     // 2. EOF, AKA null terminator, \x00
     JsonValue *value = nullptr;
     pvt_advance(context, 1); // Skip the opening quote
-    unsigned char current_byte = (unsigned char )pvt_peek_char(context);
+    unsigned char current_byte = (unsigned char )pvt_current_char(context);
     while (current_byte) {
         if (current_byte == QUOTE) {
             // happy case. We found the terminating quote
@@ -1378,7 +1381,7 @@ static JsonValue * pvt_parse_string(JsonContext *context, JsonParseError *error,
 
         if (current_byte == REVERSE_SOLIDUS) {
             pvt_advance(context, 1); // Skip the backslash
-            current_byte = (unsigned char )pvt_peek_char(context);
+            current_byte = (unsigned char )pvt_current_char(context);
 
             if (current_byte == '\0') {
                 pvt_record_error(context, error, JSON_ERR_UNEXPECTED_EOF, "Unexpected EOF after backslash");
@@ -1446,7 +1449,7 @@ static JsonValue * pvt_parse_string(JsonContext *context, JsonParseError *error,
             // Here we validate a string of UTF-8 characters
             if (! pvt_validate_utf8(context, error, &sb)) return nullptr;
         }
-        current_byte = (unsigned char)pvt_peek_char(context);
+        current_byte = (unsigned char)pvt_current_char(context);
     }
 
     context->parse_end = context->current_index;
@@ -1472,7 +1475,7 @@ static JsonValue * pvt_parse_number(JsonContext *context, JsonParseError *error,
 
 
     //context->parse_start has the first character in this number string, which we'll need to convert the parsed number
-    char cur_char = pvt_peek_char(context);
+    char cur_char = pvt_current_char(context);
     if (cur_char == '.') {
         snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
     "expected digit '0'-'9' before the decimal point");
@@ -1485,13 +1488,13 @@ static JsonValue * pvt_parse_number(JsonContext *context, JsonParseError *error,
         pvt_add_char_to_buffer(&cb, cur_char);
         pvt_advance(context, 1);  // optional '-' is fine.
         //must be followed by a digit
-        char c = pvt_peek_char(context);
+        char c = pvt_current_char(context);
         if ( !(c >= '0' && c <= '9')) {
             int written =  snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
         "expected digit '0'-'9' after '-', got ");
             if (written > 0) {
                 pvt_format_error_message_char(ERROR_MSG_BUFFER_SIZE - written,
-                    error->message + written, pvt_peek_char(context) );
+                    error->message + written, pvt_current_char(context) );
             }
             context->parse_end = context->current_index;
             pvt_record_error(context, error, JSON_ERR_INVALID_NUMBER_FORMAT, error->message);
@@ -1500,13 +1503,13 @@ static JsonValue * pvt_parse_number(JsonContext *context, JsonParseError *error,
     }
 
     // Number *must* start with 0 exactly once, or a digit 1-9 exactly once, followed by zero or more digits 0-9
-    cur_char = pvt_peek_char(context);
+    cur_char = pvt_current_char(context);
     if ( !( cur_char >= '0' && cur_char <= '9')) {
         int written =  snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
             "numbers must start with a digit '0'-'9', got ");
         if (written > 0) {
             pvt_format_error_message_char(ERROR_MSG_BUFFER_SIZE - written,
-                error->message + written, pvt_peek_char(context) );
+                error->message + written, pvt_current_char(context) );
         }
         context->parse_end = context->current_index;
         pvt_record_error(context, error, JSON_ERR_INVALID_NUMBER_FORMAT, error->message);
@@ -1521,14 +1524,14 @@ static JsonValue * pvt_parse_number(JsonContext *context, JsonParseError *error,
     if (cur_char == '0') {
         pvt_add_char_to_buffer(&cb, cur_char);
         pvt_advance(context, 1);
-        char c = pvt_peek_char(context);
+        char c = pvt_current_char(context);
         // leading zero only valid if next character is a period, e or E
         if ( c >= '0' && c <= '9') {
             int written =  snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
                 "invalid leading zero. expected '.', 'e', or 'E', got ");
             if (written > 0) {
                 pvt_format_error_message_char(ERROR_MSG_BUFFER_SIZE - written,
-                    error->message + written, pvt_peek_char(context) );
+                    error->message + written, pvt_current_char(context) );
             }
             context->parse_end = context->current_index;
             pvt_record_error(context, error, JSON_ERR_INVALID_NUMBER_FORMAT, error->message);
@@ -1544,8 +1547,8 @@ static JsonValue * pvt_parse_number(JsonContext *context, JsonParseError *error,
         }
     } else {
         // cur_char '1'-'9'
-        while ( pvt_peek_char(context) >= '0' && pvt_peek_char(context) <= '9' ) {
-            pvt_add_char_to_buffer(&cb, pvt_peek_char(context));
+        while ( pvt_current_char(context) >= '0' && pvt_current_char(context) <= '9' ) {
+            pvt_add_char_to_buffer(&cb, pvt_current_char(context));
             pvt_advance(context, 1);
         }
     }
@@ -1554,7 +1557,7 @@ static JsonValue * pvt_parse_number(JsonContext *context, JsonParseError *error,
     //          PARSE AS INTEGER
     // -----------------------------------------------------------------
 
-    cur_char = pvt_peek_char(context);
+    cur_char = pvt_current_char(context);
     if ( cur_char != '.' && cur_char != 'e' && cur_char != 'E') {
         // we parsed an integer
         value = arena_alloc(arena, sizeof(JsonValue) );
@@ -1590,12 +1593,12 @@ static JsonValue * pvt_parse_number(JsonContext *context, JsonParseError *error,
         pvt_add_char_to_buffer(&cb, context->decimal_separator);  // use the locale-defined separator
         pvt_advance(context, 1);  // consume optional '.'
         // expect one number
-        char c = pvt_peek_char(context);
+        char c = pvt_current_char(context);
         if ( !(c >= '0' && c <= '9') ) {
             int written =  snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "expected digit '0'-'9' after the decimal point, got ");
             if (written > 0) {
                 pvt_format_error_message_char(ERROR_MSG_BUFFER_SIZE - written,
-                    error->message + written, pvt_peek_char(context) );
+                    error->message + written, pvt_current_char(context) );
             }
             context->parse_end = context->current_index;
             pvt_record_error(context, error, JSON_ERR_INVALID_NUMBER_FORMAT, error->message);
@@ -1605,29 +1608,29 @@ static JsonValue * pvt_parse_number(JsonContext *context, JsonParseError *error,
         pvt_advance(context, 1); // consume first digit
 
         // consume next N digits
-        while ( pvt_peek_char(context) >= '0' && pvt_peek_char(context) <= '9' ) {
-            pvt_add_char_to_buffer(&cb, pvt_peek_char(context));
+        while ( pvt_current_char(context) >= '0' && pvt_current_char(context) <= '9' ) {
+            pvt_add_char_to_buffer(&cb, pvt_current_char(context));
             pvt_advance(context, 1);
         }
     }
 
-    cur_char = pvt_peek_char(context);
+    cur_char = pvt_current_char(context);
     if ( cur_char == 'e' || cur_char == 'E' ) {
         char const e_char = cur_char;  // save actual letter case for reporting
         pvt_add_char_to_buffer(&cb, cur_char);
         pvt_advance(context, 1);
-        char c = pvt_peek_char(context);
+        char c = pvt_current_char(context);
         if ( c == '-' || c == '+' ) {
             pvt_add_char_to_buffer(&cb, c);
             pvt_advance(context, 1); // consume optional -/+ char
         }
         // expect one number
-        c = pvt_peek_char(context);
+        c = pvt_current_char(context);
         if ( !(c >= '0' && c <= '9')) {
             int written =  snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "expected digit '0'-'9' after '%c', got ", e_char);
             if (written > 0) {
                 pvt_format_error_message_char(ERROR_MSG_BUFFER_SIZE - written,
-                    error->message + written, pvt_peek_char(context) );
+                    error->message + written, pvt_current_char(context) );
             }
             context->parse_end = context->current_index;
             pvt_record_error(context, error, JSON_ERR_INVALID_NUMBER_FORMAT, error->message);
@@ -1636,8 +1639,8 @@ static JsonValue * pvt_parse_number(JsonContext *context, JsonParseError *error,
         pvt_add_char_to_buffer(&cb, c);
         pvt_advance(context, 1); // consume first digit
         // consume next N digits
-        while ( pvt_peek_char(context) >= '0' && pvt_peek_char(context) <= '9') {
-            pvt_add_char_to_buffer(&cb, pvt_peek_char(context) );
+        while ( pvt_current_char(context) >= '0' && pvt_current_char(context) <= '9') {
+            pvt_add_char_to_buffer(&cb, pvt_current_char(context) );
             pvt_advance(context, 1);
         }
     }
@@ -1680,7 +1683,7 @@ static JsonValue *  pvt_parse_literal_impl(  JsonContext *context,
     context->parse_start = context->current_index;
     uint32_t current_index = context->current_index;
     char const * keyword_ptr = key_word;
-    char cur_char = pvt_peek_char(context);
+    char cur_char = pvt_current_char(context);
     enum json_error_type_e err_type = JSON_ERR_NONE;
 
     while ( *keyword_ptr != '\0' && cur_char != '\0') {
@@ -1691,7 +1694,7 @@ static JsonValue *  pvt_parse_literal_impl(  JsonContext *context,
             break;
         }
         pvt_advance(context, 1);
-        cur_char = pvt_peek_char(context);
+        cur_char = pvt_current_char(context);
         keyword_ptr++;
     }
 
@@ -1747,7 +1750,7 @@ static JsonValue *pvt_parse_value(JsonContext *context, JsonParseError *error, A
     parser_feed(parser, buf, n);
      */
 
-    switch (pvt_peek_char(context)) {
+    switch (pvt_current_char(context)) {
         case '{': /* Handle object */
             value = pvt_parse_object(context, error, arena);
             break;
@@ -1777,7 +1780,7 @@ static JsonValue *pvt_parse_value(JsonContext *context, JsonParseError *error, A
                 int written = snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "unexpected character: ");
                 if (written > 0) {
                     pvt_format_error_message_char(ERROR_MSG_BUFFER_SIZE - written,
-                        error->message + written, pvt_peek_char(context) );
+                        error->message + written, pvt_current_char(context) );
                 }
 
                 context->parse_end = context->current_index;
@@ -1811,12 +1814,11 @@ static JsonValue * pvt_jsonp_parse_impl(JsonContext *context, const char *json_t
     //     return nullptr;
     // }
 
-    // if (pvt_is_rejected_due_to_bom(context, json_text, error)) return nullptr;
-    // if (pvt_is_rejected_due_to_bom(context, context->input->read_buffer->buffer + context->input->read_buffer->start_index, error)) return nullptr;
+    if (pvt_is_rejected_due_to_bom(context,  error)) return nullptr;
 
 
     pvt_skip_whitespace(context);
-    if ( pvt_peek_char(context) == '\0') {
+    if ( pvt_current_char(context) == '\0') {
         *error = (JsonParseError){.json=json_text, .message = "empty json text", .err_type = JSON_ERR_EMPTY_TEXT,
         .first_bad_char = context->current_index, .parse_end = context->current_index};
         return nullptr;
@@ -1834,7 +1836,7 @@ static JsonValue * pvt_jsonp_parse_impl(JsonContext *context, const char *json_t
 
     pvt_skip_whitespace(context);
 
-    if (pvt_peek_char(context) != EOF) {
+    if (pvt_current_char(context) != EOF && pvt_current_char(context) != '\0') {
         //we parsed the root value, but there is still text remaining in the JSON text, which is an error
         pvt_record_error(context, error, JSON_ERR_UNEXPECTED_TEXT, "unexpected extra text after parsing a valid JSON value");
         return nullptr;
@@ -1848,38 +1850,43 @@ static JsonValue * pvt_jsonp_parse_impl(JsonContext *context, const char *json_t
 //          BOM CHECKING
 // -----------------------------------------------------------------
 
-// assumes json_text is not null
-static bool pvt_starts_with_bom(const char json_text[static 1], const uint32_t n_bytes, char const bom_bytes[static n_bytes]) {
+static bool pvt_starts_with_bom(JsonContext const *context,
+                                const uint32_t n_bytes,
+                                uint8_t const bom_bytes[static n_bytes]) {
+
+    Input *input = context->input;
     for (uint32_t i = 0; i < n_bytes; ++i) {
-        if (json_text[i] != bom_bytes[i]) {
+        if ( input->peek_lookahead_chars(input->context, i) != (unsigned char)bom_bytes[i]) {
             return false;
         }
     }
     return true;
 }
 
-static bool pvt_is_rejected_due_to_bom(JsonContext *context, const char *json_text, JsonParseError *error) {
+static bool pvt_is_rejected_due_to_bom(JsonContext *context, JsonParseError *error) {
     // UTF-16 and UTF-32 BOMs always cause failure
-    if (pvt_starts_with_bom(json_text, 2, BOM_UTF16_BE) ||
-            pvt_starts_with_bom(json_text, 2, BOM_UTF16_LE)) {
-                pvt_advance(context, 2);
+    uint32_t bom_array_length = ARRAY_COUNT(BOM_UTF16_BE);
+    if (pvt_starts_with_bom( context ,bom_array_length, BOM_UTF16_BE) ||
+        pvt_starts_with_bom( context, bom_array_length, BOM_UTF16_LE)) {
+                pvt_advance(context, bom_array_length);
                 context->parse_end = context->current_index;
                 pvt_record_error(context, error, JSON_ERR_UNEXPECTED_UTF16_ENCODING, "This document appears to be encoded with UTF-16. Expected UTF-8.");
                 return true;
             }
-    if (pvt_starts_with_bom(json_text, 4, BOM_UTF32_BE) ||
-            pvt_starts_with_bom(json_text, 4, BOM_UTF32_LE)) {
-                pvt_advance(context, 4);
+    bom_array_length = ARRAY_COUNT(BOM_UTF32_BE);
+    if (pvt_starts_with_bom(context, bom_array_length, BOM_UTF32_BE) ||
+        pvt_starts_with_bom(context, bom_array_length, BOM_UTF32_LE)) {
+                pvt_advance(context, bom_array_length);
                 context->parse_end = context->current_index;
                 pvt_record_error(context, error, JSON_ERR_UNEXPECTED_UTF32_ENCODING, "This document appears to be encoded with UTF-32. Expected UTF-8.");
                 return true;
             }
 
-
     // utf8 BOM behavior controlled by flag JSON_CONFIG_FAIL_ON_INITIAL_BOM
-    if (pvt_starts_with_bom(json_text, 3, BOM_UTF8)  ) {
+    bom_array_length = ARRAY_COUNT(BOM_UTF8);
+    if (pvt_starts_with_bom(context, bom_array_length, BOM_UTF8)  ) {
         if (jsonp_is_context_config_flag_set(context, JSON_CONFIG_FAIL_ON_INITIAL_BOM)) {
-            pvt_advance(context, 3);
+            pvt_advance(context, bom_array_length);
             context->parse_end = context->current_index;
             pvt_record_error(context, error, JSON_ERR_BOM_NOT_ALLOWED,
                 "This document begins with a byte-order-mark (BOM), which is not allowed "
