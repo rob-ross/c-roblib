@@ -42,6 +42,8 @@
  */
 
 
+constexpr char NUL = '\0';
+
 
 // -----------------------------------------------------------------
 //      BOM CONSTANTS
@@ -468,7 +470,7 @@ JsonObjectEntry * jsonp_entry_for_key(const JsonValue *json_obj, char const * ke
 static JsonObjectEntry * pvt_parse_one_entry(JsonContext *context, JsonParseError *error, Arena *arena) {
     pvt_skip_whitespace(context);
     context->parse_start = context->current_index;  // need this here since we aren't calling pvt_parse_value()
-    // if (pvt_peek_char(context) == '\0') {
+    // if (pvt_peek_char(context) == NUL) {
     //     context->parse_end = context->current_index;
     //     snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "expected object key, got EOF");
     //     pvt_record_error(context, error, JSON_ERR_MISSING_OBJECT_KEY, error->message);
@@ -501,7 +503,7 @@ static JsonObjectEntry * pvt_parse_one_entry(JsonContext *context, JsonParseErro
     }
     pvt_advance(context, 1);  // consume ':'
     pvt_skip_whitespace(context);
-    if (pvt_current_char(context) == '\0') {
+    if (pvt_current_char(context) == NUL) {
         // snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "unexpected EOF, expected object value");
 
         int written =  snprintf(error->message, ERROR_MSG_BUFFER_SIZE,"expected object value for key '%s', got ", key->u.string);
@@ -918,7 +920,7 @@ static uint32_t pvt_parse_hex_impl(JsonContext *context, JsonParseError *error, 
     uint32_t result = 0;
     for (uint32_t i = 0; i < num_chars; i++) {
         const char next_char = pvt_current_char(context);
-        if (next_char == '\0') {
+        if (next_char == NUL) {
             context->parse_end = context->current_index;
             snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
                 "unexpected EOF while parsing hex digit. (expected %d hex digits, got %d)",  num_chars, i);
@@ -1370,7 +1372,7 @@ static JsonValue * pvt_parse_string(JsonContext *context, JsonParseError *error,
             size_t len = sb.length;
             char * str_value = arena_alloc(arena, len + 1);
             memcpy(str_value, sb.buffer, len);
-            str_value[len] = '\0';
+            str_value[len] = NUL;
 
             value->u.string = str_value;
 
@@ -1383,7 +1385,7 @@ static JsonValue * pvt_parse_string(JsonContext *context, JsonParseError *error,
             pvt_advance(context, 1); // Skip the backslash
             current_byte = (unsigned char )pvt_current_char(context);
 
-            if (current_byte == '\0') {
+            if (current_byte == NUL) {
                 pvt_record_error(context, error, JSON_ERR_UNEXPECTED_EOF, "Unexpected EOF after backslash");
                 sb_destroy(&sb);
                 return nullptr; // Unexpected EOF
@@ -1686,7 +1688,7 @@ static JsonValue *  pvt_parse_literal_impl(  JsonContext *context,
     char cur_char = pvt_current_char(context);
     enum json_error_type_e err_type = JSON_ERR_NONE;
 
-    while ( *keyword_ptr != '\0' && cur_char != '\0') {
+    while ( *keyword_ptr != NUL && cur_char != NUL) {
         if (*keyword_ptr != cur_char) {
             err_type = JSON_ERR_UNEXPECTED_TEXT;
             snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
@@ -1700,7 +1702,7 @@ static JsonValue *  pvt_parse_literal_impl(  JsonContext *context,
 
     context->parse_end = current_index;
 
-    if ( err_type == JSON_ERR_NONE && *keyword_ptr != '\0') {
+    if ( err_type == JSON_ERR_NONE && *keyword_ptr != NUL) {
         // unexpected end of text
         err_type = JSON_ERR_UNEXPECTED_EOF;
         snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "unexpected EOF, expected '%s'", key_word);
@@ -1809,7 +1811,7 @@ static JsonValue * pvt_jsonp_parse_impl(JsonContext *context, const char *json_t
         return nullptr;
     }
 
-    // if (json_text[0] == '\0') {
+    // if (json_text[0] == NUL) {
     //     *error = (JsonParseError){.json=json_text, .message = "empty json text", .err_type = JSON_ERR_EMPTY_TEXT};
     //     return nullptr;
     // }
@@ -1818,7 +1820,7 @@ static JsonValue * pvt_jsonp_parse_impl(JsonContext *context, const char *json_t
 
 
     pvt_skip_whitespace(context);
-    if ( pvt_current_char(context) == '\0') {
+    if ( pvt_current_char(context) == NUL) {
         *error = (JsonParseError){.json=json_text, .message = "empty json text", .err_type = JSON_ERR_EMPTY_TEXT,
         .first_bad_char = context->current_index, .parse_end = context->current_index};
         return nullptr;
@@ -1836,7 +1838,7 @@ static JsonValue * pvt_jsonp_parse_impl(JsonContext *context, const char *json_t
 
     pvt_skip_whitespace(context);
 
-    if (pvt_current_char(context) != EOF && pvt_current_char(context) != '\0') {
+    if (pvt_current_char(context) != EOF && pvt_current_char(context) != NUL) {
         //we parsed the root value, but there is still text remaining in the JSON text, which is an error
         pvt_record_error(context, error, JSON_ERR_UNEXPECTED_TEXT, "unexpected extra text after parsing a valid JSON value");
         return nullptr;
@@ -1981,7 +1983,7 @@ JsonContext *jsonp_copy_global_context() {
  */
 JsonContext *jsonp_empty_context(void) {
     JsonContext *context  = (JsonContext *)calloc(1, sizeof(JsonContext));
-    context->whitespace_chars[0] = '\0'; // empty string
+    context->whitespace_chars[0] = NUL; // empty string
     return context;
 }
 
@@ -1998,7 +2000,7 @@ static void pvt_reset_context(JsonContext *context) {
     context->parse_end      = 0;
     context->depth_current  = 0;
     context->input          = nullptr;
-    memset(context->error_msg, '\0', ERROR_MSG_BUFFER_SIZE + 1 );
+    memset(context->error_msg, NUL, ERROR_MSG_BUFFER_SIZE + 1 );
 }
 
 
@@ -2034,7 +2036,7 @@ JsonValue * jsonp_parse_string(const char *json_text, JsonParseError *error, Are
         *error = (JsonParseError){ .json=json_text, .message = "null json text", .err_type = JSON_ERR_NULL_TEXT};
         return nullptr;
     }
-    if (json_text[0] == '\0') {
+    if (json_text[0] == NUL) {
         *error = (JsonParseError){.json=json_text, .message = "empty json text", .err_type = JSON_ERR_EMPTY_TEXT};
         return nullptr;
     }
@@ -2380,7 +2382,7 @@ void jsonp_print_parse_error(JsonParseError *err) {
 
     uint32_t chars_after_current = 0;
     char const * end_ptr = err->json + err_pos;
-    while (*end_ptr++ != '\0' && chars_after_current < 40 ) {
+    while (*end_ptr++ != NUL && chars_after_current < 40 ) {
         chars_after_current++;
     }
 
@@ -2401,7 +2403,7 @@ void jsonp_print_parse_error(JsonParseError *err) {
     }
 
     sb.length = chars_written;
-    sb.buffer[chars_written] = '\0';
+    sb.buffer[chars_written] = NUL;
 
     // printf("chars_written: %d\n", chars_written);
 
