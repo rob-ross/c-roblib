@@ -87,7 +87,7 @@ TEST_F(JsonParserTest, TestArrayTrailingCommas) {
 
     bool flag_was_set = jsonp_is_context_config_flag_set(context, JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_ARRAYS);
     jsonp_set_context_config_flag(context, JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_ARRAYS);
-    jval = jsonp_parse_using_context(test_fixture, &err, arena, context);
+    jval = jsonp_parse_string_using_context(test_fixture, &err, arena, context);
     EXPECT_NE(jval, nullptr) << "expected successful parse for: " << test_fixture;
     EXPECT_EQ(err.err_type, 0) << "expected no error for: " << test_fixture;
 
@@ -106,7 +106,7 @@ TEST_F(JsonParserTest, TestObjectTrailingCommas) {
 
     bool flag_was_set = jsonp_is_context_config_flag_set(context, JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_OBJECTS);
     jsonp_set_context_config_flag(context, JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_OBJECTS);
-    jval = jsonp_parse_using_context(test_fixture, &err, arena, context);
+    jval = jsonp_parse_string_using_context(test_fixture, &err, arena, context);
     EXPECT_NE(jval, nullptr) << "expected successful parse for: " << test_fixture;
     EXPECT_EQ(err.err_type, JSON_ERR_NONE) << "expected no error for: " << test_fixture;
     if (err.err_type) jsonp_print_parse_error(&err);
@@ -122,7 +122,7 @@ TEST_F(JsonParserTest, n_multidigit_number_then_00_json) {
     JsonValue *jval = jsonp_parse_string(test_fixture, &err, arena);
     EXPECT_NE(jval, nullptr) << "expected successful parse with jsonp_parse";
 
-    jval = jsonp_parse_ex(test_fixture, &err, arena, 4);
+    jval = jsonp_parse_string_ex(test_fixture, &err, arena, 4);
     EXPECT_EQ(jval, nullptr) << "expected fail to parse";
     EXPECT_EQ(err.err_type, JSON_ERR_UNEXPECTED_EOF);
     EXPECT_EQ(err.parse_end, 3);
@@ -140,7 +140,7 @@ TEST_F(JsonParserTest, n_structure_whitespace_formfeed_json) {
 
     jsonp_set_context_whitespace_chars(context, " \t\n\r\f");  // add form-feed
 
-    jval = jsonp_parse_using_context(test_fixture, &err, arena, context);
+    jval = jsonp_parse_string_using_context(test_fixture, &err, arena, context);
     EXPECT_NE(jval, nullptr) << "expected successful parse for: '" << test_fixture \
         << "' after adding form-feed as white space character, but parsing failed. err_type = " << err.err_type;
     if (!jval) {
