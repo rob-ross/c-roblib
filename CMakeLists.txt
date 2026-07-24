@@ -60,6 +60,7 @@ set(LIB_SOURCES
         ${LIB_SRC_DIR}/memory/memory_pool.c
         ${LIB_SRC_DIR}/string/string_builder.c
         ${LIB_SRC_DIR}/string/string_utils.c
+        ${LIB_SRC_DIR}/string/char_ring_buffer.c
         ${LIB_SRC_DIR}/map/hashmap.c
         ${LIB_SRC_DIR}/list/array_list.c
         ${LIB_SRC_DIR}/set/bitset.c
@@ -96,6 +97,7 @@ add_executable(json_parse2
         ${LIB_SRC_DIR}/json_parser/json_parser.c
         ${LIB_SRC_DIR}/json_parser/arena.c
         ${LIB_SRC_DIR}/string/string_builder.c
+        ${LIB_SRC_DIR}/string/char_ring_buffer.c
         ${LIB_SRC_DIR}/unicode/unicode_tools.c
         ${LIB_SRC_DIR}/json_parser/error_result.c
 )
