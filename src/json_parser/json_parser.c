@@ -22,7 +22,9 @@
 #include <assert.h>
 
 #include "roblib/string_builder.h"
+#include "roblib/char_ring_buffer.h"
 #include "roblib/unicode_tools.h"
+#include "roblib/base.h"
 
 /*
  *  todo (rob) tasks:
@@ -58,11 +60,14 @@ static char const * const BOM_UTF32_LE = "\xFF\xFE\x00\x00";
 //      READER FUNCTIONS
 // -----------------------------------------------------------------
 
-typedef size_t (*read_fn)( void *context, unsigned char *buffer, size_t max_bytes);
+typedef long (*read_fn)( void *context, unsigned char *buffer, size_t max_bytes);
 typedef int (*next_char_fn)(void *context);
 typedef int (*current_char_fn)(void *context);
 typedef int (*peek_next_char_fn)(void *context);
 typedef int (*peek_lookahead_chars_fn)( void *context, uint32_t lookahead);
+typedef void (*advance_n_bytes_fn)( void *context, uint32_t num_bytes);
+
+
 
 
 typedef struct {
@@ -72,6 +77,7 @@ typedef struct {
     current_char_fn         current_char;
     peek_next_char_fn       peek_next_char;
     peek_lookahead_chars_fn peek_lookahead_chars;
+    advance_n_bytes_fn      advance_n_bytes;
 } Input;
 
 typedef struct json_context_s {
@@ -98,8 +104,6 @@ typedef struct
     int socket_fd;
 } SocketSource;
 
-
-
 size_t socket_read(...);
 size_t http_read(...);
 
@@ -107,104 +111,157 @@ size_t http_read(...);
 //      File
 // -----------------------------------------------------------------
 
-size_t file_read( void *context, unsigned char *buffer, size_t max_bytes )
-{
-    FILE *fp = (FILE*)context;
 
-    return fread(buffer, 1, max_bytes, fp);
+
+typedef struct {
+    const char      *json_file_full_path;
+    const char      *json_filename;
+    FILE            *file_ptr;
+    size_t          length_bytes;
+    size_t          current_index_byte;  // the index of the byte the lexer is scanning
+    CharRingBuffer  *read_buffer;
+} FileSourceInputContext;
+
+long file_read( void *context, unsigned char *buffer, size_t max_bytes)
+{
+    FileSourceInputContext *src = context;
+
+    FILE *fp = (FILE*)src->file_ptr;
+
+    size_t remaining = src->length_bytes - src->current_index_byte;
+    long tell_pos = ftell( fp );
+    if (tell_pos < 0 ) {
+        printf("ftell returned %ld, error:", tell_pos);
+        perror("");
+        putchar('\n');
+    } else {
+        printf("ftell pos:%ld, src->position=%zd, remaining=%zd, max_bytes=%zd\n", tell_pos, src->current_index_byte, remaining, max_bytes);
+    }
+    if (remaining == 0) return EOF;
+
+
+    if (remaining > max_bytes) remaining = max_bytes;
+
+    long bytes_written = (long)fread(buffer, 1, max_bytes, fp);
+    printf("bytes_written=%ld,", bytes_written);
+
+    if (bytes_written == 0) {
+        // something happened
+        perror("");
+        putchar('\n');
+    }
+
+    src->current_index_byte += remaining;
+    printf("src->position=%ld\n", src->current_index_byte);
+    return (long)remaining;
 }
 
 int file_next_char(void *context)
 {
-    return fgetc((FILE *)context);
+    FileSourceInputContext *src = context;
+    if (src->current_index_byte == src->length_bytes) return EOF;
+    FILE *fp = (FILE*)src->file_ptr;
+
+    return fgetc(fp);
 }
 
-static void pvt_jsonp_parse_json_file() {
-    FILE *fp = fopen("example.json", "rb");
+int file_current_char(void *context) {
+    FileSourceInputContext *src = context;
 
-    if (!fp) {
-        // handle error
-        return;
+    if (src->current_index_byte == src->length_bytes)
+        return EOF;
+
+    // return src->json_text[src->position];
+    return 'a';
+}
+
+int file_peek_next_char(void *context) {
+    FileSourceInputContext *src = context;
+
+    if (src->current_index_byte + 1 >= src->length_bytes)
+        return EOF;
+
+    // return src->json_text[src->position + 1];
+    return 'a';
+
+}
+
+// we only intend to support max lookahead of 2
+int file_peek_lookahead_chars(void *context, uint32_t lookahead ) {
+    FileSourceInputContext *src = context;
+
+    if (src->current_index_byte + lookahead >= src->length_bytes)
+        return EOF;
+
+    // return src->json_text[src->position + lookahead];
+    return 'a';
+
+}
+
+void file_advance_n_bytes( void *context, uint32_t num_bytes) {
+    FileSourceInputContext *src = context;
+    if (src->current_index_byte >= src->length_bytes - num_bytes  ) {
+        src->current_index_byte = src->length_bytes;
+    } else {
+        src->current_index_byte += num_bytes;
     }
-
-    Input input = {
-        .read = file_read,
-        .context = fp
-    };
-
-    // jsonp_parse_json_impl(&input);
-    int close_err = fclose(fp);
 }
+
+
 
 // -----------------------------------------------------------------
 //      String
 // -----------------------------------------------------------------
 
 typedef struct {
-    const char *json_text;
-    size_t length;
-    size_t position;
-} StringSource;
+    const char  *json_text;     // full original JSON text string
+    size_t      current_index_byte;  // the index of the byte the lexer is scanning
+    size_t      length_bytes;   // total length of the json_text in bytes
+} StringSourceInputContext;
 
-size_t string_read( void *context, unsigned char *buffer, size_t max_bytes)
-{
-    StringSource *src = context;
-
-    size_t remaining = src->length - src->position;
-
-    if (remaining == 0)
-        return 0;
-
-    if (remaining > max_bytes)
-        remaining = max_bytes;
-
-    memcpy(buffer,
-           src->json_text + src->position,
-           remaining);
-
-    src->position += remaining;
-
-    return remaining;
-}
-
-int string_next_char(void *context)
-{
-    StringSource *s = context;
-
-    if (s->position == s->length)
-        return EOF;
-
-    return s->json_text[s->position++];
+long string_read( void *context, unsigned char *buffer, size_t max_bytes) {
+    // this is basically a no-op since the full json_text is already in memory at src->json_text
+    StringSourceInputContext *src = context;
+    if (src->current_index_byte == src->length_bytes) return EOF;
+    size_t return_bytes = max_bytes > src->length_bytes ? src->length_bytes : max_bytes;
+    return (long)return_bytes;
 }
 
 int string_current_char(void *context) {
-    StringSource *s = context;
+    StringSourceInputContext *src = context;
+    if (src->current_index_byte == src->length_bytes) return EOF;
+    return (unsigned char)src->json_text[src->current_index_byte];
+}
 
-    if (s->position == s->length)
-        return EOF;
-
-    return s->json_text[s->position];
+int string_next_char(void *context) {
+    StringSourceInputContext *src = context;
+    if (src->current_index_byte == src->length_bytes) return EOF;
+    return (unsigned char)src->json_text[src->current_index_byte++];
 }
 
 int string_peek_next_char(void *context) {
-    StringSource *s = context;
+    StringSourceInputContext *src = context;
 
-    if (s->position + 1 >= s->length)
-        return EOF;
+    if (src->current_index_byte + 1 >= src->length_bytes) return EOF;
 
-    return s->json_text[s->position + 1];
+    return (unsigned char)src->json_text[src->current_index_byte + 1];
 }
 
-// we only intend to support max lookahead of 2
+// we only intend to support max lookahead of 6
 int string_peek_lookahead_chars(void *context, uint32_t lookahead ) {
-    StringSource *s = context;
-
-    if (s->position + lookahead >= s->length)
-        return EOF;
-
-    return s->json_text[s->position + lookahead];
+    StringSourceInputContext *src = context;
+    if (src->current_index_byte + lookahead >= src->length_bytes) return EOF;
+    return (unsigned char)src->json_text[src->current_index_byte + lookahead];
 }
 
+void string_advance_n_bytes( void *context, uint32_t num_bytes) {
+    StringSourceInputContext *src = context;
+    if (src->current_index_byte + num_bytes  >= src->length_bytes ) {
+        src->current_index_byte  = src->length_bytes;
+    } else {
+        src->current_index_byte  += num_bytes;
+    }
+}
 
 
 
@@ -221,29 +278,7 @@ static void pvt_init_context_whitespace_table(JsonContext *context);
 static char pvt_peek_char(JsonContext const *context);
 static bool pvt_starts_with_bom(const char json_text[static 1], const uint32_t n_bytes, char const bom_bytes[static n_bytes]);
 static bool pvt_is_rejected_due_to_bom(JsonContext *context, const char *json_text, JsonParseError *error);
-JsonValue *jsonp_parse_input(Input *input, JsonParseError *error, Arena *arena);
-JsonValue *jsonp_parse_string_impl( Input *input, JsonParseError *error, Arena *arena);
-
-
-
-JsonValue * jsonp_parse_string(const char *json_text, JsonParseError *error, Arena *arena) {
-    if (!json_text) {
-        *error = (JsonParseError){ .json=json_text, .message = "null json text", .err_type = JSON_ERR_NULL_TEXT};
-        return nullptr;
-    }
-    StringSource ss = { .json_text = json_text, .length = strlen(json_text), .position = 0};
-    Input input = {
-        .context = (void*)&ss,
-        .read =  string_read,
-        .next_char = string_next_char,
-        .current_char = string_current_char,
-        .peek_next_char = string_peek_next_char,
-        .peek_lookahead_chars = string_peek_lookahead_chars
-    };
-
-    return jsonp_parse_string_impl(&input, error, arena);
-
-}
+static void pvt_advance(JsonContext *context, const uint32_t char_count);
 
 
 // -----------------------------------------------------------------
@@ -294,15 +329,17 @@ static inline bool pvt_is_json_whitespace(JsonContext *context, const unsigned c
 }
 
 static void pvt_skip_whitespace(JsonContext *context) {
-    while ( pvt_is_json_whitespace(context, (const unsigned char)pvt_peek_char(context)) ) {
-        if (pvt_peek_char(context) == '\n') {
+    char c;
+    while ( c = pvt_peek_char(context), pvt_is_json_whitespace(context, (const unsigned char)c ) ) {
+
+    // while ( pvt_is_json_whitespace(context, (const unsigned char)pvt_peek_char(context)) ) {
+        if ( c == '\n' || c == '\r') {
             context->line++;
+            pvt_advance(context, 1);
             context->column = 0;
         } else {
-            context->column++;
+            pvt_advance(context, 1);
         }
-        context->current_index++;
-        context->current_ptr++;
     }
 }
 
@@ -318,13 +355,18 @@ void jsonp_set_context_max_depth(JsonContext *context, uint32_t max_depth){
 
 // advance the parser state based on the current parse window
 static void pvt_advance(JsonContext *context, const uint32_t char_count) {
+    // todo (rob) we have to move the SOT for parsing state into the Input struct and out of the JsonContext
     context->current_ptr    += char_count;
     context->current_index  += char_count;
     context->column         += char_count;
+
+    context->input->advance_n_bytes(context->input->context, char_count);
 }
 
 static char pvt_peek_char(JsonContext const *context) {
-    return *context->current_ptr;
+    Input *input = context->input;
+    // return *context->current_ptr;
+    return (char)input->current_char(input->context);
 }
 
 // todo (rob) temp during refactor, this could error out if buffer is at EOF
@@ -1750,16 +1792,28 @@ static JsonValue *pvt_parse_value(JsonContext *context, JsonParseError *error, A
 }
 
 static JsonValue * pvt_jsonp_parse_impl(JsonContext *context, const char *json_text, JsonParseError *error, Arena *arena) {
-    if (!json_text) {
-        *error = (JsonParseError){ .json=json_text, .message = "null json text", .err_type = JSON_ERR_NULL_TEXT};
+    Input * input = context->input;
+
+    if (!input->context) {
+        *error = (JsonParseError){ .json="nullptr", .message = "null Input source", .err_type = JSON_ERR_NULL_TEXT};
         return nullptr;
     }
-    if (json_text[0] == '\0') {
+
+
+    int peek_char = input->current_char(input->context);
+    if (peek_char == EOF) {
         *error = (JsonParseError){.json=json_text, .message = "empty json text", .err_type = JSON_ERR_EMPTY_TEXT};
         return nullptr;
     }
 
-    if (pvt_is_rejected_due_to_bom(context, json_text, error)) return nullptr;
+    // if (json_text[0] == '\0') {
+    //     *error = (JsonParseError){.json=json_text, .message = "empty json text", .err_type = JSON_ERR_EMPTY_TEXT};
+    //     return nullptr;
+    // }
+
+    // if (pvt_is_rejected_due_to_bom(context, json_text, error)) return nullptr;
+    // if (pvt_is_rejected_due_to_bom(context, context->input->read_buffer->buffer + context->input->read_buffer->start_index, error)) return nullptr;
+
 
     pvt_skip_whitespace(context);
     if ( pvt_peek_char(context) == '\0') {
@@ -1780,7 +1834,7 @@ static JsonValue * pvt_jsonp_parse_impl(JsonContext *context, const char *json_t
 
     pvt_skip_whitespace(context);
 
-    if (pvt_peek_char(context) != '\0') {
+    if (pvt_peek_char(context) != EOF) {
         //we parsed the root value, but there is still text remaining in the JSON text, which is an error
         pvt_record_error(context, error, JSON_ERR_UNEXPECTED_TEXT, "unexpected extra text after parsing a valid JSON value");
         return nullptr;
@@ -1794,7 +1848,7 @@ static JsonValue * pvt_jsonp_parse_impl(JsonContext *context, const char *json_t
 //          BOM CHECKING
 // -----------------------------------------------------------------
 
-// assumes json_test is not null
+// assumes json_text is not null
 static bool pvt_starts_with_bom(const char json_text[static 1], const uint32_t n_bytes, char const bom_bytes[static n_bytes]) {
     for (uint32_t i = 0; i < n_bytes; ++i) {
         if (json_text[i] != bom_bytes[i]) {
@@ -1852,7 +1906,7 @@ char pvt_get_locale_decimal_separator_char() {
     if (lc && lc->decimal_point) {
         unsigned char c = (unsigned char) lc->decimal_point[0];
         if ( c > 0x20 && c < 0x7F) {
-            return c;
+            return (char)c;
         }
     }
     return '.';
@@ -1936,45 +1990,77 @@ static void pvt_reset_context(JsonContext *context) {
     context->parse_start    = 0;
     context->parse_end      = 0;
     context->depth_current  = 0;
+    context->input          = nullptr;
     memset(context->error_msg, '\0', ERROR_MSG_BUFFER_SIZE + 1 );
 }
 
-JsonValue *jsonp_parse_using_context(const char *json_text, JsonParseError *error, Arena *arena, JsonContext *context ) {
+
+Input pvt_get_string_input_source( StringSourceInputContext *ss) {
+    Input input = {
+        .context                = (void*)ss,
+        .read                   = string_read,
+        .next_char              = string_next_char,
+        .current_char           = string_current_char,
+        .peek_next_char         = string_peek_next_char,
+        .peek_lookahead_chars   = string_peek_lookahead_chars,
+        .advance_n_bytes        = string_advance_n_bytes
+    };
+    return input;
+}
+
+JsonValue *jsonp_parse_string_using_context(const char *json_text, JsonParseError *error, Arena *arena, JsonContext *context ) {
     pvt_reset_context(context);
-    context->current_ptr = json_text;
-    context->json_text = json_text;
+    StringSourceInputContext ss = { .json_text = json_text, .length_bytes = strlen(json_text), .current_index_byte = 0};
+    Input input = pvt_get_string_input_source(&ss);
+    context->input = &input;
+
+    // todo temp
+    context->json_text   = ((StringSourceInputContext*)input.context)->json_text;
+    context->current_ptr = ((StringSourceInputContext*)input.context)->json_text;
+
     return pvt_jsonp_parse_impl(context, json_text, error, arena);
 }
 
-JsonValue *jsonp_parse(const char *json_text, JsonParseError *error, Arena *arena) {
+
+JsonValue * jsonp_parse_string(const char *json_text, JsonParseError *error, Arena *arena) {
+    if (!json_text) {
+        *error = (JsonParseError){ .json=json_text, .message = "null json text", .err_type = JSON_ERR_NULL_TEXT};
+        return nullptr;
+    }
+    if (json_text[0] == '\0') {
+        *error = (JsonParseError){.json=json_text, .message = "empty json text", .err_type = JSON_ERR_EMPTY_TEXT};
+        return nullptr;
+    }
+
+    StringSourceInputContext ss = { .json_text = json_text, .length_bytes = strlen(json_text), .current_index_byte = 0};
+    Input input = pvt_get_string_input_source( &ss);
+
     JsonContext context = {};
     pvt_write_global_state(&context);
-    context.current_ptr = json_text;
-    context.json_text = json_text;
-
-    JsonValue *value = pvt_jsonp_parse_impl(&context, json_text, error, arena);
-    return value;
-}
-
-JsonValue *jsonp_parse_string_impl( Input *input, JsonParseError *error, Arena *arena) {
-    JsonContext context = {};
-    pvt_write_global_state(&context);
-    context.input = input;
+    context.input = &input;
 
     // todo temp
-    context.json_text = ((StringSource*)input->context)->json_text;
-    context.current_ptr = ((StringSource*)input->context)->json_text;
+    context.json_text = ((StringSourceInputContext*)input.context)->json_text;
+    context.current_ptr = ((StringSourceInputContext*)input.context)->json_text;
 
     JsonValue *value = pvt_jsonp_parse_impl(&context,  context.json_text, error, arena);
     return value;
+    // return jsonp_parse_string_impl(&input, error, arena);
 }
 
 
-JsonValue *jsonp_parse_ex(const char *json_text, JsonParseError *error, Arena *arena, const uint32_t buffer_size) {
+
+JsonValue *jsonp_parse_string_ex(const char *json_text, JsonParseError *error, Arena *arena, const uint32_t buffer_size) {
     JsonContext context = {};
     pvt_write_global_state(&context);
-    context.current_ptr = json_text;
-    context.json_text = json_text;
+    StringSourceInputContext ss = { .json_text = json_text, .length_bytes = strlen(json_text), .current_index_byte = 0};
+    Input input = pvt_get_string_input_source( &ss);
+
+    context.input = &input;
+
+    // todo temp
+    context.json_text = ((StringSourceInputContext*)input.context)->json_text;
+    context.current_ptr = ((StringSourceInputContext*)input.context)->json_text;
 
     JsonValue *value = pvt_jsonp_parse_impl(&context, json_text, error, arena);
     if (!value) return nullptr;
@@ -1991,6 +2077,88 @@ JsonValue *jsonp_parse_ex(const char *json_text, JsonParseError *error, Arena *a
     }
     return value;
 }
+
+Input pvt_get_file_input_source( FileSourceInputContext *fs) {
+    Input input = {
+        .context                = (void*)fs,
+        .read                   = file_read,
+        .next_char              = file_next_char,
+        .current_char           = file_current_char,
+        .peek_next_char         = file_peek_next_char,
+        .peek_lookahead_chars   = file_peek_lookahead_chars,
+        .advance_n_bytes        = file_advance_n_bytes
+    };
+    return input;
+}
+
+
+JsonValue * jsonp_parse_file(const char *json_filename, JsonParseError *error, Arena *arena) {
+    // todo (rob) error checking, does file exist, is it a json file, etc.
+    FILE *fp = fopen(json_filename, "rb");
+
+    if (!fp) {
+        // handle error
+        printf("fopen returned nullptr, ");
+        perror("");
+        putchar('\n');
+        return nullptr;
+    }
+    // need to get file size
+    size_t file_size = 0;
+    // let's try fseek
+    int fseek_result = fseek( fp,  0, SEEK_END );  // try to seek to end
+    if (fseek_result) {
+        printf("fseek SEEK_END reports error: %d, ", fseek_result);
+        perror("");
+        putchar('\n');
+        int close_err = fclose(fp);
+        return nullptr;
+    }
+
+    // if we got here, we were able to seek to the end.
+    long tell_pos = ftell( fp );
+    if (tell_pos < 0 ) {
+        printf("ftell returned %ld, error:", tell_pos);
+        perror("");
+        putchar('\n');
+    } else {
+        file_size = tell_pos;
+    }
+
+    fseek_result = fseek( fp,  0, SEEK_SET );  // try to seek to start
+    if (fseek_result) {
+        printf("fseek SEEK_SET reports error: %d, ", fseek_result);
+        perror("");
+        putchar('\n');
+        int close_err = fclose(fp);
+        return nullptr;
+    }
+
+
+    FileSourceInputContext fs = {
+        .json_file_full_path = json_filename,
+        .json_filename = json_filename,
+        .file_ptr = fp,
+        .length_bytes = file_size,
+        .current_index_byte = 0
+    };
+
+    Input input = pvt_get_file_input_source(&fs);
+
+    JsonContext context = {};
+    pvt_write_global_state(&context);
+    context.input = &input;
+
+    JsonValue *value = nullptr;
+    value = pvt_jsonp_parse_impl(&context,  nullptr, error, arena);
+
+    int close_err = fclose(fp);
+
+
+    // jsonp_parse_json_impl(&input);
+    return value;
+}
+
 
 // -----------------------------------------------------------------
 //      INITIALIZE
@@ -2468,15 +2636,15 @@ void test_parse_unicode_escapes() {
 
 void test_null_parse(void) {
     parse_test_str("null");
-    parse_test_str(" null ");
-    parse_test_str("nul");
-    parse_test_str("nu");
-    parse_test_str("n");
-
-    parse_test_str("number");
-    parse_test_str("next");
-
-    parse_test_str("nulll");
+    // parse_test_str(" null ");
+    // parse_test_str("nul");
+    // parse_test_str("nu");
+    // parse_test_str("n");
+    //
+    // parse_test_str("number");
+    // parse_test_str("next");
+    //
+    // parse_test_str("nulll");
 }
 
 void test_true_parse(void) {
@@ -2691,6 +2859,46 @@ void test_fails_for_reporting(void) {
     // simple_parse(big_str);
 }
 
+void parse_json_file(char const *filename) {
+    Error init_err = jsonp_init();
+    if (init_err.err) {
+        err_print(init_err);
+        jsonp_destroy();
+        return;
+    }
+    Arena arena = {};
+    ArenaErrResult aer = arena_create_arena( &arena, ONE_MIBIBYTE * 100);
+    if ( aer.err ) {
+        printf("arena_create_arena failed with %d, %s\n", aer.reported_err, aer.msg);
+        jsonp_destroy();
+        return;
+    }
+    JsonParseError err = {};
+    printf("\nParsing json file '%s': \n", filename);
+    // JsonValue *jval = jsonp_parse(str, &err, &arena);
+    JsonValue *jval = jsonp_parse_file(filename, &err, &arena);
+
+    if (!jval) {
+        // printf("ERROR %d: first_bad_char:%d, line:%d col:%d start:%d end:%d  %s\n",
+        //    err.err_type, err.first_bad_char,  err.line, err.column, err.parse_start, err.parse_end, err.message);
+        jsonp_print_parse_error(&err);
+    }
+    else {
+        jsonp_print_json_value(jval);
+        printf("\n");
+    }
+
+    arena_destroy_arena(&arena);
+    jsonp_destroy();
+
+}
+
+void test_one_json_file(void) {
+    char const *filename ="y_array_false.json";
+    parse_json_file(filename);
+}
+
+
 #ifdef JSON_PARSER_2_MAIN
 int main( ) {
     // Set locale to ensure printf doesn't mangle UTF-8 bytes based on system defaults
@@ -2718,7 +2926,7 @@ int main( ) {
     test_null_parse();
     // test_true_parse();
     // test_false_parse();
-    test_number_parse();
+    // test_number_parse();
     // test_array_parse();
     // test_parse_objects();
     // test_parse_unicode_escapes();
@@ -2729,11 +2937,12 @@ int main( ) {
 
     // test_indeterminates();
 
-    test_custom_flags();
+    // test_custom_flags();
 
-    test_fails_for_reporting();
+    // test_fails_for_reporting();
     // test_json_test_suite_fails();
 
+    // test_one_json_file();
 
 }
 #endif
