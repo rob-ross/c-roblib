@@ -130,6 +130,7 @@ TEST_P(JsonTestErrorReportingParam, parse_json) {
         << "test: " << param.test_name
         << "\nExpected failure but succeeded.\nContent: " << json_text;
     EXPECT_EQ(err.err_type, param.json_error_type) << err.message  << ", json=" << err.json;
+    if (err.err_type != param.json_error_type) jsonp_print_parse_error(&err);
     EXPECT_EQ(err.first_bad_char, param.first_bad_char ) << err.json;
     EXPECT_EQ(err.parse_start, param.parse_start ) << err.json;
     EXPECT_EQ(err.parse_end, param.parse_end ) << err.json;
