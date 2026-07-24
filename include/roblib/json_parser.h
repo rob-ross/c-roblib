@@ -256,15 +256,17 @@ void jsonp_destroy(void);
 //      PARSING
 // -----------------------------------------------------------------
 
-JsonValue * jsonp_parse(const char *json_text, JsonParseError *error, Arena *arena);
-JsonValue * jsonp_parse_using_context(const char *json_text, JsonParseError *error, Arena *arena, JsonContext *context );
+// JsonValue * jsonp_parse(const char *json_text, JsonParseError *error, Arena *arena);
+
 JsonValue * jsonp_parse_string(const char *json_text, JsonParseError *error, Arena *arena) ;
+JsonValue * jsonp_parse_string_using_context(const char *json_text, JsonParseError *error, Arena *arena, JsonContext *context );
 
 // version that takes an argument, buffer_size, which is the actual size of the JSON text buffer in bytes.
 // this method can report errors where it parsed successfully but did not use up the entire buffer
-JsonValue *jsonp_parse_ex(const char *json, JsonParseError *error, Arena *arena, uint32_t buffer_size);
+JsonValue *jsonp_parse_string_ex(const char *json, JsonParseError *error, Arena *arena, uint32_t buffer_size);
 
 
+JsonValue * jsonp_parse_file(const char *json_filename, JsonParseError *error, Arena *arena);
 //// ------------------------------------------------------------
 ////
 ////    GLOBAL STATE
