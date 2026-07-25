@@ -15,8 +15,21 @@
 extern "C" {
 #endif
 
-constexpr size_t CharRingBuffer_SIZE = 4096;
+//// ------------------------------------------------------------
+////
+////    CharRingBuffer API
+////
+//// ------------------------------------------------------------
 
+constexpr size_t CharRingBuffer_SIZE = 40;
+
+/**
+ * CharRingBuffer is the "prototype" definition of a CharRingBuffer and accompanying API methods.
+ * When debugging, adding, and modifing code in the macro, use the concrete version for CharRingBuffer
+ * to implement and debug the final changes, then edit the macro to include the new generic code.
+ * Keep the flow one-way from Concrete Implementation -> Macro code
+ *
+ */
 typedef struct {
     size_t length;
     size_t start_index;
@@ -37,17 +50,20 @@ typedef enum : long {
  * Directly fills the ring buffer from a reader function.
  * This avoids an intermediate buffer and double-copying.
  */
-long sutil_fill_ring_buffer_from_reader_CharRingBuffer(CharRingBuffer *crb,
+long crb_fill_ring_buffer_from_reader_CharRingBuffer(CharRingBuffer *crb,
                                          long (*read_fn)(void *, unsigned char *, size_t),
                                          void *read_context);
 
-void sutil_add_to_buffer_CharRingBuffer(CharRingBuffer *crb, size_t count, char const *src_chars);
-long sutil_add_to_buffer_strict_CharRingBuffer(CharRingBuffer *crb, size_t count, char const *src_chars);
-int sutil_get_next_char_CharRingBuffer(CharRingBuffer *crb);
-int sutil_peek_char_CharRingBuffer(CharRingBuffer *crb, size_t offset);
-int sutil_advance_buffer_CharRingBuffer(CharRingBuffer *crb, size_t byte_count);
+void crb_add_str_to_buffer_CharRingBuffer(CharRingBuffer *crb, size_t count, char const *src_chars);
+void crb_add_char_to_buffer_CharRingBuffer(CharRingBuffer *crb,  char src_char);
 
-void sutil_print_repr_CharRingBuffer(CharRingBuffer *crb);
+long crb_add_str_to_buffer_strict_CharRingBuffer(CharRingBuffer *crb, size_t count, char const *src_chars);
+long crb_add_char_to_buffer_strict_CharRingBuffer(CharRingBuffer *crb, char src_char);
+int crb_get_next_char_CharRingBuffer(CharRingBuffer *crb);
+int crb_peek_char_CharRingBuffer(CharRingBuffer *crb, size_t offset);
+int crb_advance_buffer_CharRingBuffer(CharRingBuffer *crb, size_t byte_count);
+
+void crb_print_repr_CharRingBuffer(CharRingBuffer *crb);
 
 
 //// ------------------------------------------------------------
@@ -56,20 +72,28 @@ void sutil_print_repr_CharRingBuffer(CharRingBuffer *crb);
 ////
 //// ------------------------------------------------------------
 
+// break for macro definition
 
 /**
- *  Define a struct in the form of TYPENAMESIZE along with functions that take it as an argument.
+ *  Define a struct in the form of TYPENAMESIZE along with functions that take it as an argument.<P>
+ *  E.g., <P>
+ *      CHAR_RING_BUFFER(SavedChars, 40);<P>
+ *      // defines:<P>
+ *      tydpedef struct SavedChars40 SavedChars40;<P>
+ *      // a CharRingBuffer with 40 char capacity, and a verion of each API method such as:<P>
+ *      void sutil_add_to_buffer_SavedChars40(SavedChars40 *crb, size_t count, char const *src_chars);<P>
+ *      ...<P>
  */
 
 #define CHAR_RING_BUFFER(TYPENAME, SIZE) \
-typedef struct TYPENAME##SIZE{    \
-    size_t length;  \
-    size_t start_index; \
-    size_t end_index; \
-    char buffer[SIZE];  \
-} TYPENAME##SIZE;   \
-    \
-long sutil_fill_ring_buffer_from_reader_##TYPENAME##SIZE(TYPENAME##SIZE *crb,                                     \
+typedef struct TYPENAME##SIZE{           \
+    size_t length;                       \
+    size_t start_index;                  \
+    size_t end_index;                    \
+    char buffer[SIZE];                   \
+} TYPENAME##SIZE;                        \
+                                         \
+static long pvt_crb_fill_ring_buffer_from_reader_##TYPENAME##SIZE(TYPENAME##SIZE *crb,                            \
                                          long (*read_fn)(void *, unsigned char *, size_t),                        \
                                          void *read_context) {                                                    \
     const size_t capacity = sizeof(crb->buffer);                                                                  \
@@ -90,7 +114,7 @@ long sutil_fill_ring_buffer_from_reader_##TYPENAME##SIZE(TYPENAME##SIZE *crb,   
     return bytes_read;                                                                                            \
 }                                                                                                                 \
                                                                                                                   \
-void sutil_add_to_buffer_##TYPENAME##SIZE(TYPENAME##SIZE *crb, size_t count, char const *src_chars) {             \
+static void pvt_crb_add_str_to_buffer_##TYPENAME##SIZE(TYPENAME##SIZE *crb, size_t count, char const *src_chars) {    \
     if (count == 0) return;                                                                                       \
     const size_t capacity = sizeof(crb->buffer);                                                                  \
     if (count > capacity) {                                                                                       \
@@ -108,7 +132,18 @@ void sutil_add_to_buffer_##TYPENAME##SIZE(TYPENAME##SIZE *crb, size_t count, cha
     }                                                                                                             \
 }                                                                                                                 \
                                                                                                                   \
-long sutil_add_to_buffer_strict_##TYPENAME##SIZE(TYPENAME##SIZE *crb, size_t count, char const *src_chars) {      \
+static void pvt_crb_add_char_to_buffer_##TYPENAME##SIZE(##TYPENAME##SIZE *crb,  char src_char) {                  \
+    const size_t capacity = sizeof(crb->buffer);                                                                  \
+    crb->buffer[crb->end_index] = src_char;                                                                       \
+    if (crb->length == capacity) {                                                                                \
+        crb->start_index = (crb->start_index + 1) % capacity;                                                     \
+    } else {                                                                                                      \
+        crb->length++;                                                                                            \
+    }                                                                                                             \
+    crb->end_index = (crb->end_index + 1) % capacity;                                                             \
+}                                                                                                                 \
+                                                                                                                  \
+static long pvt_crb_add_str_to_buffer_strict_##TYPENAME##SIZE(TYPENAME##SIZE *crb, size_t count, char const *src_chars) {      \
     const size_t capacity = sizeof(crb->buffer);                                                                  \
     if (count > 0 && crb->length >= capacity) return CRB_ERR_BUFFER_FULL;                                         \
     size_t added = 0;                                                                                             \
@@ -121,7 +156,17 @@ long sutil_add_to_buffer_strict_##TYPENAME##SIZE(TYPENAME##SIZE *crb, size_t cou
     return (long)added;                                                                                           \
 }                                                                                                                 \
                                                                                                                   \
-int sutil_get_next_char_##TYPENAME##SIZE(TYPENAME##SIZE *crb) {                                                   \
+static long pvt_crb_add_char_to_buffer_strict_##TYPENAME##SIZE(##TYPENAME##SIZE *crb, char const src_char) {      \
+    const size_t capacity = sizeof(crb->buffer);                                                                  \
+    if ( crb->length >= capacity ) return CRB_ERR_BUFFER_FULL;                                                    \
+    crb->buffer[crb->end_index] = src_char;                                                                       \
+    crb->end_index = (crb->end_index + 1) % capacity;                                                             \
+    crb->length++;                                                                                                \
+                                                                                                                  \
+    return (long)1;                                                                                               \
+}                                                                                                                 \
+                                                                                                                  \
+static int pvt_crb_get_next_char_##TYPENAME##SIZE(TYPENAME##SIZE *crb) {                                          \
     if (!crb->length) return EOF;                                                                                 \
     const size_t capacity = sizeof(crb->buffer);                                                                  \
     crb->length--;                                                                                                \
@@ -130,7 +175,7 @@ int sutil_get_next_char_##TYPENAME##SIZE(TYPENAME##SIZE *crb) {                 
     return c;                                                                                                     \
 }                                                                                                                 \
                                                                                                                   \
-int sutil_peek_char_##TYPENAME##SIZE(TYPENAME##SIZE *crb, size_t offset) {                                        \
+static int pvt_crb_peek_char_##TYPENAME##SIZE(TYPENAME##SIZE *crb, size_t offset) {                               \
     if (offset >= crb->length) {                                                                                  \
         return EOF;                                                                                               \
     }                                                                                                             \
@@ -139,7 +184,7 @@ int sutil_peek_char_##TYPENAME##SIZE(TYPENAME##SIZE *crb, size_t offset) {      
     return (unsigned char)crb->buffer[peek_index];                                                                \
 }                                                                                                                 \
                                                                                                                   \
-void sutil_print_repr_##TYPENAME##SIZE(TYPENAME##SIZE *crb) {                                                     \
+static void pvt_crb_print_repr_##TYPENAME##SIZE(TYPENAME##SIZE *crb) {                                            \
     constexpr size_t capacity = sizeof(crb->buffer);                                                              \
     char str_buffer[ capacity + 1 ] = {};                                                                         \
     memcpy( str_buffer, crb->buffer, capacity );                                                                  \

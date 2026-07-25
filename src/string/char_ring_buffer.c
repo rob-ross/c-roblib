@@ -20,7 +20,7 @@
  * This avoids an intermediate buffer and double-copying.
  * Returns: bytes read, 0 for EOF, -1 for read error, -2 for buffer full.
  */
-long sutil_fill_ring_buffer_from_reader_CharRingBuffer(CharRingBuffer *crb,
+long crb_fill_ring_buffer_from_reader_CharRingBuffer(CharRingBuffer *crb,
                                          long (*read_fn)(void *, unsigned char *, size_t),
                                          void *read_context) {
     const size_t capacity = sizeof(crb->buffer);
@@ -54,7 +54,7 @@ long sutil_fill_ring_buffer_from_reader_CharRingBuffer(CharRingBuffer *crb,
 }
 
 
-void sutil_add_to_buffer_CharRingBuffer(CharRingBuffer *crb, size_t count, char const *src_chars) {
+void crb_add_str_to_buffer_CharRingBuffer(CharRingBuffer *crb, size_t count, char const *src_chars) {
     if (count == 0) return;
 
     const size_t capacity = sizeof(crb->buffer);
@@ -80,12 +80,27 @@ void sutil_add_to_buffer_CharRingBuffer(CharRingBuffer *crb, size_t count, char 
     }
 }
 
+void crb_add_char_to_buffer_CharRingBuffer(CharRingBuffer *crb,  char src_char) {
+    const size_t capacity = sizeof(crb->buffer);
+    crb->buffer[crb->end_index] = src_char;
+
+    // If the buffer was already full, or if the end_index hits the start_index,
+    // we are overwriting unread data. Advance start_index to keep the buffer valid.
+    if (crb->length == capacity) {
+        crb->start_index = (crb->start_index + 1) % capacity;
+    } else {
+        crb->length++;
+    }
+    crb->end_index = (crb->end_index + 1) % capacity;
+}
+
+
 /**
  * Adds characters to the buffer without overwriting existing data.
  * Returns the number of characters actually added.
  * Returns -2 if the buffer was already full and count > 0.
  */
-long sutil_add_to_buffer_strict_CharRingBuffer(CharRingBuffer *crb, size_t count, char const *src_chars) {
+long crb_add_str_to_buffer_strict_CharRingBuffer(CharRingBuffer *crb, size_t count, char const *src_chars) {
     const size_t capacity = sizeof(crb->buffer);
     if (count > 0 && crb->length >= capacity) return CRB_ERR_BUFFER_FULL;
 
@@ -99,8 +114,18 @@ long sutil_add_to_buffer_strict_CharRingBuffer(CharRingBuffer *crb, size_t count
     return (long)added;
 }
 
+long crb_add_char_to_buffer_strict_CharRingBuffer(CharRingBuffer *crb, char const src_char) {
+    const size_t capacity = sizeof(crb->buffer);
+    if ( crb->length >= capacity ) return CRB_ERR_BUFFER_FULL;
+    crb->buffer[crb->end_index] = src_char;
+    crb->end_index = (crb->end_index + 1) % capacity;
+    crb->length++;
+
+    return (long)1;
+}
+
 // Returns -1 if no more chars to read
-int sutil_get_next_char_CharRingBuffer(CharRingBuffer *crb) {
+int crb_get_next_char_CharRingBuffer(CharRingBuffer *crb) {
     if (!crb->length) return EOF;
     const size_t capacity = sizeof(crb->buffer);
 
@@ -112,7 +137,7 @@ int sutil_get_next_char_CharRingBuffer(CharRingBuffer *crb) {
 }
 
 // Returns EOF if the offset is beyond the current buffered length
-int sutil_peek_char_CharRingBuffer(CharRingBuffer *crb, size_t offset) {
+int crb_peek_char_CharRingBuffer(CharRingBuffer *crb, size_t offset) {
     if (offset >= crb->length) {
         return EOF;
     }
@@ -121,7 +146,7 @@ int sutil_peek_char_CharRingBuffer(CharRingBuffer *crb, size_t offset) {
     return (unsigned char)crb->buffer[peek_index];
 }
 
-int sutil_advance_buffer_CharRingBuffer(CharRingBuffer *crb, const size_t byte_count) {
+int crb_advance_buffer_CharRingBuffer(CharRingBuffer *crb, const size_t byte_count) {
     if (!crb->length) return EOF;
     const size_t capacity = sizeof(crb->buffer);
     int bytes_advanced = 0;
@@ -136,7 +161,7 @@ int sutil_advance_buffer_CharRingBuffer(CharRingBuffer *crb, const size_t byte_c
     return bytes_advanced;
 }
 
-void sutil_print_repr_CharRingBuffer(CharRingBuffer *crb) {
+void crb_print_repr_CharRingBuffer(CharRingBuffer *crb) {
     size_t capacity = sizeof(crb->buffer);
     char str_buffer[ capacity + 1 ] = {};
     memcpy( str_buffer, crb->buffer, capacity );
@@ -147,7 +172,7 @@ void sutil_print_repr_CharRingBuffer(CharRingBuffer *crb) {
 
 //// ------------------------------------------------------------
 ////
-////    TEMP
+////    TEMP CharRingBuffer10 explicitly implemented
 ////
 //// ------------------------------------------------------------
 
@@ -159,7 +184,7 @@ typedef struct CharRingBuffer10 {
     char buffer[10];
 } CharRingBuffer10;
 
-long sutil_fill_ring_buffer_from_reader_CharRingBuffer10(CharRingBuffer10 *crb,
+long crb_fill_ring_buffer_from_reader_CharRingBuffer10(CharRingBuffer10 *crb,
                                                          long (*read_fn)(void *, unsigned char *, size_t),
                                                          void *read_context) {
     const size_t capacity = sizeof(crb->buffer);
@@ -175,7 +200,7 @@ long sutil_fill_ring_buffer_from_reader_CharRingBuffer10(CharRingBuffer10 *crb,
     return bytes_read;
 }
 
-void sutil_add_to_buffer_CharRingBuffer10(CharRingBuffer10 *crb, size_t count, char const *src_chars) {
+void crb_add_str_to_buffer_CharRingBuffer10(CharRingBuffer10 *crb, size_t count, char const *src_chars) {
     if (count == 0) return;
     const size_t capacity = sizeof(crb->buffer);
     if (count > capacity) {
@@ -189,7 +214,21 @@ void sutil_add_to_buffer_CharRingBuffer10(CharRingBuffer10 *crb, size_t count, c
     }
 }
 
-long sutil_add_to_buffer_strict_CharRingBuffer10(CharRingBuffer10 *crb, size_t count, char const *src_chars) {
+void crb_add_char_to_buffer_CharRingBuffer10(CharRingBuffer10 *crb,  char src_char) {
+    const size_t capacity = sizeof(crb->buffer);
+    crb->buffer[crb->end_index] = src_char;
+
+    // If the buffer was already full, or if the end_index hits the start_index,
+    // we are overwriting unread data. Advance start_index to keep the buffer valid.
+    if (crb->length == capacity) {
+        crb->start_index = (crb->start_index + 1) % capacity;
+    } else {
+        crb->length++;
+    }
+    crb->end_index = (crb->end_index + 1) % capacity;
+}
+
+long crb_add_str_to_buffer_strict_CharRingBuffer10(CharRingBuffer10 *crb, size_t count, char const *src_chars) {
     const size_t capacity = sizeof(crb->buffer);
     if (count > 0 && crb->length >= capacity) return CRB_ERR_BUFFER_FULL;
     size_t added = 0;
@@ -202,7 +241,17 @@ long sutil_add_to_buffer_strict_CharRingBuffer10(CharRingBuffer10 *crb, size_t c
     return (long) added;
 }
 
-int sutil_get_next_char_CharRingBuffer10(CharRingBuffer10 *crb) {
+long crb_add_char_to_buffer_strict_CharRingBuffer10(CharRingBuffer10 *crb, char const src_char) {
+    const size_t capacity = sizeof(crb->buffer);
+    if ( crb->length >= capacity ) return CRB_ERR_BUFFER_FULL;
+    crb->buffer[crb->end_index] = src_char;
+    crb->end_index = (crb->end_index + 1) % capacity;
+    crb->length++;
+
+    return (long)1;
+}
+
+int crb_get_next_char_CharRingBuffer10(CharRingBuffer10 *crb) {
     if (!crb->length) return (-1);
     const size_t capacity = sizeof(crb->buffer);
     crb->length--;
@@ -211,7 +260,7 @@ int sutil_get_next_char_CharRingBuffer10(CharRingBuffer10 *crb) {
     return c;
 }
 
-int sutil_peek_char_CharRingBuffer10(CharRingBuffer10 *crb, size_t offset) {
+int crb_peek_char_CharRingBuffer10(CharRingBuffer10 *crb, size_t offset) {
     if (offset >= crb->length) { return (-1); }
     const size_t capacity = sizeof(crb->buffer);
     size_t peek_index = (crb->start_index + offset) % capacity;
@@ -220,7 +269,7 @@ int sutil_peek_char_CharRingBuffer10(CharRingBuffer10 *crb, size_t offset) {
 
 // todo (rob) we need to limit printing to a line of e.g., no more than 80 chars, ideally 40 before and 40 after current position
 // we currently just print the first 40 characters
-void sutil_print_repr_CharRingBuffer10(CharRingBuffer10 *crb) {
+void crb_print_repr_CharRingBuffer10(CharRingBuffer10 *crb) {
     constexpr size_t capacity = sizeof(crb->buffer);
     char str_buffer[capacity + 1] = {};
     memcpy(str_buffer, crb->buffer, capacity);
