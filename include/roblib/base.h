@@ -55,7 +55,7 @@ extern "C" {
 #define INT_FROM_PTR(p) (unsigned long long)((char*)p - (char*)0)
 #define PTR_FROM_INT(i) (void*)((char*)0 + (i))
 #define MEMBER(T, m) (((T*)0)->m)
-#define OFFSET_OF_MEMEBER(T, m) INT_FROM_PTR(&MEMBER(T, m))
+#define OFFSET_OF_MEMBER(T, m) INT_FROM_PTR(&MEMBER(T, m))
 #define MIN(a, b) (((a)<(b))?(a):(b))
 #define MAX(a, b) (((a)>(b))?(a):(b))
 #define CLAMP(a, x, b) (((x)<(a))?(a):((b)<(x))?(b):(x))
