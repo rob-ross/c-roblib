@@ -69,10 +69,12 @@ typedef int (*peek_lookahead_chars_fn)( void *context, uint32_t lookahead);
 typedef void (*advance_n_bytes_fn)( void *context, uint32_t num_bytes);
 
 
+// CHAR_RING_BUFFER(CharRingBuffer, 40)
 
 
 typedef struct {
-    void                    *input_context;
+    void                    *input_context;  // StringSourceInputContext, or FileSourceInputContext
+    CharRingBuffer          look_behind_buffer; // holds most recent 40 bytes of scanned input
     read_fn                 read;
     next_char_fn            next_char;
     current_char_fn         current_char;
@@ -83,7 +85,7 @@ typedef struct {
 
 typedef struct json_context_s {
     const char     *current_ptr;   // The current text being parsed, advances through the JSON text in the json member
-    const char     *json_text;     // full original JSON text string
+    // const char     *json_text;     // full original JSON text string
     Input          *input;
     uint32_t       current_index; // the index of the character the lexer is scanning
     uint32_t       line;
@@ -113,14 +115,21 @@ size_t http_read(...);
 // -----------------------------------------------------------------
 
 
-
+/**
+ * CharRingBuffer40 is declared and defined by the CHAR_RING_BUFFER(CharRingBuffer, 40) macro above. <P>
+ * The instance pointed to by `look_behind_buffer` must be the same instance as the CharRingBuffer40 in the
+ * enclosing Input object's CharRingBuffer40 `look_behind_buffer` member.<P>
+ * Currently, the lifecycles of both Input and the InputContext (here `FileSourceInputContext`) are scoped to
+ * the same parse API function call, and each Input gets a unique InputContext.
+ * Neither are intended to be exported. <P>
+ */
 typedef struct {
-    const char      *json_file_full_path;
-    const char      *json_filename;
-    FILE            *file_ptr;
-    size_t          length_bytes;
-    size_t          current_index_byte;  // the index of the byte the lexer is scanning
-    CharRingBuffer  *read_buffer;
+    const char          *json_file_full_path;
+    const char          *json_filename;
+    FILE                *file_ptr;
+    CharRingBuffer      *look_behind_buffer;    // last 40 bytes scanned
+    size_t              length_bytes;
+    size_t              current_index_byte;     // the index of the byte the lexer is scanning
 } FileSourceInputContext;
 
 long file_read( void *context, unsigned char *buffer, size_t max_bytes)
@@ -214,10 +223,19 @@ void file_advance_n_bytes( void *context, uint32_t num_bytes) {
 //      String
 // -----------------------------------------------------------------
 
+/**
+ * CharRingBuffer40 is declared and defined by the CHAR_RING_BUFFER(CharRingBuffer, 40) macro above. <P>
+ * The instance pointed to by `look_behind_buffer` must be the same instance as the CharRingBuffer40 in the
+ * enclosing Input object's CharRingBuffer40 `look_behind_buffer` member.<P>
+ * Currently, the lifecycles of both Input and the InputContext (here `StringSourceInputContext`) are scoped to
+ * the same parse API function call, and each Input gets a unique InputContext.
+ * Neither are intended to be exported. <P>
+ */
 typedef struct {
-    const char  *json_text;     // full original JSON text string
-    size_t      current_index_byte;  // the index of the byte the lexer is scanning
-    size_t      length_bytes;   // total length of the json_text in bytes
+    const char          *json_text;             // full original JSON text string
+    CharRingBuffer    *look_behind_buffer;    // last 40 bytes scanned
+    size_t              current_index_byte;     // the index of the byte the lexer is scanning
+    size_t              length_bytes;           // total length of the json_text in bytes
 } StringSourceInputContext;
 
 long string_read( void *context, unsigned char *buffer, size_t max_bytes) {
@@ -237,6 +255,9 @@ int string_current_char(void *context) {
 int string_next_char(void *context) {
     StringSourceInputContext *src = context;
     if (src->current_index_byte == src->length_bytes) return (unsigned char)src->json_text[src->length_bytes];
+
+    CharRingBuffer *look_behind_buffer = src->look_behind_buffer;
+    crb_add_char_to_buffer_CharRingBuffer(look_behind_buffer,  src->json_text[src->current_index_byte]);
     return (unsigned char)src->json_text[src->current_index_byte++];
 }
 
@@ -255,8 +276,31 @@ int string_peek_lookahead_chars(void *context, uint32_t lookahead ) {
     return (unsigned char)src->json_text[src->current_index_byte + lookahead];
 }
 
-void string_advance_n_bytes( void *context, uint32_t num_bytes) {
+void string_advance_n_bytes( void *context, const uint32_t num_bytes) {
     StringSourceInputContext *src = context;
+    CharRingBuffer *look_behind_buffer = src->look_behind_buffer;
+
+    const size_t capacity = sizeof(look_behind_buffer->buffer);
+    char const * start_ptr = src->json_text + src->current_index_byte;
+
+    if (num_bytes == 1 ) {
+        crb_add_char_to_buffer_CharRingBuffer(look_behind_buffer,  *start_ptr);
+    } else if (num_bytes > 1) {
+        size_t num_to_add = num_bytes;
+        if (num_bytes > capacity) {
+            // we'll only add the last `capacity` bytes.
+            num_to_add = MIN(capacity, 128);
+            start_ptr += num_bytes - num_to_add;
+        }
+        char cb[128] = {};
+        int n = snprintf(cb, num_to_add, "%s", start_ptr);
+        if (!n) {
+            fprintf(stderr, "snprintf returned %d in string_advance_n_bytes", n);
+        } else {
+            crb_add_str_to_buffer_CharRingBuffer(look_behind_buffer, n, cb);
+        }
+    }
+
     if (src->current_index_byte + num_bytes  >= src->length_bytes ) {
         src->current_index_byte  = src->length_bytes;
     } else {
@@ -399,12 +443,11 @@ static void pvt_format_error_message_char(
 }
 
 static void pvt_record_error(
-    const JsonContext *context, JsonParseError *error, const enum json_error_type_e err_type, const char *msg) {
+    const JsonContext *context, JsonParseError *error, const JsonParseErrType err_type, const char *msg) {
 
     if (error->message != msg ) {
         strncpy(error->message, msg, ERROR_MSG_BUFFER_SIZE);
     }
-    error->json = context->json_text;
     error->err_type = err_type;
     error->first_bad_char = context->current_index;
     error->line   = context->line;
@@ -1566,22 +1609,31 @@ static JsonValue * pvt_parse_number(JsonContext *context, JsonParseError *error,
         value->type = JSON_LONG;
         errno = 0; // Reset errno before the calls
         char *str_end =  nullptr;
-        char const * const num_start_pointer = context->json_text +  context->parse_start;
-        // long val = strtol(num_start_pointer, &str_end, 10);
         // printf("cb.buffer=%s\n", (char const *)cb.buffer);
-
         long val = strtol( (char const *)cb.buffer, &str_end, 10);
 
-
-        if (errno == ERANGE) {
+        if ( errno == 0) {
+            value->u.n_long = val;
+        } else if (errno == ERANGE) {
             // Promotion: If too big for long, use double to preserve magnitude (even if it becomes Infinity)
             // todo (rob) warn? exit with error depending on config flag?
             // what other errors are possible?
-            printf("errno=%d, cb.buffer=%s\n", errno, (char const *)cb.buffer);
-            value->type = JSON_DOUBLE;
-            value->u.n_double = strtod(num_start_pointer, &str_end);
+            fprintf(stderr, "warning: number too large to parse as integer: %s\n", (char const *)cb.buffer);
+            errno = 0;
+            value->u.n_double = strtod((char const *)cb.buffer, &str_end);
+            if (errno) {
+                value->u.n_long = 0;
+                fprintf(stderr, "warning: encountered errno %d: %s, while converting large integer to floating point: %s\n",
+                   errno, strerror(errno), (char const *)cb.buffer);
+            } else {
+                value->type = JSON_DOUBLE;
+                fprintf(stderr, "info:    successfully converted large integer: %s to floating point: %g\n",
+                    (char const *)cb.buffer, value->u.n_double);
+            }
         } else {
-            value->u.n_long = val;
+            value->u.n_long = 0;
+            fprintf(stderr, "error: errno %d: %s, while converting number to long int: %s\n",
+                errno, strerror(errno), (char const *)cb.buffer);
         }
         return value;
     }
@@ -1656,17 +1708,17 @@ static JsonValue * pvt_parse_number(JsonContext *context, JsonParseError *error,
     value->type = JSON_DOUBLE;
     errno = 0; // Reset errno before the calls
     char *str_end =  nullptr;
-    char const * const num_start_pointer = context->json_text +  context->parse_start;
-    // todo (rob) if context->decimal_separator is not '.' we have to substitute the '.' in the JSON text
-    // printf("cb.buffer=%s\n", (char const *)cb.buffer);
-
-    // value->u.n_double = strtod(num_start_pointer, &str_end)
     value->u.n_double = strtod((char const *)cb.buffer, &str_end);
 
     // Note: If strtod overflows, u.n_double will be +/- Infinity (HUGE_VAL).
-
-    if (errno || str_end != context->current_ptr) {
-        // printf("Error calling strtod_l: errno:%d, *str_end:%p, cur_ptr:%p\n", errno, str_end, context->current_ptr);
+    if ( errno == ERANGE) {
+        fprintf(stderr, "warning: double float out of range. converted as: %g, number is: %s\n",
+            value->u.n_double, (char const *)cb.buffer );
+    }
+    else if ( errno != 0 ) {
+        value->u.n_double = 0.0;
+        fprintf(stderr, "error: errno %d: %s, while converting number to floating point. Converted as: 0.0. Number is: %s\n",
+            errno, strerror(errno), (char const *)cb.buffer);
     }
 
     return value;
@@ -1992,7 +2044,7 @@ JsonContext *jsonp_empty_context(void) {
 // Does not affect depth_max, config_flags, whitespace_chars, or ws_table.
 static void pvt_reset_context(JsonContext *context) {
     context->current_ptr    = nullptr;
-    context->json_text      = nullptr;
+    // context->json_text      = nullptr;
     context->current_index  = 0;
     context->line           = 0;
     context->column         = 0;
@@ -2006,7 +2058,7 @@ static void pvt_reset_context(JsonContext *context) {
 
 Input pvt_get_string_input_source( StringSourceInputContext *ss) {
     Input input = {
-        .input_context                = (void*)ss,
+        .input_context          = (void*)ss,
         .read                   = string_read,
         .next_char              = string_next_char,
         .current_char           = string_current_char,
@@ -2014,6 +2066,7 @@ Input pvt_get_string_input_source( StringSourceInputContext *ss) {
         .peek_lookahead_chars   = string_peek_lookahead_chars,
         .advance_n_bytes        = string_advance_n_bytes
     };
+    ss->look_behind_buffer = &input.look_behind_buffer;
     return input;
 }
 
@@ -2024,7 +2077,7 @@ JsonValue *jsonp_parse_string_using_context(const char *json_text, JsonParseErro
     context->input = &input;
 
     // todo temp
-    context->json_text   = ((StringSourceInputContext*)input.input_context)->json_text;
+    // context->json_text   = ((StringSourceInputContext*)input.input_context)->json_text;
     context->current_ptr = ((StringSourceInputContext*)input.input_context)->json_text;
 
     return pvt_jsonp_parse_impl(context, json_text, error, arena);
@@ -2049,10 +2102,11 @@ JsonValue * jsonp_parse_string(const char *json_text, JsonParseError *error, Are
     context.input = &input;
 
     // todo temp
-    context.json_text = ((StringSourceInputContext*)input.input_context)->json_text;
+    // context.json_text = ((StringSourceInputContext*)input.input_context)->json_text;
     context.current_ptr = ((StringSourceInputContext*)input.input_context)->json_text;
+    error->json = json_text;
 
-    JsonValue *value = pvt_jsonp_parse_impl(&context,  context.json_text, error, arena);
+    JsonValue *value = pvt_jsonp_parse_impl(&context,  json_text, error, arena);
     return value;
     // return jsonp_parse_string_impl(&input, error, arena);
 }
@@ -2068,9 +2122,10 @@ JsonValue *jsonp_parse_string_ex(const char *json_text, JsonParseError *error, A
     context.input = &input;
 
     // todo temp
-    context.json_text = ((StringSourceInputContext*)input.input_context)->json_text;
+    // context.json_text = ((StringSourceInputContext*)input.input_context)->json_text;
     context.current_ptr = ((StringSourceInputContext*)input.input_context)->json_text;
 
+    error->json = json_text;
     JsonValue *value = pvt_jsonp_parse_impl(&context, json_text, error, arena);
     if (!value) return nullptr;
 
@@ -2089,7 +2144,7 @@ JsonValue *jsonp_parse_string_ex(const char *json_text, JsonParseError *error, A
 
 Input pvt_get_file_input_source( FileSourceInputContext *fs) {
     Input input = {
-        .input_context                = (void*)fs,
+        .input_context          = (void*)fs,
         .read                   = file_read,
         .next_char              = file_next_char,
         .current_char           = file_current_char,
@@ -2097,6 +2152,8 @@ Input pvt_get_file_input_source( FileSourceInputContext *fs) {
         .peek_lookahead_chars   = file_peek_lookahead_chars,
         .advance_n_bytes        = file_advance_n_bytes
     };
+    fs->look_behind_buffer = &input.look_behind_buffer;
+
     return input;
 }
 
@@ -2183,7 +2240,7 @@ Error jsonp_init_3(jp_bitset_t config_flags, uint32_t max_depth, char const * wh
 
 
     //todo temp debug remove
-    pvt_tmp_set_local_decimal_separator_char(",");
+    // pvt_tmp_set_local_decimal_separator_char(",");
 
 
     if (atomic_load(&is_initialized)) {
