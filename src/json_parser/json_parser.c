@@ -1476,7 +1476,10 @@ static JsonValue * pvt_parse_string(JsonContext *context, JsonParseError *error,
                     break;
                 default:
                     context->parse_end = context->current_index;
-                    snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "invalid escape sequence: '\\%c'", current_byte);
+                    char const *format_str;
+                    if (current_byte < 0x20 || current_byte > 0x7E) format_str = "invalid escape sequence: '\\0x%.2X'";
+                    else format_str = "invalid escape sequence: '\\%c'";
+                    snprintf(error->message, ERROR_MSG_BUFFER_SIZE, format_str, current_byte);
                     pvt_record_error(context, error, JSON_ERR_INVALID_ESCAPE_SEQUENCE, error->message);
                     sb_destroy(&sb);
                     return nullptr;
@@ -1609,7 +1612,6 @@ static JsonValue * pvt_parse_number(JsonContext *context, JsonParseError *error,
         value->type = JSON_LONG;
         errno = 0; // Reset errno before the calls
         char *str_end =  nullptr;
-        // printf("cb.buffer=%s\n", (char const *)cb.buffer);
         long val = strtol( (char const *)cb.buffer, &str_end, 10);
 
         if ( errno == 0) {
@@ -1617,7 +1619,6 @@ static JsonValue * pvt_parse_number(JsonContext *context, JsonParseError *error,
         } else if (errno == ERANGE) {
             // Promotion: If too big for long, use double to preserve magnitude (even if it becomes Infinity)
             // todo (rob) warn? exit with error depending on config flag?
-            // what other errors are possible?
             fprintf(stderr, "warning: number too large to parse as integer: %s\n", (char const *)cb.buffer);
             errno = 0;
             value->u.n_double = strtod((char const *)cb.buffer, &str_end);
@@ -1631,6 +1632,7 @@ static JsonValue * pvt_parse_number(JsonContext *context, JsonParseError *error,
                     (char const *)cb.buffer, value->u.n_double);
             }
         } else {
+            // what other errors are possible here?
             value->u.n_long = 0;
             fprintf(stderr, "error: errno %d: %s, while converting number to long int: %s\n",
                 errno, strerror(errno), (char const *)cb.buffer);
