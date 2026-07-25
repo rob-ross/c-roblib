@@ -132,7 +132,7 @@ static void pvt_crb_add_str_to_buffer_##TYPENAME##SIZE(TYPENAME##SIZE *crb, size
     }                                                                                                             \
 }                                                                                                                 \
                                                                                                                   \
-static void pvt_crb_add_char_to_buffer_##TYPENAME##SIZE(##TYPENAME##SIZE *crb,  char src_char) {                  \
+static void pvt_crb_add_char_to_buffer_##TYPENAME##SIZE(TYPENAME##SIZE *crb,  char src_char) {                  \
     const size_t capacity = sizeof(crb->buffer);                                                                  \
     crb->buffer[crb->end_index] = src_char;                                                                       \
     if (crb->length == capacity) {                                                                                \
@@ -156,7 +156,7 @@ static long pvt_crb_add_str_to_buffer_strict_##TYPENAME##SIZE(TYPENAME##SIZE *cr
     return (long)added;                                                                                           \
 }                                                                                                                 \
                                                                                                                   \
-static long pvt_crb_add_char_to_buffer_strict_##TYPENAME##SIZE(##TYPENAME##SIZE *crb, char const src_char) {      \
+static long pvt_crb_add_char_to_buffer_strict_##TYPENAME##SIZE(TYPENAME##SIZE *crb, char const src_char) {      \
     const size_t capacity = sizeof(crb->buffer);                                                                  \
     if ( crb->length >= capacity ) return CRB_ERR_BUFFER_FULL;                                                    \
     crb->buffer[crb->end_index] = src_char;                                                                       \
