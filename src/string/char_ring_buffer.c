@@ -169,6 +169,25 @@ void crb_print_repr_CharRingBuffer(CharRingBuffer *crb) {
             capacity, crb->length, crb->start_index, crb->end_index, str_buffer);
 }
 
+// Print the contents of the buffer in order into the argument `buffer`
+// Assumes that the `buffer` argument is large enough to contain the CharRingBuffer's contents plus the terminator.
+// I.e., sizeof(*buffer) == sizeof(CharRingBuffer.buffer)
+void crb_sprint_buffer_CharRingBuffer(CharRingBuffer *crb, char *buffer) {
+    const size_t capacity = sizeof(crb->buffer);
+    size_t index = crb->start_index;
+    size_t bytes_written = 0;
+    while (index < capacity && bytes_written < crb->length) {
+        buffer[bytes_written++] = crb->buffer[index++];
+    }
+    if ( crb->start_index >= crb->end_index) {
+        index = 0;
+        while (index <= crb->end_index && bytes_written < crb->length) {
+            buffer[bytes_written++] = crb->buffer[index++];
+        }
+    }
+    buffer[crb->length] = '\0';
+}
+
 
 //// ------------------------------------------------------------
 ////

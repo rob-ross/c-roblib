@@ -64,7 +64,7 @@ int crb_peek_char_CharRingBuffer(CharRingBuffer *crb, size_t offset);
 int crb_advance_buffer_CharRingBuffer(CharRingBuffer *crb, size_t byte_count);
 
 void crb_print_repr_CharRingBuffer(CharRingBuffer *crb);
-
+void crb_sprint_buffer_CharRingBuffer(CharRingBuffer *crb, char *buffer);
 
 //// ------------------------------------------------------------
 ////
@@ -191,7 +191,22 @@ static void pvt_crb_print_repr_##TYPENAME##SIZE(TYPENAME##SIZE *crb) {          
     printf("(%s){ .capacity=%4zd, .length=%4zd, .start_index=%4zd, .end_index=%4zd, .buffer='%s' }\n",            \
             STRINGIFY(TYPENAME##SIZE), capacity, crb->length, crb->start_index, crb->end_index, str_buffer);      \
 }                                                                                                                 \
-
+                                                                                                                  \
+static void pvt_crb_sprint_buffer_##TYPENAME##SIZE(TYPENAME##SIZE *crb, char *buffer) {                           \
+    const size_t capacity = sizeof(crb->buffer);                                                                  \
+    size_t index = crb->start_index;                                                                              \
+    size_t bytes_written = 0;                                                                                     \
+    while (index < capacity && bytes_written < crb->length) {                                                     \
+        buffer[bytes_written++] = crb->buffer[index++];                                                           \
+    }                                                                                                             \
+    if ( crb->start_index >= crb->end_index) {                                                                     \
+        index = 0;                                                                                                \
+        while (index <= crb->end_index && bytes_written < crb->length) {                                          \
+            buffer[bytes_written++] = crb->buffer[index++];                                                       \
+        }                                                                                                         \
+    }                                                                                                             \
+    buffer[crb->length] = '\0';                                                                               \
+}                                                                                                                 \
 
 
 

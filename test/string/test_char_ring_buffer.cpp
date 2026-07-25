@@ -90,3 +90,16 @@ TEST(CharRingBuffer10, TestAddReadAddRead) {
     EXPECT_EQ(crb.end_index, 0);
     //pvt_crb_print_repr_CharRingBuffer10(&crb);
 }
+
+TEST(CharRingBuffer10, Test_sprint_buffer) {
+    CharRingBuffer10 crb{}; // Direct-list-initialization
+    pvt_crb_add_str_to_buffer_CharRingBuffer10(&crb, 10, "abcdefghij");
+    pvt_crb_add_str_to_buffer_CharRingBuffer10(&crb, 3, "123");
+    EXPECT_EQ(crb.length, 10);
+    EXPECT_EQ(crb.start_index, 3);
+    EXPECT_EQ(crb.end_index, 3);
+    char buffer[11];
+    pvt_crb_sprint_buffer_CharRingBuffer10(&crb, buffer);
+    printf("%s\n", buffer);
+    EXPECT_STREQ(buffer, "defghij123");
+}
