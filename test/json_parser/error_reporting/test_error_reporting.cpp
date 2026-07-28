@@ -134,6 +134,9 @@ TEST_P(JsonTestErrorReportingParam, parse_json) {
     EXPECT_EQ(err.first_bad_char, param.first_bad_char ) << json_text;
     EXPECT_EQ(err.parse_start, param.parse_start ) << json_text;
     EXPECT_EQ(err.parse_end, param.parse_end ) << json_text;
+    if (err.parse_end != param.parse_end ) {
+        jsonp_print_parse_error(&err);
+    }
 
 }
 
