@@ -8,16 +8,12 @@
 #include <ctype.h>
 
 #include <locale.h>
+#include <sys/stat.h>
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
 #include <stdatomic.h>
 
-// // POSIX.1-2008 locale functions.
-// // Modern glibc (Linux) uses <locale.h>, while macOS/BSD often requires <xlocale.h>.
-// #ifndef _WIN32
-// #include <xlocale.h>
-// #endif
 
 #include <assert.h>
 
@@ -29,11 +25,10 @@
 /*
  *  todo (rob) tasks:
  *  1. pretty printer
- *  2. file writer to save JSON to disk
+ *  2. file writer to save JSON to FILE*
  *  3. file parser, to parse a json file document instead of a string
- *  4. implement current config flags behaviors in code
+ *  4. implement current config flag options in code
 
- *  6. add ability to set flags on context
  *  7. add ability to change depth on context
  *  8. add ability to change whitespace on context
  *  9. documentation
@@ -413,6 +408,10 @@ static _Atomic(uint32_t) pvt_depth_max = JSON_DEPTH_MAX_DEFAULT;
 
 void jsonp_set_context_max_depth(JsonContext *context, uint32_t max_depth){
     context->depth_max = max_depth;
+}
+
+uint32_t jsonp_get_context_max_depth(JsonContext *context) {
+    return context->depth_max;
 }
 
 // advance the parser state based on the current parse window
@@ -1841,7 +1840,7 @@ static JsonValue *pvt_parse_value(JsonContext *context, JsonParseError *error, A
     return value;
 }
 
-static JsonValue * pvt_jsonp_parse_impl(JsonContext *context, const char *json_text, JsonParseError *error, Arena *arena) {
+static JsonValue * pvt_jsonp_parse_impl(JsonContext *context, JsonParseError *error, Arena *arena) {
     Input * input = context->input;
 
     if (!input->input_context) {
@@ -2064,7 +2063,7 @@ JsonValue *jsonp_parse_string_using_context(const char *json_text, JsonParseErro
     Input input = pvt_get_string_input_source(&ss);
     context->input = &input;
 
-    return pvt_jsonp_parse_impl(context, json_text, error, arena);
+    return pvt_jsonp_parse_impl(context, error, arena);
 }
 
 
@@ -2078,7 +2077,7 @@ JsonValue * jsonp_parse_string(const char *json_text, JsonParseError *error, Are
     pvt_write_global_state(&context);
     context.input = &input;
 
-    return pvt_jsonp_parse_impl(&context,  json_text, error, arena);
+    return pvt_jsonp_parse_impl(&context, error, arena);
     // return jsonp_parse_string_impl(&input, error, arena);
 }
 
@@ -2094,7 +2093,7 @@ JsonValue *jsonp_parse_string_ex(const char *json_text, JsonParseError *error, A
     pvt_write_global_state(&context);
     context.input = &input;
 
-    JsonValue *value = pvt_jsonp_parse_impl(&context, json_text, error, arena);
+    JsonValue *value = pvt_jsonp_parse_impl(&context, error, arena);
     if (!value) return nullptr;
 
     if (input.current_index < buffer_size) {
@@ -2124,10 +2123,34 @@ Input pvt_get_file_input_source( FileSourceInputContext *fs) {
     return input;
 }
 
+static void pvt_debug_file_buffering(FILE *fp) {
+#if defined(__APPLE__) || defined(__FreeBSD__)
+    // On macOS/BSD, we can inspect the internal __sFILE structure
+    struct __sFILE *internal = (struct __sFILE *)fp;
+
+    const char *mode = "Fully-buffered";
+    if (internal->_flags & 0x0002) mode = "Unbuffered";
+    else if (internal->_flags & 0x0001) mode = "Line-buffered";
+
+    printf("--- stdio Debug ---\n");
+    printf("Buffering Mode: %s\n", mode);
+    printf("Internal Buffer Size: %d bytes\n", internal->_bf._size);
+#endif
+
+    // POSIX way to see what the OS prefers
+    struct stat st;
+    if (fstat(fileno(fp), &st) == 0) {
+        printf("FS Optimal Block Size: %d bytes\n", st.st_blksize);
+    }
+
+    // In many glibc/Linux environments, you'd use <stdio_ext.h>
+    // printf("Glibc buffer size: %zu\n", __fbufsize(fp));
+}
 
 JsonValue * jsonp_parse_file(const char *json_filename, JsonParseError *error, Arena *arena) {
     // todo (rob) error checking, does file exist, is it a json file, etc.
     FILE *fp = fopen(json_filename, "rb");
+
 
     if (!fp) {
         // handle error
@@ -2136,6 +2159,11 @@ JsonValue * jsonp_parse_file(const char *json_filename, JsonParseError *error, A
         putchar('\n');
         return nullptr;
     }
+
+    // Check buffering before we do anything.
+    // Note: Some implementations don't allocate the buffer until the first I/O call.
+    pvt_debug_file_buffering(fp);
+
     // need to get file size
     size_t file_size = 0;
     // let's try fseek
@@ -2183,7 +2211,7 @@ JsonValue * jsonp_parse_file(const char *json_filename, JsonParseError *error, A
     context.input = &input;
 
     JsonValue *value = nullptr;
-    value = pvt_jsonp_parse_impl(&context,  nullptr, error, arena);
+    value = pvt_jsonp_parse_impl(&context, error, arena);
 
     int close_err = fclose(fp);
 
