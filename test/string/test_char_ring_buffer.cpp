@@ -100,6 +100,6 @@ TEST(CharRingBuffer10, Test_sprint_buffer) {
     EXPECT_EQ(crb.end_index, 3);
     char buffer[11];
     pvt_crb_sprint_buffer_CharRingBuffer10(&crb, buffer);
-    printf("%s\n", buffer);
+    // printf("%s\n", buffer);
     EXPECT_STREQ(buffer, "defghij123");
 }
