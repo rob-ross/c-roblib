@@ -124,15 +124,19 @@ TEST_P(JsonTestErrorReportingParam, parse_json) {
     const JsonTestParam& param = GetParam();
     std::string json_text = param.json_text;
 
-    JsonValue *jval = jsonp_parse(json_text.c_str(), &err, JsonParserEnvironment::arena);
+    JsonValue *jval = jsonp_parse_string(json_text.c_str(), &err, JsonParserEnvironment::arena);
 
     EXPECT_EQ(jval, nullptr)
         << "test: " << param.test_name
         << "\nExpected failure but succeeded.\nContent: " << json_text;
-    EXPECT_EQ(err.err_type, param.json_error_type) << err.message  << ", json=" << err.json;
-    EXPECT_EQ(err.first_bad_char, param.first_bad_char ) << err.json;
-    EXPECT_EQ(err.parse_start, param.parse_start ) << err.json;
-    EXPECT_EQ(err.parse_end, param.parse_end ) << err.json;
+    EXPECT_EQ(err.err_type, param.json_error_type) << err.message  << ", json=" << json_text;
+    if (err.err_type != param.json_error_type) jsonp_print_parse_error(&err);
+    EXPECT_EQ(err.first_bad_char, param.first_bad_char ) << json_text;
+    EXPECT_EQ(err.parse_start, param.parse_start ) << json_text;
+    EXPECT_EQ(err.parse_end, param.parse_end ) << json_text;
+    if (err.parse_end != param.parse_end ) {
+        jsonp_print_parse_error(&err);
+    }
 
 }
 

@@ -5,6 +5,8 @@
 //
 // Created 2026/06/02 01:37:49 PDT
 
+// version: JSONP v0.1.1
+
 
 /*
  *
@@ -120,7 +122,10 @@ typedef enum json_error_type_e {
     JSON_ERR_UNEXPECTED_UTF32_ENCODING,
     JSON_ERR_BOM_NOT_ALLOWED                 = 25,
     JSON_ERR_TRAILING_COMMA_NOT_ALLOWED,
-    JSON_ERR_OUT_OF_MEMORY,
+    JSON_ERR_MISSING_OBJECT_KEY),
+    JSON_ERR_MISSING_OBJECT_VALUE),
+    JSON_ERR_MISSING_ARRAY_ELEMENT),
+    JSON_ERR_OUT_OF_MEMORY,                  = 30
     JSON_ERR_COUNT
 } JsonParseErrType;
 */
@@ -163,7 +168,7 @@ typedef enum json_error_type_e {
     X(COUNT)
 
 /* 2. Expand the list to create the Enum */
-typedef enum json_error_type_e {
+typedef enum json_error_type_e : uint32_t {
 #define X(name) JSON_ERR_##name,
     JSON_ERROR_LIST(X)
 #undef X
@@ -172,14 +177,19 @@ typedef enum json_error_type_e {
 constexpr uint32_t ERROR_MSG_BUFFER_SIZE = 1023;
 
 typedef struct json_parse_error_s {
-    const char *json;
-    enum json_error_type_e err_type;
-    uint32_t first_bad_char; // position where parsing failed
-    uint32_t line;
-    uint32_t column;
-    uint32_t parse_start;
-    uint32_t parse_end;
-    char     message[ERROR_MSG_BUFFER_SIZE + 1];
+    JsonParseErrType err_type;
+    uint32_t         first_bad_char; // position where parsing failed
+    uint32_t         line;
+    uint32_t         column;
+    uint32_t         parse_start;
+    uint32_t         parse_end;
+    // normally 0, but for certain error reporting, indicates how far ahead the look-ahead-buffer is from the current position
+    // e.g., lab_offset == 1 means the lab is one byte ahead of the `first_bad_char` member
+    uint32_t         lab_offset;  // look-ahead-buffer offset
+    char             look_behind_buffer[41]; // up to - 40 chars from current index position
+    char             look_ahead_buffer[41];  // up to + 40 chars from current index position
+
+    char             message[ERROR_MSG_BUFFER_SIZE + 1];
 } JsonParseError;
 
 typedef enum json_config_flag_e : uint64_t {
@@ -225,9 +235,9 @@ char const * const    JSON_WHITESPACE_CHARS_DEFAULT = " \t\n\r";
 // Must call at application startup to initialize the parser before first use.
 /**
  *  Notes:
- *  init() is intended to be called once before the parser is used
+ *  init() is intended to be called once before the parser is used.
  *  destroy() is intended to be called when done using the parser, before the application terminates.
- *  However, this isn't mandatory. init() and destory() calls can bracket a call to jsonp_parse(). It's just more
+ *  However, this isn't mandatory. init() and destroy() calls can bracket a call to jsonp_parse(). It's just more
  *  efficient to only call init() once.
  *
  *  init() sets the value of global variables used by all calls to API methods from multiple threads.
@@ -256,19 +266,22 @@ void jsonp_destroy(void);
 //      PARSING
 // -----------------------------------------------------------------
 
-JsonValue *jsonp_parse(const char *json_text, JsonParseError *error, Arena *arena);
-JsonValue *jsonp_parse_using_context(const char *json_text, JsonParseError *error, Arena *arena, JsonContext *context );
+// JsonValue * jsonp_parse(const char *json_text, JsonParseError *error, Arena *arena);
 
+JsonValue * jsonp_parse_string(const char *json_text, JsonParseError *error, Arena *arena) ;
+JsonValue * jsonp_parse_string_using_context(const char *json_text, JsonParseError *error, Arena *arena, JsonContext *context );
 
 // version that takes an argument, buffer_size, which is the actual size of the JSON text buffer in bytes.
 // this method can report errors where it parsed successfully but did not use up the entire buffer
-JsonValue *jsonp_parse_ex(const char *json, JsonParseError *error, Arena *arena, uint32_t buffer_size);
+JsonValue *jsonp_parse_string_ex(const char *json, JsonParseError *error, Arena *arena, uint32_t buffer_size);
 
+
+JsonValue * jsonp_parse_file(const char *json_filename, JsonParseError *error, Arena *arena);
 
 //// ------------------------------------------------------------
 ////
 ////    GLOBAL STATE
-////
+////    values are set in the `jsonp_init()` methods.
 //// ------------------------------------------------------------
 
 jp_bitset_t   jsonp_get_config_bitset();
@@ -321,18 +334,18 @@ void jsonp_clear_context_config_flag( JsonContext *context, JsonConfigFlag flag)
 // -----------------------------------------------------------------
 
 /**
- *  Sets the maximum nesting depth allowed in the JSON text. If depth is exceeded, the JSON text is
- *  rejected as invalid.
+ *  Sets the maximum nesting depth allowed in the JSON text for the JsonContext.
+ *  If depth is exceeded during parsing, the JSON text is rejected as invalid.
  *  The default is specified in DEPTH_MAX_DEFAULT
  *  @param max_depth the maximum allowed nesting depth of the JSON text structure.
  */
 void jsonp_set_context_max_depth(JsonContext *context, uint32_t max_depth);
+uint32_t jsonp_get_context_max_depth(JsonContext *context);
 
 // -----------------------------------------------------------------
 //      WHITESPACE
 // -----------------------------------------------------------------
 
-const char  * jsonp_get_context_whitespace_chars( JsonContext *context);
 
 /**
  * Specifies what the parser considers as white space. Replaces the existing definition.
@@ -356,8 +369,16 @@ const char  * jsonp_get_context_whitespace_chars( JsonContext *context);
  *
  */
 void jsonp_set_context_whitespace_chars( JsonContext *context, const char  *whitespace_chars );
+const char  * jsonp_get_context_whitespace_chars( JsonContext *context);
 
 
+// -----------------------------------------------------------------
+//      Decimal Seperator Char
+// -----------------------------------------------------------------
+
+char jsonp_get_context_decimal_separator( JsonContext *context );
+
+void jsonp_set_context_decimal_separator( JsonContext *context, char c);
 
 // Searches the entries in the JSON object `json_obj` and returns the entry whose key matches the argument `key`.
 // Returns nullptr if there is no entry with this key.

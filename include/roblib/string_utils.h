@@ -159,6 +159,17 @@ char * sutil_pad_left(const char *str, int width, char fill_char);
  */
 char * sutil_pad_right(const char *str,int width, char fill_char);
 
+// replace any occurrences of chars in `match_chars` with the `replacement` in the
+// mutable string `str`
+// returns the number of replacements made in `mutable_str`
+/**
+ * Replaces any occurrences of chars in `match_chars` with the `replacement` in the mutable string `mutable_str`
+ * @param mutable_str a mutable char buffer to be written to
+ * @param match_chars the chars to replace
+ * @param replacement_char the replacement char
+ * @return the number of replacements made in `mutable_str`
+ */
+uint32_t sutil_replace_match_chars(char *mutable_str, char const *match_chars, char replacement_char);
 
 /**
  * Returns true if the input string starts with the specified prefix, otherwise return false.

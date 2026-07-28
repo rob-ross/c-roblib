@@ -26,60 +26,60 @@ void JsonParserEnvironment::TearDown() {
 }
 
 TEST_F(JsonParserTest, TestNullText) {
-    JsonValue *jval = jsonp_parse(nullptr, &err, arena);
+    JsonValue *jval = jsonp_parse_string(nullptr, &err, arena);
     EXPECT_EQ(jval, nullptr) << "expected nullptr";
 }
 
 TEST_F(JsonParserTest, TestEmptyText) {
-    JsonValue *jval = jsonp_parse("", &err, arena);
+    JsonValue *jval = jsonp_parse_string("", &err, arena);
     EXPECT_EQ(jval, nullptr) << "expected nullptr";
 }
 
 TEST_F(JsonParserTest, TestLiterals) {
     JsonValue *jval;
 
-    jval = jsonp_parse("null", &err, arena);
+    jval = jsonp_parse_string("null", &err, arena);
     EXPECT_EQ(jval->type, JSON_NULL) << "Expected JsonType = JSON_NULL";
-    jval = jsonp_parse(" null ", &err, arena);
+    jval = jsonp_parse_string(" null ", &err, arena);
     EXPECT_EQ(jval->type, JSON_NULL) << "Expected JsonType = JSON_NULL";
-    jval = jsonp_parse("nul", &err, arena);
+    jval = jsonp_parse_string("nul", &err, arena);
     EXPECT_EQ(jval, nullptr) << "expected nullptr";
-    jval = jsonp_parse("nulll", &err, arena);
+    jval = jsonp_parse_string("nulll", &err, arena);
     EXPECT_EQ(jval, nullptr) << "expected nullptr";
-    jval = jsonp_parse("nullington", &err, arena);
+    jval = jsonp_parse_string("nullington", &err, arena);
     EXPECT_EQ(jval, nullptr) << "expected nullptr";
 
-    jval = jsonp_parse("true", &err, arena);
+    jval = jsonp_parse_string("true", &err, arena);
     EXPECT_EQ(jval->type, JSON_BOOLEAN) << "Expected JsonType = JSON_BOOLEAN";
     EXPECT_TRUE(jval->u.boolean);
-    jval = jsonp_parse(" true ", &err, arena);
+    jval = jsonp_parse_string(" true ", &err, arena);
     EXPECT_EQ(jval->type, JSON_BOOLEAN) << "Expected JsonType = JSON_BOOLEAN";
     EXPECT_TRUE(jval->u.boolean);
-    jval = jsonp_parse(" true false", &err, arena);  // should return null and an error
+    jval = jsonp_parse_string(" true false", &err, arena);  // should return null and an error
     EXPECT_EQ(jval, nullptr) << " 'true false' is invalid JSON";
     // EXPECT_EQ(jval->type, JSON_BOOLEAN) << "Expected JsonType = JSON_BOOLEAN";
     // EXPECT_TRUE(jval->u.boolean);
 
-    jval = jsonp_parse("false", &err, arena);
+    jval = jsonp_parse_string("false", &err, arena);
     EXPECT_EQ(jval->type, JSON_BOOLEAN) << "Expected JsonType = JSON_BOOLEAN";
     EXPECT_FALSE(jval->u.boolean);
-    jval = jsonp_parse(" false ", &err, arena);
+    jval = jsonp_parse_string(" false ", &err, arena);
     EXPECT_EQ(jval->type, JSON_BOOLEAN) << "Expected JsonType = JSON_BOOLEAN";
     EXPECT_FALSE(jval->u.boolean);
 
-    jval = jsonp_parse(" false true", &err, arena);
+    jval = jsonp_parse_string(" false true", &err, arena);
     EXPECT_EQ(jval, nullptr) << " 'false true' is invalid JSON";
 
     // EXPECT_EQ(jval->type, JSON_BOOLEAN) << "Expected JsonType = JSON_BOOLEAN";
     // EXPECT_FALSE(jval->u.boolean);
 
-    jval = jsonp_parse("falsee [\"list\"]", &err, arena);
+    jval = jsonp_parse_string("falsee [\"list\"]", &err, arena);
     EXPECT_EQ(jval, nullptr) << "expected nullptr";
 }
 
 TEST_F(JsonParserTest, TestArrayTrailingCommas) {
     char const * test_fixture = "[\"\",]";
-    JsonValue *jval = jsonp_parse(test_fixture, &err, arena);
+    JsonValue *jval = jsonp_parse_string(test_fixture, &err, arena);
     EXPECT_EQ(jval, nullptr) << "expected nullptr";
     EXPECT_EQ(err.err_type, JSON_ERR_TRAILING_COMMA_NOT_ALLOWED);
 
@@ -87,7 +87,7 @@ TEST_F(JsonParserTest, TestArrayTrailingCommas) {
 
     bool flag_was_set = jsonp_is_context_config_flag_set(context, JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_ARRAYS);
     jsonp_set_context_config_flag(context, JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_ARRAYS);
-    jval = jsonp_parse_using_context(test_fixture, &err, arena, context);
+    jval = jsonp_parse_string_using_context(test_fixture, &err, arena, context);
     EXPECT_NE(jval, nullptr) << "expected successful parse for: " << test_fixture;
     EXPECT_EQ(err.err_type, 0) << "expected no error for: " << test_fixture;
 
@@ -98,7 +98,7 @@ TEST_F(JsonParserTest, TestArrayTrailingCommas) {
 
 TEST_F(JsonParserTest, TestObjectTrailingCommas) {
     char const * test_fixture = "{\"foo\" : 1, }";
-    JsonValue *jval = jsonp_parse(test_fixture, &err, arena);
+    JsonValue *jval = jsonp_parse_string(test_fixture, &err, arena);
     EXPECT_EQ(jval, nullptr) << "expected nullptr";
     EXPECT_EQ(err.err_type, JSON_ERR_TRAILING_COMMA_NOT_ALLOWED);
 
@@ -106,7 +106,7 @@ TEST_F(JsonParserTest, TestObjectTrailingCommas) {
 
     bool flag_was_set = jsonp_is_context_config_flag_set(context, JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_OBJECTS);
     jsonp_set_context_config_flag(context, JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_OBJECTS);
-    jval = jsonp_parse_using_context(test_fixture, &err, arena, context);
+    jval = jsonp_parse_string_using_context(test_fixture, &err, arena, context);
     EXPECT_NE(jval, nullptr) << "expected successful parse for: " << test_fixture;
     EXPECT_EQ(err.err_type, JSON_ERR_NONE) << "expected no error for: " << test_fixture;
     if (err.err_type) jsonp_print_parse_error(&err);
@@ -119,19 +119,20 @@ TEST_F(JsonParserTest, TestObjectTrailingCommas) {
 
 TEST_F(JsonParserTest, n_multidigit_number_then_00_json) {
     char const * test_fixture = "123\x0";
-    JsonValue *jval = jsonp_parse(test_fixture, &err, arena);
+    JsonValue *jval = jsonp_parse_string(test_fixture, &err, arena);
     EXPECT_NE(jval, nullptr) << "expected successful parse with jsonp_parse";
 
-    jval = jsonp_parse_ex(test_fixture, &err, arena, 4);
+    jval = jsonp_parse_string_ex(test_fixture, &err, arena, 5);
     EXPECT_EQ(jval, nullptr) << "expected fail to parse";
     EXPECT_EQ(err.err_type, JSON_ERR_UNEXPECTED_EOF);
+    jsonp_print_parse_error(&err);
     EXPECT_EQ(err.parse_end, 3);
 }
 
 TEST_F(JsonParserTest, n_structure_whitespace_formfeed_json) {
     // form feed not "whitespace" per the JSON spec.
     char const * test_fixture = "[\x0c]";  // literal Form feed character
-    JsonValue *jval = jsonp_parse(test_fixture, &err, arena);
+    JsonValue *jval = jsonp_parse_string(test_fixture, &err, arena);
     EXPECT_EQ(jval, nullptr) << "expected fail to parse with embedded formfeed";
     EXPECT_EQ(err.err_type, JSON_ERR_MISSING_ARRAY_ELEMENT);
     EXPECT_EQ(err.parse_end, 1);
@@ -140,7 +141,7 @@ TEST_F(JsonParserTest, n_structure_whitespace_formfeed_json) {
 
     jsonp_set_context_whitespace_chars(context, " \t\n\r\f");  // add form-feed
 
-    jval = jsonp_parse_using_context(test_fixture, &err, arena, context);
+    jval = jsonp_parse_string_using_context(test_fixture, &err, arena, context);
     EXPECT_NE(jval, nullptr) << "expected successful parse for: '" << test_fixture \
         << "' after adding form-feed as white space character, but parsing failed. err_type = " << err.err_type;
     if (!jval) {
@@ -172,7 +173,7 @@ using JsonParserFloats  = JsonParserParamFixture<std::pair<std::string, double>>
 
 TEST_P(JsonParserStrings, TestStrings) {
     auto [input_json, expected_output] = GetParam(); // Structured binding
-    JsonValue *jval = jsonp_parse(input_json.c_str(), &err, arena);
+    JsonValue *jval = jsonp_parse_string(input_json.c_str(), &err, arena);
 
     ASSERT_NE(jval, nullptr) << "Failed to parse: " << input_json;
     EXPECT_EQ(jval->type, JSON_STRING);
@@ -194,7 +195,7 @@ INSTANTIATE_TEST_SUITE_P(
 
 TEST_P(JsonParserStringEscapes, TestStringEscapes) {
     auto [input_json, expected_output] = GetParam(); // Structured binding
-    JsonValue *jval = jsonp_parse(input_json.c_str(), &err, arena);
+    JsonValue *jval = jsonp_parse_string(input_json.c_str(), &err, arena);
 
     ASSERT_NE(jval, nullptr) << "Failed to parse: " << input_json << " " << err.message;
     EXPECT_EQ(jval->type, JSON_STRING);
@@ -240,7 +241,7 @@ INSTANTIATE_TEST_SUITE_P(
 
 TEST_P(JsonParserUnicodeStrings, TestStrings) {
     auto [input_json, expected_output] = GetParam(); // Structured binding
-    JsonValue *jval = jsonp_parse(input_json.c_str(), &err, arena);
+    JsonValue *jval = jsonp_parse_string(input_json.c_str(), &err, arena);
 
     ASSERT_NE(jval, nullptr) << "Failed to parse: " << input_json;
     EXPECT_EQ(jval->type, JSON_STRING);
@@ -261,7 +262,7 @@ INSTANTIATE_TEST_SUITE_P(
 
 TEST_P(JsonParserInts, TestDoubles) {
     auto [input_json, expected_value] = GetParam();
-    JsonValue *jval = jsonp_parse(input_json.c_str(), &err, arena);
+    JsonValue *jval = jsonp_parse_string(input_json.c_str(), &err, arena);
 
     ASSERT_NE(jval, nullptr) << "Failed to parse: " << input_json << err.message;
     EXPECT_EQ(jval->type, JSON_LONG);
@@ -290,7 +291,7 @@ INSTANTIATE_TEST_SUITE_P(
 
 TEST_P(JsonParserFloats, TestDoubles) {
     auto [input_json, expected_value] = GetParam();
-    JsonValue *jval = jsonp_parse(input_json.c_str(), &err, arena);
+    JsonValue *jval = jsonp_parse_string(input_json.c_str(), &err, arena);
 
     ASSERT_NE(jval, nullptr) << "Failed to parse: " << input_json;
     EXPECT_EQ(jval->type, JSON_DOUBLE);

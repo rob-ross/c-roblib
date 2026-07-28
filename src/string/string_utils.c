@@ -269,6 +269,35 @@ char * sutil_pad_right(const char *str, const int width, const char fill_char) {
     return new_string;
 }
 
+uint32_t sutil_replace_match_chars(char *mutable_str, char const *match_chars, const char replacement_char) {
+    if (!match_chars || *match_chars == '\0' || !replacement_char) {
+        return 0;
+    }
+    char *ptr = mutable_str;
+    uint32_t num_replacements = 0;
+    //optimization, if we only have one match char to check
+    if (strlen(match_chars) == 1) {
+        while (*ptr) {
+            if (*ptr == match_chars[0] ) {
+                *ptr = replacement_char;
+                num_replacements++;
+            }
+            ptr++;
+        }
+    } else {
+        char char_str[2] = {};  // strstr wants a char* not a single char
+        while (*ptr) {
+            char_str[0] = *ptr;
+            if ( strstr(match_chars, char_str) ) {
+                *ptr = replacement_char;
+                num_replacements++;
+            }
+            ptr++;
+        }
+    }
+    return num_replacements;
+}
+
 bool sutil_starts_with(const char *str, const char *prefix) {
     assert(str && "str cannot be nullptr");
     assert(prefix && "prefix cannot be nullptr");

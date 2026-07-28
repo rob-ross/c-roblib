@@ -1,13 +1,14 @@
+//  base.h
 //
-// Created by Rob Ross on 2/21/26.
+//  Created by Rob Ross on 2/21/26.
 //
 
 #pragma once
-
 #if !defined(__STDC_VERSION__) || __STDC_VERSION__ < 202311L
     // If not C23, include the header that provides 'bool'
     #include <stdbool.h>
 #endif
+
 
 // 1. Check if we are in C23
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202311L
@@ -30,6 +31,16 @@
     #define BOOL_FMT "%d"
 #endif
 
+#include <string.h>
+
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+
+
 // ----------------------------
 // HELPER MACROS
 // ----------------------------
@@ -44,14 +55,13 @@
 #define INT_FROM_PTR(p) (unsigned long long)((char*)p - (char*)0)
 #define PTR_FROM_INT(i) (void*)((char*)0 + (i))
 #define MEMBER(T, m) (((T*)0)->m)
-#define OFFSET_OF_MEMEBER(T, m) INT_FROM_PTR(&MEMBER(T, m))
+#define OFFSET_OF_MEMBER(T, m) INT_FROM_PTR(&MEMBER(T, m))
 #define MIN(a, b) (((a)<(b))?(a):(b))
 #define MAX(a, b) (((a)>(b))?(a):(b))
 #define CLAMP(a, x, b) (((x)<(a))?(a):((b)<(x))?(b):(x))
 #define CLAMP_TOP(a, b) MIN(a, b)
 #define CLAMP_BOT(a, b) MAX(a, b)
 
-#include <string.h>
 #define MEM_ZERO(p, z) memset((p), 0, (z))
 #define MEM_ZERO_STRUCT(p) MEM_ZERO((p), sizeof(*(p)))
 #define MEM_ZERO_ARRAY(p) MEM_ZERO((p), sizeof(p))
@@ -212,3 +222,7 @@
         putchar('\n');                  \
     } while (0)
 
+
+#ifdef __cplusplus
+}
+#endif
