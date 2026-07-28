@@ -166,7 +166,7 @@ typedef enum json_error_type_e {
     X(COUNT)
 
 /* 2. Expand the list to create the Enum */
-typedef enum json_error_type_e {
+typedef enum json_error_type_e : uint32_t {
 #define X(name) JSON_ERR_##name,
     JSON_ERROR_LIST(X)
 #undef X
@@ -175,14 +175,19 @@ typedef enum json_error_type_e {
 constexpr uint32_t ERROR_MSG_BUFFER_SIZE = 1023;
 
 typedef struct json_parse_error_s {
-    const char *json;
-    enum json_error_type_e err_type;
-    uint32_t first_bad_char; // position where parsing failed
-    uint32_t line;
-    uint32_t column;
-    uint32_t parse_start;
-    uint32_t parse_end;
-    char     message[ERROR_MSG_BUFFER_SIZE + 1];
+    JsonParseErrType err_type;
+    uint32_t         first_bad_char; // position where parsing failed
+    uint32_t         line;
+    uint32_t         column;
+    uint32_t         parse_start;
+    uint32_t         parse_end;
+    // normally 0, but for certain error reporting, indicates how far ahead the look-ahead-buffer is from the current position
+    // e.g., lab_offset == 1 means the lab is one byte ahead of the `first_bad_char` member
+    uint32_t         lab_offset;  // look-ahead-buffer offset
+    char             look_behind_buffer[41]; // up to - 40 chars from current index position
+    char             look_ahead_buffer[41];  // up to + 40 chars from current index position
+
+    char             message[ERROR_MSG_BUFFER_SIZE + 1];
 } JsonParseError;
 
 typedef enum json_config_flag_e : uint64_t {
@@ -228,9 +233,9 @@ char const * const    JSON_WHITESPACE_CHARS_DEFAULT = " \t\n\r";
 // Must call at application startup to initialize the parser before first use.
 /**
  *  Notes:
- *  init() is intended to be called once before the parser is used
+ *  init() is intended to be called once before the parser is used.
  *  destroy() is intended to be called when done using the parser, before the application terminates.
- *  However, this isn't mandatory. init() and destory() calls can bracket a call to jsonp_parse(). It's just more
+ *  However, this isn't mandatory. init() and destroy() calls can bracket a call to jsonp_parse(). It's just more
  *  efficient to only call init() once.
  *
  *  init() sets the value of global variables used by all calls to API methods from multiple threads.
