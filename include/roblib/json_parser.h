@@ -275,10 +275,11 @@ JsonValue *jsonp_parse_string_ex(const char *json, JsonParseError *error, Arena 
 
 
 JsonValue * jsonp_parse_file(const char *json_filename, JsonParseError *error, Arena *arena);
+
 //// ------------------------------------------------------------
 ////
 ////    GLOBAL STATE
-////
+////    values are set in the `jsonp_init()` methods.
 //// ------------------------------------------------------------
 
 jp_bitset_t   jsonp_get_config_bitset();
@@ -331,18 +332,18 @@ void jsonp_clear_context_config_flag( JsonContext *context, JsonConfigFlag flag)
 // -----------------------------------------------------------------
 
 /**
- *  Sets the maximum nesting depth allowed in the JSON text. If depth is exceeded, the JSON text is
- *  rejected as invalid.
+ *  Sets the maximum nesting depth allowed in the JSON text for the JsonContext.
+ *  If depth is exceeded during parsing, the JSON text is rejected as invalid.
  *  The default is specified in DEPTH_MAX_DEFAULT
  *  @param max_depth the maximum allowed nesting depth of the JSON text structure.
  */
 void jsonp_set_context_max_depth(JsonContext *context, uint32_t max_depth);
+uint32_t jsonp_get_context_max_depth(JsonContext *context);
 
 // -----------------------------------------------------------------
 //      WHITESPACE
 // -----------------------------------------------------------------
 
-const char  * jsonp_get_context_whitespace_chars( JsonContext *context);
 
 /**
  * Specifies what the parser considers as white space. Replaces the existing definition.
@@ -366,6 +367,7 @@ const char  * jsonp_get_context_whitespace_chars( JsonContext *context);
  *
  */
 void jsonp_set_context_whitespace_chars( JsonContext *context, const char  *whitespace_chars );
+const char  * jsonp_get_context_whitespace_chars( JsonContext *context);
 
 
 // -----------------------------------------------------------------
