@@ -59,7 +59,6 @@ static constexpr uint8_t BOM_UTF32_LE[] = { 0xFF, 0xFE, 0x00, 0x00 };
 // -----------------------------------------------------------------
 
 typedef long (*read_fn)( void *context, unsigned char *buffer, size_t max_bytes );
-typedef int  (*next_char_fn)( void *context );
 typedef int  (*current_char_fn)( void *context );
 typedef int  (*peek_next_char_fn)( void *context );
 typedef int  (*peek_lookahead_chars_fn)( void *context, uint32_t lookahead );
@@ -81,7 +80,6 @@ typedef struct {
     uint32_t       parse_end;
 
     read_fn                     read;
-    next_char_fn                next_char;
     current_char_fn             current_char;
     peek_next_char_fn           peek_next_char;
     peek_lookahead_chars_fn     peek_lookahead_chars;
@@ -191,7 +189,7 @@ static long file_ensure_char_ring_buffer_capacity(FileSourceInputContext *src, s
     CharRingBuffer *lab = &src->scanner_buffer;
 
     if ( lab->length >= num_bytes ) {
-        return num_bytes;  // buffer is already at desired length
+        return (long)num_bytes;  // buffer is already at desired length
     }
 
     // read more characters into the lookahead buffer.
@@ -214,7 +212,7 @@ int file_next_char(void *context)
         file_read(context, nullptr, 40);
     }
 
-    return input->current_char(src);
+    return (unsigned char)input->current_char(src);
 }
 
 int file_current_char(void *context) {
@@ -257,8 +255,14 @@ int file_peek_lookahead_chars(void *context, uint32_t lookahead ) {
         return EOF;
 
     // return src->json_text[src->position + lookahead];
-    return 'a';
-
+    CharRingBuffer *scanner_buffer = &src->scanner_buffer;
+    long result = file_ensure_char_ring_buffer_capacity(src, lookahead);
+    if (result < lookahead) {
+        // error
+        printf("file_ensure_char_ring_buffer_capacity() returned %ld in file_peek_lookahead_chars()", result);
+        return EOF;
+    }
+    return crb_peek_char_CharRingBuffer(scanner_buffer, lookahead);
 }
 
 uint32_t file_advance_n_bytes( void *context, uint32_t num_bytes) {
@@ -287,12 +291,12 @@ uint32_t file_advance_n_bytes( void *context, uint32_t num_bytes) {
             num_to_add = MIN(capacity, 128);
         }
         char cb[128] = {};
-        int n = snprintf(cb, num_to_add + 1, "%s", "nullptr");
-        if (!n) {
-            fprintf(stderr, "snprintf returned %d in file_advance_n_bytes", n);
-        } else {
-            crb_add_str_to_buffer_CharRingBuffer(look_behind_buffer, num_to_add, cb);
-        }
+        // write the contents of scanner_buffer into the `cb` array
+        crb_sprint_buffer_CharRingBuffer(scanner_buffer, cb);
+        // advance the scanner_buffer by the requested, clamped amount
+        crb_advance_buffer_CharRingBuffer(scanner_buffer, num_to_add);
+        // copy the chars we advanced past into the look-behind_buffer
+        crb_add_str_to_buffer_CharRingBuffer(look_behind_buffer, num_to_add, cb);
     }
 
     if (input->current_byte_index >= src->length_bytes - num_bytes  ) {
@@ -1967,8 +1971,9 @@ static JsonValue * pvt_jsonp_parse_impl(JsonContext *context, JsonParseError *er
 
     pvt_skip_whitespace(context);
     // todo (rob) this might need to compare to EOF not NUL for non-string sources?
-    if ( pvt_current_char(context) == NUL) {
-        pvt_record_error(context, error, JSON_ERR_EMPTY_TEXT, "empty json text");
+    char current_char = pvt_current_char(context);
+    if ( current_char == NUL || current_char == EOF) {
+        pvt_record_error(context, error, JSON_ERR_EMPTY_TEXT, "json text is composed only of white space");
         return nullptr;
     }
 
@@ -2140,7 +2145,6 @@ Input pvt_get_string_input_source( StringSourceInputContext *ss) {
     Input input = {
         .input_context            = (void*)ss,
         .read                     = string_read,
-        .next_char                = string_next_char,
         .current_char             = string_current_char,
         .peek_next_char           = string_peek_next_char,
         .peek_lookahead_chars     = string_peek_lookahead_chars,
@@ -2212,10 +2216,10 @@ JsonValue *jsonp_parse_string_ex(const char *json_text, JsonParseError *error, A
 
     if (input.current_byte_index < buffer_size) {
         snprintf(context.error_msg, ERROR_MSG_BUFFER_SIZE,
-    "JSON text was successfully parsed, but characters remain in the buffer."
+    "JSON text was successfully parsed, but unparsed characters remain in the buffer."
     " This can happen when the text is followed by embedded NUL characters.\nbuffer size=%u, bytes parsed=%u",
     buffer_size, input.current_byte_index );
-        pvt_record_error(&context, error, JSON_ERR_UNEXPECTED_EOF, context.error_msg);
+        pvt_record_error(&context, error, JSON_ERR_EXPECTED_EOF, context.error_msg);
         return nullptr;
 
     }
@@ -2226,7 +2230,6 @@ Input pvt_get_file_input_source( FileSourceInputContext *fs) {
     Input input = {
         .input_context            = (void*)fs,
         .read                     = file_read,
-        .next_char                = file_next_char,
         .current_char             = file_current_char,
         .peek_next_char           = file_peek_next_char,
         .peek_lookahead_chars     = file_peek_lookahead_chars,
@@ -2269,7 +2272,7 @@ static void pvt_debug_file_buffering(FILE *fp) {
 
 JsonValue * jsonp_parse_file(const char *json_filename, JsonParseError *error, Arena *arena) {
     if (!json_filename) {
-        *error = (JsonParseError){ .message = "JSON filename is nullptr", .err_type = JSON_ERR_NULL_TEXT};
+        *error = (JsonParseError){ .message = "JSON filename is a nullptr", .err_type = JSON_ERR_NULL_TEXT};
         return nullptr;
     }
     if (json_filename[0] == NUL) {
@@ -2351,7 +2354,6 @@ JsonValue * jsonp_parse_file(const char *json_filename, JsonParseError *error, A
 
     Input input = pvt_get_file_input_source(&fs);
     fs.input = &input;
-    // we need to preload the look-ahead buffer
 
     JsonContext context = {};
     pvt_write_global_state(&context);
@@ -2362,8 +2364,19 @@ JsonValue * jsonp_parse_file(const char *json_filename, JsonParseError *error, A
 
     int close_err = fclose(fp);
 
+    if (error->err_type != JSON_ERR_NONE ) return nullptr;
 
-    // jsonp_parse_json_impl(&input);
+    //check if there are still chars remaining that weren't parsed
+    if ( fs.length_bytes > input.current_byte_index ) {
+        snprintf(context.error_msg, ERROR_MSG_BUFFER_SIZE,
+        "JSON text was successfully parsed, but unparsed characters remain in the buffer."
+        " This can happen when the text is followed by embedded NUL characters.\nbuffer size=%zd, bytes parsed=%u",
+        fs.length_bytes, input.current_byte_index );
+        pvt_record_error(&context, error, JSON_ERR_EXPECTED_EOF, context.error_msg);
+        return nullptr;
+    }
+
+
     return value;
 }
 
@@ -2561,17 +2574,13 @@ constexpr char right_caret[] = "\033[91m<\033[0m";
 
 void jsonp_print_parse_error(JsonParseError *err) {
     if (!err) {
-        printf("(JsonParseError)null\n");
+        printf("(JsonParseError)nullptr\n");
         return;
     }
 
     printf("%d:%s  line:%d col:%d pos:%d start:%d end:%d :  %s  \n",
     err->err_type, jsonp_parse_error_type_name(err->err_type),
     err->line+1, err->column+1, err->first_bad_char, err->parse_start, err->parse_end, err->message);
-
-    // for display, replace new line chars with a space so the error message remains on the same line
-    // sutil_replace_match_chars( err->look_behind_buffer, NEWLINE_CHARS, SPACE_CHAR);
-    // sutil_replace_match_chars( err->look_ahead_buffer,  NEWLINE_CHARS, SPACE_CHAR);
 
     // debug version
     // printf("%d:%s  line:%d col:%d pos:%d start:%d end:%d :  %s   lab offset:%d look_behind_buffer: '%s', look_ahead_buffer: '%s', err->json: '%s'\n",
@@ -2580,26 +2589,31 @@ void jsonp_print_parse_error(JsonParseError *err) {
     //     err->lab_offset, err->look_behind_buffer, err->look_ahead_buffer, err->json);
 
 
+    if ( err->err_type == JSON_ERR_NULL_TEXT ||
+          ( err->err_type == JSON_ERR_EMPTY_TEXT && !strlen(err->look_behind_buffer)) ) {
+        return; // nothing was scanned, i.e. null/empty text
+    }
+
     uint32_t err_pos_offset = err->lab_offset;
-    StringBuilder json_text = {};
-    sb_init( &json_text, 80 + 20, err->look_behind_buffer);
+    StringBuilder json_err_text = {};
+    sb_init( &json_err_text, 80 + 20, err->look_behind_buffer);
     if (err_pos_offset > 0) {
-        uint32_t insert_pos = json_text.length - err_pos_offset;
-        sb_insert_str(&json_text,  right_caret, insert_pos + 1 );
-        sb_insert_str(&json_text,  left_caret, insert_pos );
-        sb_append_str(&json_text, err->look_ahead_buffer);
+        uint32_t insert_pos = json_err_text.length - err_pos_offset;
+        sb_insert_str(&json_err_text,  right_caret, insert_pos + 1 );
+        sb_insert_str(&json_err_text,  left_caret, insert_pos );
+        sb_append_str(&json_err_text, err->look_ahead_buffer);
     } else {
-        sb_append_str(&json_text, left_caret);
-        sb_append_char(&json_text, *err->look_ahead_buffer);
-        sb_append_str(&json_text, right_caret );
-        sb_append_str(&json_text, err->look_ahead_buffer + 1);
+        sb_append_str(&json_err_text, left_caret);
+        sb_append_char(&json_err_text, *err->look_ahead_buffer);
+        sb_append_str(&json_err_text, right_caret );
+        sb_append_str(&json_err_text, err->look_ahead_buffer + 1);
     }
 
     // for display, replace new line chars with a space so the error message remains on the same line
-    sb_replace_match_chars(&json_text,NEWLINE_CHARS, SPACE_CHAR );
-    printf("%s\n", json_text.buffer);
+    sb_replace_match_chars(&json_err_text,NEWLINE_CHARS, SPACE_CHAR );
+    printf("%s\n", json_err_text.buffer);
 
-    sb_destroy(&json_text);
+    sb_destroy(&json_err_text);
 }
 
 //// ------------------------------------------------------------
@@ -3086,7 +3100,27 @@ void test_one_json_file(void) {
     // //fail
     // parse_json_file("../test/json_parser/JSONTestSuite/fail/i_structure_500_nested_arrays.json");
 
-    parse_json_file("../test/json_parser/JSONTestSuite/fail/n_object_with_single_string.json");
+    // parse_json_file("../test/json_parser/JSONTestSuite/fail/n_object_with_single_string.json");
+
+    // n_structure_single_eacute.json
+    // parse_json_file("../test/json_parser/JSONTestSuite/fail/n_structure_single_eacute.json");
+
+    // this has only a BOM. It recocnizes it as empty text, but uses the length of the bom in the error message incorrectly
+    // n_structure_UTF8_BOM_no_data.json
+    // parse_json_file("../test/json_parser/JSONTestSuite/fail/n_structure_UTF8_BOM_no_data.json");
+
+    // n_multidigit_number_then_00.json
+    // want fail
+    parse_json_file("../test/json_parser/JSONTestSuite/fail/n_multidigit_number_then_00.json");
+
+    // when parsed as a file this gives the wrong error, 3:UNEXPECTED_TEXT  line:1 col:1 pos:1 start:1 end:1 :  unexpected character: EOF
+    // It should give a 'only whitespace' error
+
+    // n_single_space.json
+    // parse_json_file("../test/json_parser/JSONTestSuite/fail/n_single_space.json");
+
+
+    // parse_json_file("../test/json_parser/JSONTestSuite/fail/n_string_1_surrogate_then_escape_u1.json");
 
 
 }
