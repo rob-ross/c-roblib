@@ -10,6 +10,7 @@
 
 #include <locale.h>
 #include <sys/stat.h>
+#include <unistd.h> // For access() or stat() on POSIX
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
@@ -137,6 +138,9 @@ typedef struct {
     size_t              length_bytes;
 } FileSourceInputContext;
 
+
+
+
 long file_read( void *context, unsigned char *buffer, size_t max_bytes)
 {
     FileSourceInputContext *src = context;
@@ -158,7 +162,8 @@ long file_read( void *context, unsigned char *buffer, size_t max_bytes)
         perror("");
         putchar('\n');
     } else {
-        printf("ftell pos:%ld, src->position=%u, remaining=%zd, max_bytes=%zd\n", tell_pos, input->current_byte_index, remaining, max_bytes);
+        printf("ftell-pos:%ld, src-pos=%u, src len =%zd, remaining=%zd, max_bytes=%zd\n",
+            tell_pos, input->current_byte_index, src->length_bytes, remaining, max_bytes);
     }
     if (remaining == 0) return EOF;
 
@@ -168,7 +173,7 @@ long file_read( void *context, unsigned char *buffer, size_t max_bytes)
     size_t bytes_read = fread( buf, 1, remaining, fp);
     printf("bytes_read=%zu,", bytes_read);
 
-    if (bytes_read == 0) {
+    if (bytes_read < 0) {
         if (ferror(fp)) {
             perror("Error reading file");
         }
@@ -180,6 +185,20 @@ long file_read( void *context, unsigned char *buffer, size_t max_bytes)
     return (long)bytes_read;
 }
 
+// try to ensure the CharRingBuffer has num_bytes elements, read from file if needed
+static long file_ensure_char_ring_buffer_capacity(FileSourceInputContext *src, size_t num_bytes) {
+    Input *input = src->input;
+    CharRingBuffer *lab = &src->scanner_buffer;
+
+    if ( lab->length >= num_bytes ) {
+        return num_bytes;  // buffer is already at desired length
+    }
+
+    // read more characters into the lookahead buffer.
+    size_t capacity = sizeof(lab->buffer);
+
+    return input->read(src, nullptr, capacity);  // try to fill as much of the buffer as we can
+}
 
 int file_next_char(void *context)
 {
@@ -202,23 +221,31 @@ int file_current_char(void *context) {
     FileSourceInputContext *src = context;
     Input *input = src->input;
 
-    if (input->current_byte_index == src->length_bytes)
-        return EOF;
+    if (input->current_byte_index == src->length_bytes) return EOF;
 
     CharRingBuffer *lab = &src->scanner_buffer;
+    long result = file_ensure_char_ring_buffer_capacity(src, 1);
+    if (result < 0) {
+        // error
+        printf("file_ensure_char_ring_buffer_capacity() returned %ld in file_current_char", result);
+        return EOF;
+    }
     return crb_peek_char_CharRingBuffer(lab, 0);
 }
 
 int file_peek_next_char(void *context) {
     FileSourceInputContext *src = context;
-    int c = fgetc(src->file_ptr);
-    if ( c != EOF) {
-        int result = ungetc(c, src->file_ptr);
-        if ( result == EOF) {
-            printf("ungetc returns EOF for char 0X%x\n", c);
-        }
+    Input *input = src->input;
+    if (input->current_byte_index == src->length_bytes) return EOF;
+
+    CharRingBuffer *scanner_buffer = &src->scanner_buffer;
+    long result = file_ensure_char_ring_buffer_capacity(src, 2);
+    if (result < 2) {
+        // error
+        printf("file_ensure_char_ring_buffer_capacity() returned %ld in file_peek_next_char()", result);
+        return EOF;
     }
-    return c;
+    return crb_peek_char_CharRingBuffer(scanner_buffer, 1);
 }
 
 // we only intend to support max lookahead of 2
@@ -237,13 +264,42 @@ int file_peek_lookahead_chars(void *context, uint32_t lookahead ) {
 uint32_t file_advance_n_bytes( void *context, uint32_t num_bytes) {
     FileSourceInputContext *src = context;
     Input *input = src->input;
-
     CharRingBuffer *look_behind_buffer = &input->look_behind_buffer;
+    CharRingBuffer *scanner_buffer = &src->scanner_buffer;
+
+    // add chars to look-behind-buffer
+    const size_t capacity = sizeof(look_behind_buffer->buffer);
+
+    long result = file_ensure_char_ring_buffer_capacity(src, num_bytes);
+    if (result < num_bytes) {
+        printf("file_ensure_char_ring_buffer_capacity() returned %ld in file_advance_n_bytes()", result);
+        return EOF;
+    }
+
+    if (num_bytes == 1 ) {
+        int cur_char = crb_get_next_char_CharRingBuffer(scanner_buffer);
+        // todo error checking
+        crb_add_char_to_buffer_CharRingBuffer(look_behind_buffer,  (char)cur_char);
+    } else if (num_bytes > 1) {
+        size_t num_to_add = num_bytes;
+        if (num_bytes > capacity) {
+            // we'll only add the last `capacity` bytes.
+            num_to_add = MIN(capacity, 128);
+        }
+        char cb[128] = {};
+        int n = snprintf(cb, num_to_add + 1, "%s", "nullptr");
+        if (!n) {
+            fprintf(stderr, "snprintf returned %d in file_advance_n_bytes", n);
+        } else {
+            crb_add_str_to_buffer_CharRingBuffer(look_behind_buffer, num_to_add, cb);
+        }
+    }
 
     if (input->current_byte_index >= src->length_bytes - num_bytes  ) {
         input->current_byte_index = src->length_bytes;
         return 0;
     }
+    //todo this isn't correct. num_bytes needs to be clamped to bytes remaining
     input->current_byte_index += num_bytes;
     return num_bytes;
 }
@@ -251,13 +307,19 @@ uint32_t file_advance_n_bytes( void *context, uint32_t num_bytes) {
 // copies up to `n_chars` chars forward from the current position of the JSON text.
 void file_sprint_n_lookahead_chars(void *context, const uint32_t n_chars, char buffer[ static n_chars + 1 ] ) {
     FileSourceInputContext *src = context;
+    Input *input = src->input;
+    if (input->current_byte_index == src->length_bytes) return;
 
-    // char const *ptr = "foo" + src->current_index_byte;
-    // size_t index = 0;
-    // while ( *ptr && index < n_chars ) {
-    //     buffer[index++] = *ptr++;
-    // }
-    // buffer[n_chars] = NUL;
+    long result = file_ensure_char_ring_buffer_capacity(src, n_chars);
+    CharRingBuffer *scanner_buffer = &src->scanner_buffer;
+
+    if (result < 0) {
+        // error
+        printf("file_ensure_char_ring_buffer_capacity() returned %ld in file_sprint_n_lookahead_chars", result);
+        return;
+    }
+
+    crb_sprint_buffer_CharRingBuffer(scanner_buffer, buffer );
 }
 
 // -----------------------------------------------------------------
@@ -579,9 +641,9 @@ JsonObjectEntry * jsonp_entry_for_key(const JsonValue *json_obj, char const * ke
 
 static JsonObjectEntry * pvt_parse_one_entry(JsonContext *context, JsonParseError *error, Arena *arena) {
     pvt_skip_whitespace(context);
+    Input *input = context->input;
     // We need to assign to parse_start here since we aren't calling pvt_parse_value(),
     // which is where we normally set this as we start to parse a JSON value
-    Input *input = context->input;
 
     input->parse_start = input->current_byte_index;
     if (pvt_current_char(context) != '"') {
@@ -2206,15 +2268,42 @@ static void pvt_debug_file_buffering(FILE *fp) {
 }
 
 JsonValue * jsonp_parse_file(const char *json_filename, JsonParseError *error, Arena *arena) {
-    // todo (rob) error checking, does file exist, is it a json file, etc.
-    FILE *fp = fopen(json_filename, "rb");
+    if (!json_filename) {
+        *error = (JsonParseError){ .message = "JSON filename is nullptr", .err_type = JSON_ERR_NULL_TEXT};
+        return nullptr;
+    }
+    if (json_filename[0] == NUL) {
+        *error = (JsonParseError){ .message = "JSON filename is empty string", .err_type = JSON_ERR_EMPTY_TEXT};
+        return nullptr;
+    }
 
+    // Check if file exists and is accessible before attempting to open
+    struct stat st;
+    if (stat(json_filename, &st) != 0) {
+        int saved_errno = errno;
+        if (saved_errno == ENOENT) {
+            snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "File '%s' not found.", json_filename);
+            error->err_type = JSON_ERR_FILE_NOT_FOUND;
+        } else if (saved_errno == EACCES) {
+            snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "Permission denied for file '%s': %s", json_filename, strerror(saved_errno));
+            error->err_type = JSON_ERR_FILE_ACCESS_ERROR;
+        } else {
+            snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "Error accessing file '%s': %s", json_filename, strerror(saved_errno));
+            error->err_type = JSON_ERR_FILE_ACCESS_ERROR;
+        }
+        return nullptr;
+    }
+
+    // todo (rob) check if it's a regular file (S_ISREG(st.st_mode))
+
+    FILE *fp = fopen(json_filename, "rb");
+    int saved_errno = errno;
 
     if (!fp) {
         // handle error
-        printf("fopen returned nullptr, ");
-        perror("");
-        putchar('\n');
+        // If stat() succeeded but fopen() failed, it's likely a different issue (e.g., too many open files, file is a directory)
+        snprintf( error->message, ERROR_MSG_BUFFER_SIZE, "Failed to open file '%s': %s", json_filename, strerror(saved_errno) );
+        error->err_type = JSON_ERR_FILE_OPEN_FAILED;
         return nullptr;
     }
 
@@ -2223,33 +2312,32 @@ JsonValue * jsonp_parse_file(const char *json_filename, JsonParseError *error, A
     pvt_debug_file_buffering(fp);
 
     // need to get file size
-    size_t file_size = 0;
+    long file_size = 0;
     // let's try fseek
-    int fseek_result = fseek( fp,  0, SEEK_END );  // try to seek to end
-    if (fseek_result) {
-        printf("fseek SEEK_END reports error: %d, ", fseek_result);
-        perror("");
-        putchar('\n');
-        int close_err = fclose(fp);
+    if (fseek(fp, 0, SEEK_END) != 0) {
+        saved_errno = errno;
+        snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "fseek(SEEK_END) failed: %s", strerror(saved_errno));
+        error->err_type = JSON_ERR_FILE_OPEN_FAILED;
+        fclose(fp);
         return nullptr;
     }
 
     // if we got here, we were able to seek to the end.
     long tell_pos = ftell( fp );
-    if (tell_pos < 0 ) {
-        printf("ftell returned %ld, error:", tell_pos);
-        perror("");
-        putchar('\n');
-    } else {
-        file_size = tell_pos;
+    if (tell_pos < 0) {
+        saved_errno = errno;
+        snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "ftell failed: %s", strerror(saved_errno));
+        error->err_type = JSON_ERR_FILE_OPEN_FAILED;
+        fclose(fp);
+        return nullptr;
     }
+    file_size = tell_pos;
 
-    fseek_result = fseek( fp,  0, SEEK_SET );  // try to seek to start
-    if (fseek_result) {
-        printf("fseek SEEK_SET reports error: %d, ", fseek_result);
-        perror("");
-        putchar('\n');
-        int close_err = fclose(fp);
+    if (fseek(fp, 0, SEEK_SET) != 0) {
+        saved_errno = errno;
+        snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "fseek(SEEK_SET) failed: %s", strerror(saved_errno));
+        error->err_type = JSON_ERR_FILE_OPEN_FAILED;
+        fclose(fp);
         return nullptr;
     }
 
@@ -2988,8 +3076,19 @@ void parse_json_file(char const *filename) {
 }
 
 void test_one_json_file(void) {
-    char const *filename ="y_array_false.json";
-    parse_json_file(filename);
+    // parse_json_file(nullptr);
+    // parse_json_file("");
+    // parse_json_file("no such file");
+    //
+    // parse_json_file("../test/json_parser/JSONTestSuite/pass/y_string_1_2_3_bytes_UTF-8_sequences.json");
+    // parse_json_file("../test/json_parser/JSONTestSuite/pass/y_array_with_several_null.json");
+    //
+    // //fail
+    // parse_json_file("../test/json_parser/JSONTestSuite/fail/i_structure_500_nested_arrays.json");
+
+    parse_json_file("../test/json_parser/JSONTestSuite/fail/n_object_with_single_string.json");
+
+
 }
 
 

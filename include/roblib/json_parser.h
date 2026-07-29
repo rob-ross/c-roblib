@@ -165,6 +165,9 @@ typedef enum json_error_type_e {
     X(MISSING_OBJECT_VALUE) \
     X(MISSING_ARRAY_ELEMENT) \
     X(OUT_OF_MEMORY) \
+    X(FILE_NOT_FOUND) \
+    X(FILE_ACCESS_ERROR) \
+    X(FILE_OPEN_FAILED) \
     X(COUNT)
 
 /* 2. Expand the list to create the Enum */
