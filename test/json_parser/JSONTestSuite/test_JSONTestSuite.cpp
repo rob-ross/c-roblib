@@ -5,7 +5,7 @@
 // Run JSONTestSuite against the JSON parser
 
 
-#include "test_json_parser.h"
+#include "../test_json_parser.h"
 
 #include <dirent.h>
 #include <sys/stat.h>
@@ -114,7 +114,7 @@ protected:
     }
 };
 
-TEST_P(JsonTestSuiteParam, parse_json) {
+TEST_P(JsonTestSuiteParam, jsonp_parse_string) {
     const JsonTestParams& params = GetParam();
     std::string json_text = read_file(params.full_path);
 
@@ -135,54 +135,57 @@ TEST_P(JsonTestSuiteParam, parse_json) {
         EXPECT_NE(err.err_type, JSON_ERR_NONE);
         jsonp_print_parse_error(&err);
     }
-
 }
 
-// TEST_P(JsonTestSuiteParam, FileTests) {
-//     const JsonTestParams& params = GetParam();
-//     std::string json_text = read_file(params.full_path);
-//
-//     JsonValue *jval = json_parse(json_text.c_str(), &err, arena);
-//
-//     if (params.should_pass) {
-//         EXPECT_NE(jval, nullptr)
-//             << "File: " << params.filename
-//             << "\nExpected success but failed.\nContent: " << json_text;
-//         EXPECT_EQ(err.err_type, JSON_ERR_NONE);
-//     } else {
-//         EXPECT_EQ(jval, nullptr)
-//             << "File: " << params.filename
-//             << "\nExpected failure but succeeded.\nContent: " << json_text;
-//         EXPECT_NE(err.err_type, JSON_ERR_NONE);
-//     }
-// }
+TEST_P(JsonTestSuiteParam, jsonp_parse_file) {
+    const JsonTestParams& params = GetParam();
+    std::string json_filename = read_file(params.full_path);
+
+    JsonValue *jval = jsonp_parse_file(params.full_path.c_str(), &err, arena);
+
+    if (params.should_pass) {
+        EXPECT_NE(jval, nullptr)
+            << "File: " << params.filename
+            << "\nExpected success but failed.\nContent: " << params.full_path;
+        EXPECT_EQ(err.err_type, JSON_ERR_NONE);
+        if (err.err_type != JSON_ERR_NONE) jsonp_print_parse_error(&err);
+
+    } else {
+        EXPECT_EQ(jval, nullptr)
+            << "File: " << params.filename
+            << "\nExpected failure but succeeded.\nContent: " << params.full_path;
+        EXPECT_NE(err.err_type, JSON_ERR_NONE);
+        if (err.err_type != JSON_ERR_NONE) jsonp_print_parse_error(&err);
+
+    }
+}
 
 INSTANTIATE_TEST_SUITE_P(
-    ShouldPass,
+    WantPass,
     JsonTestSuiteParam,
     testing::ValuesIn(GetTestSuiteFiles(std::string("/pass"), true)),
     ParamNameGenerator
 );
 
 INSTANTIATE_TEST_SUITE_P(
-    ShouldFail,
+    WantFail,
     JsonTestSuiteParam,
     testing::ValuesIn(GetTestSuiteFiles(std::string("/fail"), false)),
     ParamNameGenerator
 );
 
 // indeterminate tests that should pass have been moved into the /pass directory
-// INSTANTIATE_TEST_SUITE_P(
-//     Indeterminate_as_Pass,
-//     JsonTestSuiteParam,
-//     testing::ValuesIn(GetTestSuiteFiles(std::string("/indeterminate"), true)),
-//     ParamNameGenerator
-// );
+INSTANTIATE_TEST_SUITE_P(
+    IndeterminateWantPass,
+    JsonTestSuiteParam,
+    testing::ValuesIn(GetTestSuiteFiles(std::string("/indeterminate/want_pass"), true)),
+    ParamNameGenerator
+);
 
 // indeterminate tests that should pass have been moved into the /pass directory
 INSTANTIATE_TEST_SUITE_P(
-    Indeterminate_as_Fail,
+    IndeterminateWantFail,
     JsonTestSuiteParam,
-    testing::ValuesIn(GetTestSuiteFiles(std::string("/indeterminate"), false)),
+    testing::ValuesIn(GetTestSuiteFiles(std::string("/indeterminate/want_fail"), false)),
     ParamNameGenerator
 );
