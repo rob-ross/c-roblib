@@ -131,9 +131,7 @@ typedef struct {
     const char          *json_file_full_path;
     const char          *json_filename;
     FILE                *file_ptr;
-    // look_behind_buffer instance is shared with the parent Input struct that contains the FileSourceInputContext
-    CharRingBuffer      *look_behind_buffer;    // last 40 bytes scanned
-    // look_ahead_buffer is private to this FileSourceInputContext instance
+    // scanner_buffer is private to this FileSourceInputContext instance
     CharRingBuffer      scanner_buffer;     // next 40 bytes from file
 
     size_t              length_bytes;
@@ -240,7 +238,7 @@ uint32_t file_advance_n_bytes( void *context, uint32_t num_bytes) {
     FileSourceInputContext *src = context;
     Input *input = src->input;
 
-    CharRingBuffer *look_behind_buffer = src->look_behind_buffer;
+    CharRingBuffer *look_behind_buffer = &input->look_behind_buffer;
 
     if (input->current_byte_index >= src->length_bytes - num_bytes  ) {
         input->current_byte_index = src->length_bytes;
@@ -279,7 +277,6 @@ typedef struct {
     // and go out of scope at the same time.
     Input               *input;
     const char          *json_text;             // full original JSON text string
-    CharRingBuffer      *look_behind_buffer;    // last 40 bytes scanned
     size_t              length_bytes;           // total length of the json_text C-string in bytes
 } StringSourceInputContext;
 
@@ -304,7 +301,7 @@ int string_next_char(void *context) {
     Input *input = src->input;
     if (input->current_byte_index == src->length_bytes) return (unsigned char)src->json_text[src->length_bytes];
 
-    CharRingBuffer *look_behind_buffer = src->look_behind_buffer;
+    CharRingBuffer *look_behind_buffer = &input->look_behind_buffer;
     crb_add_char_to_buffer_CharRingBuffer(look_behind_buffer,  src->json_text[input->current_byte_index]);
     return (unsigned char)src->json_text[input->current_byte_index++];
 }
@@ -328,7 +325,7 @@ int string_peek_lookahead_chars( void *context, uint32_t lookahead ) {
 uint32_t string_advance_n_bytes( void *context, const uint32_t num_bytes) {
     StringSourceInputContext *src = context;
     Input *input = src->input;
-    CharRingBuffer *look_behind_buffer = src->look_behind_buffer;
+    CharRingBuffer *look_behind_buffer = &input->look_behind_buffer;
 
     // add chars to look-behind-buffer
     const size_t capacity = sizeof(look_behind_buffer->buffer);
@@ -2088,7 +2085,7 @@ Input pvt_get_string_input_source( StringSourceInputContext *ss) {
         .advance_n_bytes          = string_advance_n_bytes,
         .sprint_n_lookahead_chars = string_sprint_n_lookahead_chars
     };
-    ss->look_behind_buffer = &input.look_behind_buffer;
+    // ss->look_behind_buffer = &input.look_behind_buffer;
     return input;
 }
 
@@ -2174,7 +2171,7 @@ Input pvt_get_file_input_source( FileSourceInputContext *fs) {
         .advance_n_bytes          = file_advance_n_bytes,
         .sprint_n_lookahead_chars = file_sprint_n_lookahead_chars
     };
-    fs->look_behind_buffer = &input.look_behind_buffer;
+    // fs->look_behind_buffer = &input.look_behind_buffer;
 
     return input;
 }
