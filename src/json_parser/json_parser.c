@@ -11,14 +11,10 @@
 #include <locale.h>
 #include <sys/stat.h>
 #include <unistd.h> // For access() or stat() on POSIX
-#include <stdlib.h>
-#include <string.h>
 #include <errno.h>
 #include <stdatomic.h>
 
 #include <curl/curl.h>
-
-#include <assert.h>
 
 #include "roblib/string_builder.h"
 #include "roblib/char_ring_buffer.h"
@@ -2457,7 +2453,6 @@ WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp) {
         printf("not enough memory (realloc returned NULL)\n");
         return 0;
     }
-
     mem->memory = ptr;
     memcpy(&(mem->memory[mem->size]), contents, realsize);
     mem->size += realsize;
@@ -2493,12 +2488,14 @@ JsonValue * jsonp_parse_url( const char* url, JsonParseError *error, Arena *aren
     JsonValue* value = nullptr;
     if(res != CURLE_OK) {
         snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "curl_easy_perform() failed: %s", curl_easy_strerror(res));
-        // todo (rob) new error type for this
+        // TODO(rob): Add a new, more specific error type like JSON_ERR_NETWORK_ERROR
         error->err_type = JSON_ERR_FILE_ACCESS_ERROR;
     } else {
         // Now, parse the downloaded data from memory
         printf("Downloaded %zu bytes. Parsing...\n", chunk.size);
-        value = jsonp_parse_string(chunk.memory, error, arena);
+        // value = jsonp_parse_string(chunk.memory, error, arena);
+        // jsonp_parse_string_ex is better here as it handles embedded nulls.
+        value = jsonp_parse_string_ex(chunk.memory, error, arena, chunk.size);
 
         // Alternately, we could create an in-memory FILE* stream from the downloaded data
         // if the file is very large we could have a read and write buffer in a background thread to parse
@@ -2516,6 +2513,7 @@ JsonValue * jsonp_parse_url( const char* url, JsonParseError *error, Arena *aren
 
     // Cleanup
     curl_easy_cleanup(curl_handle);
+    // Free the temporary buffer used by the callback.
     free(chunk.memory);
     curl_global_cleanup();
 
@@ -2544,6 +2542,12 @@ Error jsonp_init_3(jp_bitset_t config_flags, uint32_t max_depth, char const * wh
     if (atomic_load(&is_initialized)) {
         return (Error){};  // already initialized, no-op, empty error
     }
+
+    // Initialize libcurl globally. This is thread-safe and safe to call multiple times,
+    // but it's best practice to call it once at the start.
+    // if (curl_global_init(CURL_GLOBAL_ALL) != CURLE_OK) {
+    //     return (Error){ .err = true, .msg = "Failed to initialize libcurl" };
+    // }
 
     // Initialize Whitespace (Copy the argument)
     // ReSharper disable once CppDFAMemoryLeak
@@ -2587,6 +2591,8 @@ void jsonp_destroy(void) {
         if (ws) {
             free( (void*)ws);
         }
+        // Clean up libcurl resources.
+        // curl_global_cleanup();
     }
 }
 
