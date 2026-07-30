@@ -135,7 +135,7 @@ TEST_P(JsonTestSuiteParam, jsonp_parse_string) {
         EXPECT_NE(err.err_type, JSON_ERR_NONE);
         // todo temp remove print after testing that the tests work.
         // Since we expect it to fail, don't print the error
-        jsonp_print_parse_error(&err);
+        // jsonp_print_parse_error(&err);
     }
 }
 
@@ -145,6 +145,12 @@ TEST_P(JsonTestSuiteParam, jsonp_parse_string_ex) {
 
     // Pass the explicit size to the parser so it doesn't stop at embedded nulls
     JsonValue *jval = jsonp_parse_string_ex(json_text.c_str(),  &err, arena, json_text.size() );
+
+    // if (params.filename == "n_multidigit_number_then_00.json") {
+    //     std::cout   << "strlen(json_text.c_str():" << strlen(json_text.c_str())
+    //                 << ", json_text.size():" << json_text.size() << std::endl;
+    // }
+
 
     if (params.should_pass) {
         EXPECT_NE(jval, nullptr)
@@ -160,7 +166,7 @@ TEST_P(JsonTestSuiteParam, jsonp_parse_string_ex) {
         EXPECT_NE(err.err_type, JSON_ERR_NONE);
         // todo temp remove print after testing that the tests work.
         // Since we expect it to fail, don't print the error
-        jsonp_print_parse_error(&err);
+        // jsonp_print_parse_error(&err);
     }
 }
 
@@ -182,7 +188,7 @@ TEST_P(JsonTestSuiteParam, jsonp_parse_file) {
             << "File: " << params.filename
             << "\nExpected failure but succeeded.\nPath: " << params.full_path;
         EXPECT_NE(err.err_type, JSON_ERR_NONE);
-        if (err.err_type != JSON_ERR_NONE) jsonp_print_parse_error(&err);
+        // if (err.err_type != JSON_ERR_NONE) jsonp_print_parse_error(&err);
 
     }
 }
