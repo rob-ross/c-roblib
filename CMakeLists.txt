@@ -73,7 +73,16 @@ set(LIB_SOURCES
         ${LIB_SRC_DIR}/set/bitset.c
 )
 
+# Find the libcurl package
+find_package(CURL REQUIRED)
+
 add_library(c_roblib STATIC ${LIB_SOURCES})
+
+# Link c_roblib against libcurl
+target_link_libraries(c_roblib PRIVATE
+        # ... other libraries ...
+        CURL::libcurl
+)
 
 # 2. Organize Header Search Paths
 # PUBLIC: headers in 'include' are needed by anyone linking to this library.
@@ -101,7 +110,13 @@ add_executable(json_parse2
         ${LIB_SRC_DIR}/unicode/unicode_tools.c
         ${LIB_SRC_DIR}/json_parser/error_result.c
 )
+
+# Link c_roblib against libcurl
 #target_link_libraries(json_parse2 PRIVATE c_roblib)
+target_link_libraries(json_parse2 PRIVATE
+        # ... other libraries ...
+        CURL::libcurl
+)
 target_include_directories(json_parse2
         PUBLIC
         PRIVATE
@@ -123,8 +138,9 @@ install(DIRECTORY "${LIB_INCLUDE_DIR}/"
         FILES_MATCHING PATTERN "*.h")
 
 
-# Gtest
-#-------
+##################################################
+#               GTEST
+##################################################
 #
 # to run all tests:
 # ./cmake-build-debug/run_tests
