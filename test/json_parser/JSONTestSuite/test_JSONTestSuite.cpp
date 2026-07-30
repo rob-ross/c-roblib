@@ -2,28 +2,26 @@
 //
 // Created by Rob Ross on 7/11/26.
 //
-// Run JSONTestSuite against the JSON parser
+// Runs JSONTestSuite JSON files against the JSON parser.
+// see: https://github.com/rob-ross/JSONTestSuite/tree/master
 
 
 #include "../test_json_parser.h"
 
-#include <dirent.h>
-#include <sys/stat.h>
+
 #include <gtest/gtest.h>
 #include <fstream>
 #include <sstream>
 #include <string>
-#include <cstring>
-#include <cstdio>
 #include <functional>
 #include <algorithm>
 #include <vector>
-#include <cctype>
+#include <filesystem>
 
-extern "C" {
-#include "roblib/json_parser.h"
-}
-
+/**
+ * @brief Holds metadata for a single JSON test file.
+ * Used as the parameter type for GTest's parameterized tests.
+ */
 struct JsonTestParams {
     std::string filename;
     std::string full_path;
@@ -42,59 +40,46 @@ std::string ParamNameGenerator(const testing::TestParamInfo<JsonTestParams>& inf
     return name + "_" + std::to_string(info.index);
 }
 
+/**
+ * @brief Crawls a directory for .json files and populates the test vector.
+ * Uses std::filesystem (C++17) for robust path handling.
+ */
 void collect_files(const char* path, bool should_pass, std::vector<JsonTestParams>& tests) {
-    DIR *dir = opendir(path);
-    if (!dir) {
-        return;
-    }
+    try {
+        if (!std::filesystem::exists(path) || !std::filesystem::is_directory(path)) return;
 
-    struct dirent *entry;
-    struct stat file_stat;
-    char full_path[PATH_MAX];
+        for (const auto& entry : std::filesystem::directory_iterator(path)) {
+            if (!entry.is_regular_file()) continue;
 
-    while ((entry = readdir(dir)) != NULL) {
-        // Skip the current and parent directory pointers
-        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
-            continue;
-        }
-
-        // Construct the full path for the stat call
-        int len = snprintf(full_path, sizeof(full_path), "%s/%s", path, entry->d_name);
-        if (len >= (int)sizeof(full_path)) {
-            fprintf(stderr, "Path too long: %s/%s\n", path, entry->d_name);
-            continue;
-        }
-
-        if (lstat(full_path, &file_stat) == -1) {
-            continue;
-        }
-
-        const bool is_dir  = S_ISDIR(file_stat.st_mode);
-        const bool is_file = S_ISREG(file_stat.st_mode);
-
-        if (is_dir) {
-            // for this test we don't need to recurse into subdirectories
-        } else if ( is_file) {
-            const char *ext = strrchr(entry->d_name, '.');
-            if (!ext || ext == entry->d_name) continue;
-            ext++; // Move past the dot
-
-            if (strcmp(ext, "json") != 0) {
-                continue;
+            if (entry.path().extension() == ".json") {
+                tests.push_back({
+                    entry.path().filename().string(),
+                    entry.path().string(),
+                    should_pass
+                });
             }
-
-            tests.push_back({entry->d_name, full_path, should_pass});
         }
+    } catch (const std::filesystem::filesystem_error& e) {
+        fprintf(stderr, "Filesystem error: %s\n", e.what());
     }
-    closedir(dir);
 }
 
-std::vector<JsonTestParams> GetTestSuiteFiles(std::string test_file_path, bool should_pass) {
+
+/**
+ * @brief Entry point for the test suite instantiation.
+ * JSONTestSuite_DATA_PATH must be defined via the build system (e.g., CMake).
+ */
+std::vector<JsonTestParams> GetTestSuiteFiles(const std::string &test_file_path, bool should_pass) {
     std::vector<JsonTestParams> tests;
     collect_files(std::string(JSONTestSuite_DATA_PATH + test_file_path).c_str(), should_pass, tests);
     return tests;
 }
 
+/**
+ * @brief Fixture for JSON Test Suite.
+ * Inherits from JsonParserTest to gain access to the shared arena and error structs.
+ * Inherits from WithParamInterface to enable data-driven testing.
+ */
 class JsonTestSuiteParam : public JsonParserTest, public testing::WithParamInterface<JsonTestParams> {
 protected:
     std::string read_file(const std::string& path) {
@@ -118,8 +103,23 @@ TEST_P(JsonTestSuiteParam, jsonp_parse_string) {
     const JsonTestParams& params = GetParam();
     std::string json_text = read_file(params.full_path);
 
+    // C-string API Limitation: jsonp_parse_string treats \0 as the end of the input.
+    // The C-string API cannot distinguish between content-NUL and terminator-NUL.
+    // If a JSON file contains an embedded NUL byte, like `n_multidigit_number_then_00.json`,
+    // which contains "123\0", then the parser stops early.
+    // If the content before the NUL is valid JSON, it produces a false positive success.
+
+    // Since jsonp_parse_string treats \0 as the end of input, it successfully parses "123"
+    // resulting in a false positive. We skip this specific file for the string API.
+    // Other files with NULs (like '{"a":\0}') still fail correctly and are kept for coverage.
+    // Note: jsonp_parse_file handles this file correctly as it is not bound by C-string rules.
+    if (params.filename == "n_multidigit_number_then_00.json") {
+        GTEST_SKIP() << "Skipping jsonp_parse_string for known C-string false-positive: " << params.filename;
+    }
+
     // Pass the explicit size to the parser so it doesn't stop at embedded nulls
     // JsonValue *jval = json_parse_ex(json_text.c_str(), json_text.size(), &err, arena);
+
     JsonValue *jval = jsonp_parse_string(json_text.c_str(), &err, arena);
     if (params.should_pass) {
         EXPECT_NE(jval, nullptr)
@@ -133,27 +133,54 @@ TEST_P(JsonTestSuiteParam, jsonp_parse_string) {
             << "File: " << params.filename
             << "\nExpected failure but succeeded.\nContent: " << json_text;
         EXPECT_NE(err.err_type, JSON_ERR_NONE);
+        // todo temp remove print after testing that the tests work.
+        // Since we expect it to fail, don't print the error
         jsonp_print_parse_error(&err);
     }
 }
 
-TEST_P(JsonTestSuiteParam, jsonp_parse_file) {
+TEST_P(JsonTestSuiteParam, jsonp_parse_string_ex) {
     const JsonTestParams& params = GetParam();
-    std::string json_filename = read_file(params.full_path);
+    std::string json_text = read_file(params.full_path);
 
-    JsonValue *jval = jsonp_parse_file(params.full_path.c_str(), &err, arena);
+    // Pass the explicit size to the parser so it doesn't stop at embedded nulls
+    JsonValue *jval = jsonp_parse_string_ex(json_text.c_str(),  &err, arena, json_text.size() );
 
     if (params.should_pass) {
         EXPECT_NE(jval, nullptr)
             << "File: " << params.filename
-            << "\nExpected success but failed.\nContent: " << params.full_path;
+            << "\nExpected success but failed.\nContent: " << json_text;
         EXPECT_EQ(err.err_type, JSON_ERR_NONE);
         if (err.err_type != JSON_ERR_NONE) jsonp_print_parse_error(&err);
 
     } else {
         EXPECT_EQ(jval, nullptr)
             << "File: " << params.filename
-            << "\nExpected failure but succeeded.\nContent: " << params.full_path;
+            << "\nExpected failure but succeeded.\nContent: " << json_text;
+        EXPECT_NE(err.err_type, JSON_ERR_NONE);
+        // todo temp remove print after testing that the tests work.
+        // Since we expect it to fail, don't print the error
+        jsonp_print_parse_error(&err);
+    }
+}
+
+TEST_P(JsonTestSuiteParam, jsonp_parse_file) {
+    const JsonTestParams& params = GetParam();
+    // std::string json_filename = read_file(params.full_path);
+
+    JsonValue *jval = jsonp_parse_file(params.full_path.c_str(), &err, arena);
+
+    if (params.should_pass) {
+        EXPECT_NE(jval, nullptr)
+            << "File: " << params.filename
+            << "\nExpected success but failed.\nPath: " << params.full_path;
+        EXPECT_EQ(err.err_type, JSON_ERR_NONE);
+        if (err.err_type != JSON_ERR_NONE) jsonp_print_parse_error(&err);
+
+    } else {
+        EXPECT_EQ(jval, nullptr)
+            << "File: " << params.filename
+            << "\nExpected failure but succeeded.\nPath: " << params.full_path;
         EXPECT_NE(err.err_type, JSON_ERR_NONE);
         if (err.err_type != JSON_ERR_NONE) jsonp_print_parse_error(&err);
 
