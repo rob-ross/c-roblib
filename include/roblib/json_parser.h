@@ -293,6 +293,10 @@ JsonValue * jsonp_parse_file(const char *json_filename, JsonParseError *error, A
  */
 JsonValue * jsonp_parse_stream( FILE *fp, JsonParseError *error, Arena *arena);
 
+// For future use. Not really tested.
+// How to integrate with security constraints, authorization, API keys, etc?
+JsonValue * jsonp_parse_url( const char* url, JsonParseError *error, Arena *arena);
+
 //// ------------------------------------------------------------
 ////
 ////    GLOBAL STATE
