@@ -217,10 +217,6 @@ TEST_P(JsonTestSuiteParam, jsonp_parse_stream) {
     // to avoid blocking on large inputs.
     std::thread writer_thread([write_fd, json_text]() {
         size_t total_written = 0;
-        // Search for "\0" and replace with actual null byte if needed?
-        // Actually, the read_file function likely handles binary data if it's reading the whole file.
-        // But for testing purposes, if we want to ensure null bytes are sent:
-
         while (total_written < json_text.size()) {
             ssize_t bytes_written = send(write_fd, json_text.data() + total_written, json_text.size() - total_written, MSG_NOSIGNAL);
             if (bytes_written <= 0) break;
