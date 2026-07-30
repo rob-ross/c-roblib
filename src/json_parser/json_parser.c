@@ -28,9 +28,15 @@
  *  todo (rob) tasks:
  *  1. pretty printer
  *  2. file writer to save JSON to FILE*
- *  3. file parser, to parse a json file document instead of a string
- *  4. implement current config flag options in code
-
+ *  3. API for parsing a FILE*?
+ *  4. implement all current config flag options in code
+ *      - JSON_CONFIG_ALLOW_HEX_x_ESCAPE
+ *          two issues that complicate this.
+ *              1. Every \xXX is 4 characters, but this results in a single byte in the string
+ *              2. We need to feed a converted \xXX value to the utf-8 verifier as we parse.
+ *                  Mixing escapes and bytes complicates things. If \xXX is a leading byte and the next two
+ *                  bytes in the stream are valid continuation bytes, the multi-byte char is valid.
+ *
  *  7. add ability to change depth on context
  *  8. add ability to change whitespace on context
  *  9. documentation
@@ -1608,7 +1614,7 @@ static JsonValue * pvt_parse_string(JsonContext *context, JsonParseError *error,
             }
 
         } else if ( current_byte <= 0x1F) {
-            // RFC 8259: Control characters U+0000 through U+001F MUST be escaped.
+            // RFC 8259: Control characters U+0000 through U+001F MUST be escaped. (u-escaped, not solidus-escaped)
             // This means the literal bytes cannot appear here.
             snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "unescaped control character: 0x%.2X", current_byte);
             pvt_record_error(context, error, JSON_ERR_UNESCAPED_CONTROL_CHAR, error->message);
