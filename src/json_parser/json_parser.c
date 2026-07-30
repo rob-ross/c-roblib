@@ -58,7 +58,7 @@ static constexpr uint8_t BOM_UTF32_LE[] = { 0xFF, 0xFE, 0x00, 0x00 };
 //      READER FUNCTIONS
 // -----------------------------------------------------------------
 
-typedef long (*read_fn)( void *context, unsigned char *buffer, size_t max_bytes );
+typedef long (*read_fn)( void *context, size_t max_bytes );
 typedef int  (*current_char_fn)( void *context );
 typedef int  (*peek_next_char_fn)( void *context );
 typedef int  (*peek_lookahead_chars_fn)( void *context, uint32_t lookahead );
@@ -139,7 +139,7 @@ typedef struct {
 
 
 
-long file_read( void *context, unsigned char *buffer, size_t max_bytes)
+long file_read( void *context, size_t max_bytes)
 {
     FileSourceInputContext *src = context;
     Input *input = src->input;
@@ -156,12 +156,10 @@ long file_read( void *context, unsigned char *buffer, size_t max_bytes)
 
     long tell_pos = ftell( fp );
     if (tell_pos < 0 ) {
-        printf("ftell returned %ld, error:", tell_pos);
-        perror("");
-        putchar('\n');
+        printf("ftell returned %ld, error: %s, filename: %s", tell_pos, strerror(errno), src->json_filename);
     } else {
-        printf("ftell-pos:%ld, src-pos=%u, src len =%zd, remaining=%zd, max_bytes=%zd\n",
-            tell_pos, input->current_byte_index, src->length_bytes, remaining, max_bytes);
+        // printf("ftell-pos:%ld, src-pos=%u, src len =%zd, remaining=%zd, max_bytes=%zd\n",
+        //     tell_pos, input->current_byte_index, src->length_bytes, remaining, max_bytes);
     }
     if (remaining == 0) return EOF;
 
@@ -169,7 +167,7 @@ long file_read( void *context, unsigned char *buffer, size_t max_bytes)
     if (remaining > wanted_bytes) remaining = wanted_bytes;
     char buf[41] = {};
     size_t bytes_read = fread( buf, 1, remaining, fp);
-    printf("bytes_read=%zu,", bytes_read);
+    // printf("bytes_read=%zu,", bytes_read);
 
     if (bytes_read < 0) {
         if (ferror(fp)) {
@@ -178,8 +176,7 @@ long file_read( void *context, unsigned char *buffer, size_t max_bytes)
         return EOF;
     }
     crb_add_str_to_buffer_strict_CharRingBuffer(lab, bytes_read, buf);
-    // src->current_index_byte += bytes_read;
-    printf("src->position=%u\n", input->current_byte_index);
+    // printf("src->position=%u\n", input->current_byte_index);
     return (long)bytes_read;
 }
 
@@ -188,6 +185,9 @@ static long file_ensure_char_ring_buffer_capacity(FileSourceInputContext *src, s
     Input *input = src->input;
     CharRingBuffer *lab = &src->scanner_buffer;
 
+    size_t remaining = src->length_bytes - input->current_byte_index;
+    num_bytes = MIN(num_bytes, remaining);
+
     if ( lab->length >= num_bytes ) {
         return (long)num_bytes;  // buffer is already at desired length
     }
@@ -195,7 +195,7 @@ static long file_ensure_char_ring_buffer_capacity(FileSourceInputContext *src, s
     // read more characters into the lookahead buffer.
     size_t capacity = sizeof(lab->buffer);
 
-    return input->read(src, nullptr, capacity);  // try to fill as much of the buffer as we can
+    return input->read(src, capacity);  // try to fill as much of the buffer as we can
 }
 
 int file_next_char(void *context)
@@ -209,7 +209,7 @@ int file_next_char(void *context)
     CharRingBuffer *lab = &src->scanner_buffer;
     if (lab->length == 0 ) {
         // need to read into the buffer first
-        file_read(context, nullptr, 40);
+        file_read(context, 40);
     }
 
     return (unsigned char)input->current_char(src);
@@ -346,13 +346,15 @@ typedef struct {
     size_t              length_bytes;           // total length of the json_text C-string in bytes
 } StringSourceInputContext;
 
-long string_read( void *context, unsigned char *buffer, size_t max_bytes) {
+long string_read( void *context, size_t max_bytes) {
     // this is basically a no-op since the full json_text is already in memory at src->json_text
-    StringSourceInputContext *src = context;
-    Input *input = src->input;
-    if (input->current_byte_index == src->length_bytes) return EOF;
-    size_t return_bytes = max_bytes > src->length_bytes ? src->length_bytes : max_bytes;
-    return (long)return_bytes;
+
+//     StringSourceInputContext *src = context;
+//     Input *input = src->input;
+//     if (input->current_byte_index == src->length_bytes) return EOF;
+//     size_t return_bytes = max_bytes > src->length_bytes ? src->length_bytes : max_bytes;
+//     return (long)return_bytes;
+    return 0;
 }
 
 int string_current_char(void *context) {
@@ -1937,15 +1939,14 @@ static JsonValue *pvt_parse_value(JsonContext *context, JsonParseError *error, A
             break;
 
         default:
-            if (error) {
-                int written = snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "unexpected character: ");
-                if (written > 0) {
-                    pvt_format_error_message_char(ERROR_MSG_BUFFER_SIZE - written,
-                        error->message + written, pvt_current_char(context) );
-                }
-                pvt_record_error(context, error, JSON_ERR_UNEXPECTED_TEXT, error->message);
-                return nullptr;
+            int written = snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "unexpected character: ");
+            if (written > 0) {
+                pvt_format_error_message_char(ERROR_MSG_BUFFER_SIZE - written,
+                    error->message + written, pvt_current_char(context) );
             }
+            pvt_record_error(context, error, JSON_ERR_UNEXPECTED_TEXT, error->message);
+            return nullptr;
+
             break;
 
     }
@@ -2312,7 +2313,7 @@ JsonValue * jsonp_parse_file(const char *json_filename, JsonParseError *error, A
 
     // Check buffering before we do anything.
     // Note: Some implementations don't allocate the buffer until the first I/O call.
-    pvt_debug_file_buffering(fp);
+    // pvt_debug_file_buffering(fp);
 
     // need to get file size
     long file_size = 0;
@@ -2362,7 +2363,12 @@ JsonValue * jsonp_parse_file(const char *json_filename, JsonParseError *error, A
     JsonValue *value = nullptr;
     value = pvt_jsonp_parse_impl(&context, error, arena);
 
+
     int close_err = fclose(fp);
+    fs.file_ptr = nullptr;
+    // assigns no-op read function in case future calls to pvt_record_error() try to
+    // read from the file which is now closed.
+    input.read = string_read;
 
     if (error->err_type != JSON_ERR_NONE ) return nullptr;
 
