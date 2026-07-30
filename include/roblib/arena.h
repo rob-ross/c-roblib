@@ -30,7 +30,6 @@
 #define ROBLIB_ARENA_H
 
 #include <stdint.h>
-#include <sys/_types/_size_t.h>
 
 #include "error_result.h"
 
