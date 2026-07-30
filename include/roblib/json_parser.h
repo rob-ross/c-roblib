@@ -34,6 +34,9 @@ The literal names MUST be lowercase.  No other literal names are allowed.
 #ifndef JSON_PARSER_H
 #define JSON_PARSER_H
 
+
+#include <stdio.h>
+
 #include "arena.h"
 #include "error_result.h"
 
@@ -283,6 +286,12 @@ JsonValue *jsonp_parse_string_ex(const char *json, JsonParseError *error, Arena 
 
 
 JsonValue * jsonp_parse_file(const char *json_filename, JsonParseError *error, Arena *arena);
+
+/**
+ * The user is responsible for passing a FILE* opened in binary mode ("rb").
+ * The behavior is unspecified otherwise and will likely fail on Windows.
+ */
+JsonValue * jsonp_parse_stream( FILE *fp, JsonParseError *error, Arena *arena);
 
 //// ------------------------------------------------------------
 ////
