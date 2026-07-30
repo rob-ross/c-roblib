@@ -34,8 +34,6 @@ The literal names MUST be lowercase.  No other literal names are allowed.
 #ifndef JSON_PARSER_H
 #define JSON_PARSER_H
 
-#include <regex.h>
-
 #include "arena.h"
 #include "error_result.h"
 
