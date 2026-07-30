@@ -25,7 +25,7 @@ constexpr size_t CharRingBuffer_SIZE = 40;
 
 /**
  * CharRingBuffer is the "prototype" definition of a CharRingBuffer and accompanying API methods.
- * When debugging, adding, and modifing code in the macro, use the concrete version for CharRingBuffer
+ * When debugging, adding, and modifying code in the macro, use the concrete version for CharRingBuffer
  * to implement and debug the final changes, then edit the macro to include the new generic code.
  * Keep the flow one-way from Concrete Implementation -> Macro code
  *
@@ -208,12 +208,8 @@ static void pvt_crb_sprint_buffer_##TYPENAME##SIZE(TYPENAME##SIZE *crb, char *bu
     buffer[crb->length] = '\0';                                                                               \
 }                                                                                                                 \
 
-
-
-
-
-#endif //C_ROBLIB_CHAR_RING_BUFFER_H
-
 #ifdef __cplusplus
 }
 #endif
+
+#endif //C_ROBLIB_CHAR_RING_BUFFER_H
