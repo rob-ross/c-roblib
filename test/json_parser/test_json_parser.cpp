@@ -122,10 +122,10 @@ TEST_F(JsonParserTest, n_multidigit_number_then_00_json) {
     JsonValue *jval = jsonp_parse_string(test_fixture, &err, arena);
     EXPECT_NE(jval, nullptr) << "expected successful parse with jsonp_parse";
 
-    jval = jsonp_parse_string_ex(test_fixture, &err, arena, 5);
+    jval = jsonp_parse_string_ex(test_fixture, &err, arena, 4);
     EXPECT_EQ(jval, nullptr) << "expected fail to parse";
     EXPECT_EQ(err.err_type, JSON_ERR_EXPECTED_EOF);
-    jsonp_print_parse_error(&err);
+    // jsonp_print_parse_error(&err);
     EXPECT_EQ(err.parse_end, 3);
 }
 
