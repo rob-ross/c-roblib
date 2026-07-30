@@ -16,6 +16,7 @@
 #include <errno.h>
 #include <stdatomic.h>
 
+#include <curl/curl.h>
 
 #include <assert.h>
 
@@ -2437,6 +2438,92 @@ JsonValue * jsonp_parse_stream( FILE* fp, JsonParseError *error, Arena *arena) {
 }
 
 
+// A struct to help us collect the data from libcurl
+struct MemoryStruct {
+    char *memory;
+    size_t size;
+};
+
+// This is a callback function that libcurl will call with chunks of data
+static size_t
+WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp) {
+    size_t realsize = size * nmemb;
+    struct MemoryStruct *mem = (struct MemoryStruct *)userp;
+
+    // todo (rob) use arena
+    char *ptr = realloc(mem->memory, mem->size + realsize + 1);
+    if(!ptr) {
+        /* out of memory! */
+        printf("not enough memory (realloc returned NULL)\n");
+        return 0;
+    }
+
+    mem->memory = ptr;
+    memcpy(&(mem->memory[mem->size]), contents, realsize);
+    mem->size += realsize;
+    mem->memory[mem->size] = 0;
+
+    return realsize;
+}
+
+JsonValue * jsonp_parse_url( const char* url, JsonParseError *error, Arena *arena) {
+    CURL *curl_handle;
+    CURLcode res;
+
+    struct MemoryStruct chunk;
+    // todo (rob) use arena
+    chunk.memory = malloc(1);  /* will be grown as needed by the callback */
+    chunk.size = 0;            /* no data at this point */
+
+    curl_global_init(CURL_GLOBAL_ALL);
+    curl_handle = curl_easy_init();
+
+    // Set the URL to fetch
+    curl_easy_setopt(curl_handle, CURLOPT_URL, url);
+    // Set the callback function to handle the data
+    curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+    // Pass our 'chunk' struct to the callback
+    curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *)&chunk);
+    // Some servers don't like requests that are not from a "browser"
+    curl_easy_setopt(curl_handle, CURLOPT_USERAGENT, "libcurl-agent/1.0");
+
+    // Perform the request
+    res = curl_easy_perform(curl_handle);
+
+    JsonValue* value = nullptr;
+    if(res != CURLE_OK) {
+        snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "curl_easy_perform() failed: %s", curl_easy_strerror(res));
+        // todo (rob) new error type for this
+        error->err_type = JSON_ERR_FILE_ACCESS_ERROR;
+    } else {
+        // Now, parse the downloaded data from memory
+        printf("Downloaded %zu bytes. Parsing...\n", chunk.size);
+        value = jsonp_parse_string(chunk.memory, error, arena);
+
+        // Alternately, we could create an in-memory FILE* stream from the downloaded data
+        // if the file is very large we could have a read and write buffer in a background thread to parse
+        // as the file is being downloaded.
+        // FILE* stream = fmemopen(chunk.memory, chunk.size, "rb");
+        // if (stream == NULL) {
+        //     snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "fmemopen() failed.");
+        //     error->err_type = JSON_ERR_FILE_OPEN_FAILED;
+        // } else {
+        //     // Now you can use your new function!
+        //     value = jsonp_parse_stream(stream, error, arena);
+        //     fclose(stream);
+        // }
+    }
+
+    // Cleanup
+    curl_easy_cleanup(curl_handle);
+    free(chunk.memory);
+    curl_global_cleanup();
+
+    return value;
+}
+
+
+
 // -----------------------------------------------------------------
 //      INITIALIZE
 // -----------------------------------------------------------------
@@ -3172,7 +3259,6 @@ void parse_json_stream(char const *filename) {
     }
     JsonParseError err = {};
     printf("\nParsing json file as stream: '%s': \n", filename);
-    // JsonValue *jval = jsonp_parse(str, &err, &arena);
     JsonValue *jval = jsonp_parse_stream(fp, &err, &arena);
     fclose(fp);
 
@@ -3190,6 +3276,41 @@ void parse_json_stream(char const *filename) {
     arena_destroy_arena(&arena);
     jsonp_destroy();
 }
+
+void parse_json_url(char const *url_string) {
+    Error init_err = jsonp_init();
+    if (init_err.err) {
+        err_print(init_err);
+        jsonp_destroy();
+        return;
+    }
+    Arena arena = {};
+    ArenaErrResult aer = arena_create_arena( &arena, ONE_MIBIBYTE * 100);
+    if ( aer.err ) {
+        printf("arena_create_arena failed with %d, %s\n", aer.reported_err, aer.msg);
+        jsonp_destroy();
+        return;
+    }
+
+    JsonParseError err = {};
+    printf("\nParsing json file from url: '%s': \n", url_string);
+    JsonValue *jval = jsonp_parse_url(url_string, &err, &arena);
+
+
+    if (!jval) {
+        // printf("ERROR %d: first_bad_char:%d, line:%d col:%d start:%d end:%d  %s\n",
+        //    err.err_type, err.first_bad_char,  err.line, err.column, err.parse_start, err.parse_end, err.message);
+        jsonp_print_parse_error(&err);
+    }
+    else {
+        jsonp_print_json_value(jval);
+        printf("\n");
+    }
+
+    arena_destroy_arena(&arena);
+    jsonp_destroy();
+}
+
 
 void test_one_json_file(void) {
     // parse_json_file(nullptr);
@@ -3227,7 +3348,12 @@ void test_one_json_file(void) {
     parse_json_file("../test/json_parser/json_files/n_long_array_1.json");
     parse_json_stream("../test/json_parser/json_files/n_long_array_1.json");
 
+    parse_json_file("../test/json_parser/json_files/todos.json");
 
+}
+
+void test_one_url(void) {
+    parse_json_url("https://jsonplaceholder.typicode.com/todos");
 }
 
 
@@ -3274,7 +3400,8 @@ int main( ) {
     // test_fails_for_reporting();
     // test_json_test_suite_fails();
 
-    test_one_json_file();
+    // test_one_json_file();
 
+    test_one_url();
 }
 #endif
