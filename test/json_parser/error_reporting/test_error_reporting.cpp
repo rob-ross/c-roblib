@@ -10,20 +10,17 @@
 #include <sstream>
 #include <vector>
 #include <string>
-#include <cctype>
 
-
-extern "C" {
 #include "roblib/json_parser.h"
-}
+
 
 struct JsonTestParam {
     std::string test_name;
     std::string json_text;
-    JsonParseErrType json_error_type;
-    uint32_t    first_bad_char;
-    uint32_t    parse_start;
-    uint32_t    parse_end;
+    JsonParseErrType json_error_type = JSON_ERR_NONE;
+    uint32_t    first_bad_char = 0;
+    uint32_t    parse_start = 0;
+    uint32_t    parse_end = 0;
 };
 
 class JsonTestErrorReportingParam : public JsonParserTest, public testing::WithParamInterface<JsonTestParam> {
@@ -89,14 +86,14 @@ public:
                 std::getline(ss, end_str)) {
 
                 try {
-                    JsonTestParam param;
-                    param.test_name = name;
-                    param.json_text = unescape(json_text);
-                    param.json_error_type = static_cast<JsonParseErrType>(std::stoi(err_type_str));
-                    param.first_bad_char = static_cast<uint32_t>(std::stoul(bad_char_str));
-                    param.parse_start = static_cast<uint32_t>(std::stoul(start_str));
-                    param.parse_end = static_cast<uint32_t>(std::stoul(end_str));
-                    params.push_back(param);
+                    params.push_back({
+                        name,
+                        unescape(json_text),
+                        static_cast<JsonParseErrType>(std::stoi(err_type_str)),
+                        static_cast<uint32_t>(std::stoul(bad_char_str)),
+                        static_cast<uint32_t>(std::stoul(start_str)),
+                        static_cast<uint32_t>(std::stoul(end_str))
+                    });
                 } catch (...) {
                     // Return empty vector on error as requested
                     return {};
@@ -116,7 +113,7 @@ std::string ParamNameGenerator(const testing::TestParamInfo<JsonTestParam>& info
     // Sanitize name: GTest only allows alphanumeric and underscores
     std::replace_if(name.begin(), name.end(), [](char c) { return !std::isalnum(static_cast<unsigned char>(c)); }, '_');
 
-    // Append the index to guarantee uniqueness even if filenames sanitize to the same string (e.g., .e+ vs .e-)
+    // Appending the index to guarantees uniqueness even if filenames sanitize to the same string
     return name + "_" + std::to_string(info.index);
 }
 
@@ -124,18 +121,18 @@ TEST_P(JsonTestErrorReportingParam, parse_json) {
     const JsonTestParam& param = GetParam();
     std::string json_text = param.json_text;
 
-    JsonValue *jval = jsonp_parse_string(json_text.c_str(), &err, JsonParserEnvironment::arena);
+    JsonValue *jval = jsonp_parse_string(json_text.c_str(), err, JsonParserEnvironment::arena);
 
     EXPECT_EQ(jval, nullptr)
         << "test: " << param.test_name
         << "\nExpected failure but succeeded.\nContent: " << json_text;
-    EXPECT_EQ(err.err_type, param.json_error_type) << err.message  << ", json=" << json_text;
-    if (err.err_type != param.json_error_type) jsonp_print_parse_error(&err);
-    EXPECT_EQ(err.first_bad_char, param.first_bad_char ) << json_text;
-    EXPECT_EQ(err.parse_start, param.parse_start ) << json_text;
-    EXPECT_EQ(err.parse_end, param.parse_end ) << json_text;
-    if (err.parse_end != param.parse_end ) {
-        jsonp_print_parse_error(&err);
+    EXPECT_EQ(err->err_type, param.json_error_type) << err->message  << ", json=" << json_text;
+    if (err->err_type != param.json_error_type) jsonp_print_parse_error(err);
+    EXPECT_EQ(err->first_bad_char, param.first_bad_char ) << json_text;
+    EXPECT_EQ(err->parse_start, param.parse_start ) << json_text;
+    EXPECT_EQ(err->parse_end, param.parse_end ) << json_text;
+    if (err->parse_end != param.parse_end ) {
+        jsonp_print_parse_error(err);
     }
 
 }

@@ -18,6 +18,8 @@
 #include <vector>
 #include <filesystem>
 
+#include "roblib/json_parser.h"
+
 /**
  * @brief Holds metadata for a single JSON test file.
  * Used as the parameter type for GTest's parameterized tests.
@@ -117,25 +119,22 @@ TEST_P(JsonTestSuiteParam, jsonp_parse_string) {
         GTEST_SKIP() << "Skipping jsonp_parse_string for known C-string false-positive: " << params.filename;
     }
 
-    // Pass the explicit size to the parser so it doesn't stop at embedded nulls
-    // JsonValue *jval = json_parse_ex(json_text.c_str(), json_text.size(), &err, arena);
-
-    JsonValue *jval = jsonp_parse_string(json_text.c_str(), &err, arena);
+    JsonValue *jval = jsonp_parse_string(json_text.c_str(), err, arena);
     if (params.should_pass) {
         EXPECT_NE(jval, nullptr)
             << "File: " << params.filename
             << "\nExpected success but failed.\nContent: " << json_text;
-        EXPECT_EQ(err.err_type, JSON_ERR_NONE);
-        if (err.err_type != JSON_ERR_NONE) jsonp_print_parse_error(&err);
+        EXPECT_EQ(err->err_type, JSON_ERR_NONE);
+        if (err->err_type != JSON_ERR_NONE) jsonp_print_parse_error(err);
 
     } else {
         EXPECT_EQ(jval, nullptr)
             << "File: " << params.filename
             << "\nExpected failure but succeeded.\nContent: " << json_text;
-        EXPECT_NE(err.err_type, JSON_ERR_NONE);
+        EXPECT_NE(err->err_type, JSON_ERR_NONE);
         // todo temp remove print after testing that the tests work.
         // Since we expect it to fail, don't print the error
-        // jsonp_print_parse_error(&err);
+        // jsonp_print_parse_error(err);
     }
 }
 
@@ -144,7 +143,7 @@ TEST_P(JsonTestSuiteParam, jsonp_parse_string_ex) {
     std::string json_text = read_file(params.full_path);
 
     // Pass the explicit size to the parser so it doesn't stop at embedded nulls
-    JsonValue *jval = jsonp_parse_string_ex(json_text.c_str(),  &err, arena, json_text.size() );
+    JsonValue *jval = jsonp_parse_string_ex(json_text.c_str(),  err, arena, json_text.size() );
 
     // if (params.filename == "n_multidigit_number_then_00.json") {
     //     std::cout   << "strlen(json_text.c_str():" << strlen(json_text.c_str())
@@ -156,17 +155,17 @@ TEST_P(JsonTestSuiteParam, jsonp_parse_string_ex) {
         EXPECT_NE(jval, nullptr)
             << "File: " << params.filename
             << "\nExpected success but failed.\nContent: " << json_text;
-        EXPECT_EQ(err.err_type, JSON_ERR_NONE);
-        if (err.err_type != JSON_ERR_NONE) jsonp_print_parse_error(&err);
+        EXPECT_EQ(err->err_type, JSON_ERR_NONE);
+        if (err->err_type != JSON_ERR_NONE) jsonp_print_parse_error(err);
 
     } else {
         EXPECT_EQ(jval, nullptr)
             << "File: " << params.filename
             << "\nExpected failure but succeeded.\nContent: " << json_text;
-        EXPECT_NE(err.err_type, JSON_ERR_NONE);
+        EXPECT_NE(err->err_type, JSON_ERR_NONE);
         // todo temp remove print after testing that the tests work.
         // Since we expect it to fail, don't print the error
-        // jsonp_print_parse_error(&err);
+        // jsonp_print_parse_error(err);
     }
 }
 
@@ -174,21 +173,21 @@ TEST_P(JsonTestSuiteParam, jsonp_parse_file) {
     const JsonTestParams& params = GetParam();
     // std::string json_filename = read_file(params.full_path);
 
-    JsonValue *jval = jsonp_parse_file(params.full_path.c_str(), &err, arena);
+    JsonValue *jval = jsonp_parse_file(params.full_path.c_str(), err, arena);
 
     if (params.should_pass) {
         EXPECT_NE(jval, nullptr)
             << "File: " << params.filename
             << "\nExpected success but failed.\nPath: " << params.full_path;
-        EXPECT_EQ(err.err_type, JSON_ERR_NONE);
-        if (err.err_type != JSON_ERR_NONE) jsonp_print_parse_error(&err);
+        EXPECT_EQ(err->err_type, JSON_ERR_NONE);
+        if (err->err_type != JSON_ERR_NONE) jsonp_print_parse_error(err);
 
     } else {
         EXPECT_EQ(jval, nullptr)
             << "File: " << params.filename
             << "\nExpected failure but succeeded.\nPath: " << params.full_path;
-        EXPECT_NE(err.err_type, JSON_ERR_NONE);
-        // if (err.err_type != JSON_ERR_NONE) jsonp_print_parse_error(&err);
+        EXPECT_NE(err->err_type, JSON_ERR_NONE);
+        // if (err->err_type != JSON_ERR_NONE) jsonp_print_parse_error(err);
 
     }
 }
