@@ -1,15 +1,18 @@
-#ifndef TEST_JSON_PARSER_H
-#define TEST_JSON_PARSER_H
+// test_json_parser.h
+
+#pragma once
 
 #include <gtest/gtest.h>
 #include <string>
 #include <tuple>
 
-// Wrap C library headers
-extern "C" {
-#include "roblib/arena.h" // Assuming this is where Arena is defined
-#include "roblib/json_parser.h"
-}
+struct json_parse_error_s;
+typedef json_parse_error_s JsonParseError;
+
+// Forward declaration because we only use Arena* (Incomplete Type is fine)
+// This reduces coupling and improves compile times.
+struct arena_s;
+typedef arena_s Arena;
 
 using str_param = std::tuple<std::string, std::string>;
 
@@ -24,8 +27,13 @@ public:
 
 class JsonParserTest : public testing::Test {
 protected:
-    JsonParseError err{};
+    void SetUp() override;
+    void TearDown() override;
+
+    // Now a pointer to allow forward declaration.
+    // Managed in SetUp/TearDown in the .cpp file.
+    JsonParseError *err = nullptr;
+
+    // Pointers to the global environment arena
     Arena* arena = JsonParserEnvironment::arena;
 };
-
-#endif // TEST_JSON_PARSER_H

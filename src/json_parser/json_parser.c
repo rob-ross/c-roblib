@@ -10,6 +10,7 @@
 
 #include <locale.h>
 #include <sys/stat.h>
+#include <unistd.h> // For access() or stat() on POSIX
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
@@ -57,8 +58,7 @@ static constexpr uint8_t BOM_UTF32_LE[] = { 0xFF, 0xFE, 0x00, 0x00 };
 //      READER FUNCTIONS
 // -----------------------------------------------------------------
 
-typedef long (*read_fn)( void *context, unsigned char *buffer, size_t max_bytes );
-typedef int  (*next_char_fn)( void *context );
+typedef long (*read_fn)( void *context, size_t max_bytes );
 typedef int  (*current_char_fn)( void *context );
 typedef int  (*peek_next_char_fn)( void *context );
 typedef int  (*peek_lookahead_chars_fn)( void *context, uint32_t lookahead );
@@ -73,14 +73,13 @@ typedef struct {
     void                        *input_context;  // StringSourceInputContext, or FileSourceInputContext
     CharRingBuffer              look_behind_buffer; // holds most recent 40 bytes of scanned input
 
-    uint32_t       current_index; // the index of the character the lexer is scanning
+    uint32_t       current_byte_index; // the index of the byte-char the lexer is scanning
     uint32_t       line;
     uint32_t       column;
     uint32_t       parse_start;
     uint32_t       parse_end;
 
     read_fn                     read;
-    next_char_fn                next_char;
     current_char_fn             current_char;
     peek_next_char_fn           peek_next_char;
     peek_lookahead_chars_fn     peek_lookahead_chars;
@@ -124,101 +123,208 @@ size_t http_read(...);
  * Neither are intended to be exported. <P>
  */
 typedef struct {
+    // Parent/enclosing Input object. Creates a cycle, but both are stack objects and created in same block scope
+    // and go out of scope at the same time.
+    Input               *input;
+
     const char          *json_file_full_path;
     const char          *json_filename;
     FILE                *file_ptr;
-    CharRingBuffer      *look_behind_buffer;    // last 40 bytes scanned
+    // scanner_buffer is private to this FileSourceInputContext instance
+    CharRingBuffer      scanner_buffer;     // next 40 bytes from file
+
     size_t              length_bytes;
-    size_t              current_index_byte;     // the index of the byte the lexer is scanning
 } FileSourceInputContext;
 
-long file_read( void *context, unsigned char *buffer, size_t max_bytes)
+
+
+
+long file_read( void *context, size_t max_bytes)
 {
     FileSourceInputContext *src = context;
+    Input *input = src->input;
+    CharRingBuffer *lab = &src->scanner_buffer;
+
+    const size_t capacity = sizeof(lab->buffer);
+    uint32_t wanted_bytes = max_bytes > ( capacity - lab->length) ? capacity - lab->length : max_bytes;
+
+    if (! wanted_bytes ) return 0;  // nothing to read
 
     FILE *fp = (FILE*)src->file_ptr;
 
-    size_t remaining = src->length_bytes - src->current_index_byte;
+    size_t remaining = src->length_bytes - input->current_byte_index;
+
     long tell_pos = ftell( fp );
     if (tell_pos < 0 ) {
-        printf("ftell returned %ld, error:", tell_pos);
-        perror("");
-        putchar('\n');
+        printf("ftell returned %ld, error: %s, filename: %s", tell_pos, strerror(errno), src->json_filename);
     } else {
-        printf("ftell pos:%ld, src->position=%zd, remaining=%zd, max_bytes=%zd\n", tell_pos, src->current_index_byte, remaining, max_bytes);
+        // printf("ftell-pos:%ld, src-pos=%u, src len =%zd, remaining=%zd, max_bytes=%zd\n",
+        //     tell_pos, input->current_byte_index, src->length_bytes, remaining, max_bytes);
     }
     if (remaining == 0) return EOF;
 
 
-    if (remaining > max_bytes) remaining = max_bytes;
+    if (remaining > wanted_bytes) remaining = wanted_bytes;
+    char buf[41] = {};
+    size_t bytes_read = fread( buf, 1, remaining, fp);
+    // printf("bytes_read=%zu,", bytes_read);
 
-    long bytes_written = (long)fread(buffer, 1, max_bytes, fp);
-    printf("bytes_written=%ld,", bytes_written);
+    if (bytes_read < 0) {
+        if (ferror(fp)) {
+            perror("Error reading file");
+        }
+        return EOF;
+    }
+    crb_add_str_to_buffer_strict_CharRingBuffer(lab, bytes_read, buf);
+    // printf("src->position=%u\n", input->current_byte_index);
+    return (long)bytes_read;
+}
 
-    if (bytes_written == 0) {
-        // something happened
-        perror("");
-        putchar('\n');
+// try to ensure the CharRingBuffer has num_bytes elements, read from file if needed
+static long file_ensure_char_ring_buffer_capacity(FileSourceInputContext *src, size_t num_bytes) {
+    Input *input = src->input;
+    CharRingBuffer *lab = &src->scanner_buffer;
+
+    size_t remaining = src->length_bytes - input->current_byte_index;
+    num_bytes = MIN(num_bytes, remaining);
+
+    if ( lab->length >= num_bytes ) {
+        return (long)num_bytes;  // buffer is already at desired length
     }
 
-    src->current_index_byte += remaining;
-    printf("src->position=%ld\n", src->current_index_byte);
-    return (long)remaining;
+    // read more characters into the lookahead buffer.
+    size_t capacity = sizeof(lab->buffer);
+
+    return input->read(src, capacity);  // try to fill as much of the buffer as we can
 }
 
 int file_next_char(void *context)
 {
     FileSourceInputContext *src = context;
-    if (src->current_index_byte == src->length_bytes) return EOF;
-    FILE *fp = (FILE*)src->file_ptr;
+    Input *input = src->input;
+    if (input->current_byte_index == src->length_bytes) return EOF;
+    uint32_t bytes_advanced = input->advance_n_bytes(context, 1);
+    if (! bytes_advanced ) return EOF;
 
-    return fgetc(fp);
+    CharRingBuffer *lab = &src->scanner_buffer;
+    if (lab->length == 0 ) {
+        // need to read into the buffer first
+        file_read(context, 40);
+    }
+
+    return (unsigned char)input->current_char(src);
 }
 
 int file_current_char(void *context) {
     FileSourceInputContext *src = context;
+    Input *input = src->input;
 
-    if (src->current_index_byte == src->length_bytes)
+    if (input->current_byte_index == src->length_bytes) return EOF;
+
+    CharRingBuffer *lab = &src->scanner_buffer;
+    long result = file_ensure_char_ring_buffer_capacity(src, 1);
+    if (result < 0) {
+        // error
+        printf("file_ensure_char_ring_buffer_capacity() returned %ld in file_current_char", result);
         return EOF;
-
-    // return src->json_text[src->position];
-    return 'a';
+    }
+    return crb_peek_char_CharRingBuffer(lab, 0);
 }
 
 int file_peek_next_char(void *context) {
     FileSourceInputContext *src = context;
+    Input *input = src->input;
+    if (input->current_byte_index == src->length_bytes) return EOF;
 
-    if (src->current_index_byte + 1 >= src->length_bytes)
+    CharRingBuffer *scanner_buffer = &src->scanner_buffer;
+    long result = file_ensure_char_ring_buffer_capacity(src, 2);
+    if (result < 2) {
+        // error
+        printf("file_ensure_char_ring_buffer_capacity() returned %ld in file_peek_next_char()", result);
         return EOF;
-
-    // return src->json_text[src->position + 1];
-    return 'a';
-
+    }
+    return crb_peek_char_CharRingBuffer(scanner_buffer, 1);
 }
 
 // we only intend to support max lookahead of 2
 int file_peek_lookahead_chars(void *context, uint32_t lookahead ) {
     FileSourceInputContext *src = context;
+    Input *input = src->input;
 
-    if (src->current_index_byte + lookahead >= src->length_bytes)
+    if (input->current_byte_index + lookahead >= src->length_bytes)
         return EOF;
 
     // return src->json_text[src->position + lookahead];
-    return 'a';
-
+    CharRingBuffer *scanner_buffer = &src->scanner_buffer;
+    long result = file_ensure_char_ring_buffer_capacity(src, lookahead);
+    if (result < lookahead) {
+        // error
+        printf("file_ensure_char_ring_buffer_capacity() returned %ld in file_peek_lookahead_chars()", result);
+        return EOF;
+    }
+    return crb_peek_char_CharRingBuffer(scanner_buffer, lookahead);
 }
 
 uint32_t file_advance_n_bytes( void *context, uint32_t num_bytes) {
     FileSourceInputContext *src = context;
-    if (src->current_index_byte >= src->length_bytes - num_bytes  ) {
-        src->current_index_byte = src->length_bytes;
+    Input *input = src->input;
+    CharRingBuffer *look_behind_buffer = &input->look_behind_buffer;
+    CharRingBuffer *scanner_buffer = &src->scanner_buffer;
+
+    // add chars to look-behind-buffer
+    const size_t capacity = sizeof(look_behind_buffer->buffer);
+
+    long result = file_ensure_char_ring_buffer_capacity(src, num_bytes);
+    if (result < num_bytes) {
+        printf("file_ensure_char_ring_buffer_capacity() returned %ld in file_advance_n_bytes()", result);
+        return EOF;
+    }
+
+    if (num_bytes == 1 ) {
+        int cur_char = crb_get_next_char_CharRingBuffer(scanner_buffer);
+        // todo error checking
+        crb_add_char_to_buffer_CharRingBuffer(look_behind_buffer,  (char)cur_char);
+    } else if (num_bytes > 1) {
+        size_t num_to_add = num_bytes;
+        if (num_bytes > capacity) {
+            // we'll only add the last `capacity` bytes.
+            num_to_add = MIN(capacity, 128);
+        }
+        char cb[128] = {};
+        // write the contents of scanner_buffer into the `cb` array
+        crb_sprint_buffer_CharRingBuffer(scanner_buffer, cb);
+        // advance the scanner_buffer by the requested, clamped amount
+        crb_advance_buffer_CharRingBuffer(scanner_buffer, num_to_add);
+        // copy the chars we advanced past into the look-behind_buffer
+        crb_add_str_to_buffer_CharRingBuffer(look_behind_buffer, num_to_add, cb);
+    }
+
+    if (input->current_byte_index >= src->length_bytes - num_bytes  ) {
+        input->current_byte_index = src->length_bytes;
         return 0;
     }
-    src->current_index_byte += num_bytes;
+    //todo this isn't correct. num_bytes needs to be clamped to bytes remaining
+    input->current_byte_index += num_bytes;
     return num_bytes;
 }
 
+// copies up to `n_chars` chars forward from the current position of the JSON text.
+void file_sprint_n_lookahead_chars(void *context, const uint32_t n_chars, char buffer[ static n_chars + 1 ] ) {
+    FileSourceInputContext *src = context;
+    Input *input = src->input;
+    if (input->current_byte_index == src->length_bytes) return;
 
+    long result = file_ensure_char_ring_buffer_capacity(src, n_chars);
+    CharRingBuffer *scanner_buffer = &src->scanner_buffer;
+
+    if (result < 0) {
+        // error
+        printf("file_ensure_char_ring_buffer_capacity() returned %ld in file_sprint_n_lookahead_chars", result);
+        return;
+    }
+
+    crb_sprint_buffer_CharRingBuffer(scanner_buffer, buffer );
+}
 
 // -----------------------------------------------------------------
 //      String
@@ -233,57 +339,65 @@ uint32_t file_advance_n_bytes( void *context, uint32_t num_bytes) {
  * Neither are intended to be exported. <P>
  */
 typedef struct {
+    // Parent/enclosing Input object. Creates a cycle, but both are stack objects and created in the same block scope
+    // and go out of scope at the same time.
+    Input               *input;
     const char          *json_text;             // full original JSON text string
-    CharRingBuffer      *look_behind_buffer;    // last 40 bytes scanned
-    size_t              current_index_byte;     // the index of the byte the lexer is scanning
-    size_t              length_bytes;           // total length of the json_text in bytes
+    size_t              length_bytes;           // total length of the json_text C-string in bytes
 } StringSourceInputContext;
 
-long string_read( void *context, unsigned char *buffer, size_t max_bytes) {
+long string_read( void *context, size_t max_bytes) {
     // this is basically a no-op since the full json_text is already in memory at src->json_text
-    StringSourceInputContext *src = context;
-    if (src->current_index_byte == src->length_bytes) return EOF;
-    size_t return_bytes = max_bytes > src->length_bytes ? src->length_bytes : max_bytes;
-    return (long)return_bytes;
+
+//     StringSourceInputContext *src = context;
+//     Input *input = src->input;
+//     if (input->current_byte_index == src->length_bytes) return EOF;
+//     size_t return_bytes = max_bytes > src->length_bytes ? src->length_bytes : max_bytes;
+//     return (long)return_bytes;
+    return 0;
 }
 
 int string_current_char(void *context) {
     StringSourceInputContext *src = context;
-    if (src->current_index_byte == src->length_bytes) return (unsigned char)src->json_text[src->length_bytes];
-    return (unsigned char)src->json_text[src->current_index_byte];
+    Input *input = src->input;
+    if (input->current_byte_index == src->length_bytes) return (unsigned char)src->json_text[src->length_bytes];
+    return (unsigned char)src->json_text[input->current_byte_index];
 }
 
 int string_next_char(void *context) {
     StringSourceInputContext *src = context;
-    if (src->current_index_byte == src->length_bytes) return (unsigned char)src->json_text[src->length_bytes];
+    Input *input = src->input;
+    if (input->current_byte_index == src->length_bytes) return (unsigned char)src->json_text[src->length_bytes];
 
-    CharRingBuffer *look_behind_buffer = src->look_behind_buffer;
-    crb_add_char_to_buffer_CharRingBuffer(look_behind_buffer,  src->json_text[src->current_index_byte]);
-    return (unsigned char)src->json_text[src->current_index_byte++];
+    CharRingBuffer *look_behind_buffer = &input->look_behind_buffer;
+    crb_add_char_to_buffer_CharRingBuffer(look_behind_buffer,  src->json_text[input->current_byte_index]);
+    return (unsigned char)src->json_text[input->current_byte_index++];
 }
 
 int string_peek_next_char(void *context) {
     StringSourceInputContext *src = context;
+    Input *input = src->input;
+    if (input->current_byte_index + 1 >= src->length_bytes) return EOF;
 
-    if (src->current_index_byte + 1 >= src->length_bytes) return EOF;
-
-    return (unsigned char)src->json_text[src->current_index_byte + 1];
+    return (unsigned char)src->json_text[input->current_byte_index + 1];
 }
 
 // we only intend to support max lookahead of 6
 int string_peek_lookahead_chars( void *context, uint32_t lookahead ) {
     StringSourceInputContext *src = context;
-    if (src->current_index_byte + lookahead >= src->length_bytes) return EOF;
-    return (unsigned char)src->json_text[src->current_index_byte + lookahead];
+    Input *input = src->input;
+    if (input->current_byte_index + lookahead >= src->length_bytes) return EOF;
+    return (unsigned char)src->json_text[input->current_byte_index + lookahead];
 }
 
 uint32_t string_advance_n_bytes( void *context, const uint32_t num_bytes) {
     StringSourceInputContext *src = context;
-    CharRingBuffer *look_behind_buffer = src->look_behind_buffer;
+    Input *input = src->input;
+    CharRingBuffer *look_behind_buffer = &input->look_behind_buffer;
 
     // add chars to look-behind-buffer
     const size_t capacity = sizeof(look_behind_buffer->buffer);
-    char const * start_ptr = src->json_text + src->current_index_byte;
+    char const * start_ptr = src->json_text + input->current_byte_index;
 
     if (num_bytes == 1 ) {
         crb_add_char_to_buffer_CharRingBuffer(look_behind_buffer,  *start_ptr);
@@ -303,18 +417,19 @@ uint32_t string_advance_n_bytes( void *context, const uint32_t num_bytes) {
         }
     }
 
-    if (src->current_index_byte + num_bytes  > src->length_bytes ) {
-        src->current_index_byte  = src->length_bytes;
+    if (input->current_byte_index + num_bytes  > src->length_bytes ) {
+        input->current_byte_index  = src->length_bytes;
         return 0;
     }
-    src->current_index_byte  += num_bytes;
+    input->current_byte_index  += num_bytes;
     return num_bytes;
 }
 
 // copies up to `n_chars` chars forward from the current position of the JSON text.
 void string_sprint_n_lookahead_chars(void *context, const uint32_t n_chars, char buffer[ static n_chars + 1 ] ) {
     StringSourceInputContext *src = context;
-    char const *ptr = src->json_text + src->current_index_byte;
+    Input *input = src->input;
+    char const *ptr = src->json_text + input->current_byte_index;
     size_t index = 0;
     while ( *ptr && index < n_chars ) {
         buffer[index++] = *ptr++;
@@ -419,7 +534,6 @@ uint32_t jsonp_get_context_max_depth(JsonContext *context) {
 static void pvt_advance(JsonContext *context, const uint32_t char_count) {;
     uint32_t bytes_advanced = context->input->advance_n_bytes(context->input->input_context, char_count);
     Input *input = context->input;
-    input->current_index += bytes_advanced;
     input->column += bytes_advanced;
 }
 
@@ -462,7 +576,7 @@ static void pvt_record_error(   JsonContext *context,
     // the most typical case is the parse ends at the current position when there is an error
     // exceptional situations may require this value to be changed by the caller on return from this method
     Input *input = context->input;
-    input->parse_end = input->current_index;
+    input->parse_end = input->current_byte_index;
 
     if (error->message != msg ) {
         strncpy(error->message, msg, ERROR_MSG_BUFFER_SIZE);
@@ -472,7 +586,7 @@ static void pvt_record_error(   JsonContext *context,
     input->sprint_n_lookahead_chars(input->input_context, 40, error->look_ahead_buffer);
 
     error->err_type = err_type;
-    error->first_bad_char = input->current_index;
+    error->first_bad_char = input->current_byte_index;
     error->line   = input->line;
     error->column = input->column;
     error->parse_start = input->parse_start;
@@ -533,11 +647,11 @@ JsonObjectEntry * jsonp_entry_for_key(const JsonValue *json_obj, char const * ke
 
 static JsonObjectEntry * pvt_parse_one_entry(JsonContext *context, JsonParseError *error, Arena *arena) {
     pvt_skip_whitespace(context);
+    Input *input = context->input;
     // We need to assign to parse_start here since we aren't calling pvt_parse_value(),
     // which is where we normally set this as we start to parse a JSON value
-    Input *input = context->input;
 
-    input->parse_start = input->current_index;
+    input->parse_start = input->current_byte_index;
     if (pvt_current_char(context) != '"') {
         int written = snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "expected object key, got ");
         if (written > 0) {
@@ -637,7 +751,7 @@ static JsonValue * pvt_parse_object(JsonContext *context, JsonParseError *error,
             return nullptr;
         }
         // comma is expected delimiter between object entries
-        uint32_t comma_index = input->current_index; // save comma position for error reporting below
+        uint32_t comma_index = input->current_byte_index; // save comma position for error reporting below
         pvt_advance(context, 1);  // consume ','
         pvt_skip_whitespace(context);
 
@@ -653,7 +767,7 @@ static JsonValue * pvt_parse_object(JsonContext *context, JsonParseError *error,
             // adjust error reporting so we indicate that the comma is the bad character
             error->first_bad_char = comma_index;
             error->column = comma_index;
-            error->lab_offset = input->current_index - comma_index;
+            error->lab_offset = input->current_byte_index - comma_index;
 
 
             context->depth_current--;
@@ -756,7 +870,7 @@ static JsonValue * pvt_parse_array(JsonContext *context, JsonParseError *error, 
             return nullptr;
         }
         // comma is expected delimiter between array elements
-        uint32_t comma_index = input->current_index; // save for error reporting below
+        uint32_t comma_index = input->current_byte_index; // save for error reporting below
         pvt_advance(context, 1);  // consume ','
         pvt_skip_whitespace(context);
 
@@ -773,7 +887,7 @@ static JsonValue * pvt_parse_array(JsonContext *context, JsonParseError *error, 
             // adjust error reporting so we indicate that the comma is the bad character
             error->first_bad_char = comma_index;
             error->column = comma_index;
-            error->lab_offset = input->current_index - comma_index;
+            error->lab_offset = input->current_byte_index - comma_index;
 
             context->depth_current--;
             return nullptr;
@@ -1336,11 +1450,11 @@ static StringBuilder * pvt_parse_unicode_escape( JsonContext *context, JsonParse
         // A low surrogate that wasn't preceded by a high surrogate. This is an error.
         snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
             "expected high surrogate \\uD800-\\uDBFF to precede low surrogate '\\u%4X', but none found", cp1);
-        uint32_t bad_digit_index = input->current_index - 6; // puts error char at \*
+        uint32_t bad_digit_index = input->current_byte_index - 6; // puts error char at \*
         pvt_record_error(context, error, JSON_ERR_NO_PRECEDING_HIGH_SURROGATE, error->message);
         error->first_bad_char = bad_digit_index;
         error->column = bad_digit_index;
-        error->lab_offset = input->current_index - bad_digit_index;
+        error->lab_offset = input->current_byte_index - bad_digit_index;
         return nullptr;
     }
     uint32_t cp = cp1;
@@ -1372,7 +1486,7 @@ static StringBuilder * pvt_parse_unicode_escape( JsonContext *context, JsonParse
             // no following low surrogate.
             snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
                 "expected low surrogate escape \\uDC00-\\uDFFF to follow high surrogate '\\u%4X', but found '\\u%4X' instead", cp1, cp2);
-            uint32_t bad_digit_index = input->current_index - 4; // puts error char at \u*
+            uint32_t bad_digit_index = input->current_byte_index - 4; // puts error char at \u*
 
             // context->parse_start = bad_digit_index; // todo should parse_start be set to the start of the first surrogate escape??
             pvt_record_error(context, error, JSON_ERR_NO_FOLLOWING_LOW_SURROGATE, error->message);
@@ -1380,7 +1494,7 @@ static StringBuilder * pvt_parse_unicode_escape( JsonContext *context, JsonParse
             // context->current_index is the first digit after the second 4 hex , e.g., \uD800*
             error->first_bad_char = bad_digit_index;
             error->column = bad_digit_index;
-            error->lab_offset = input->current_index - bad_digit_index;
+            error->lab_offset = input->current_byte_index - bad_digit_index;
 
             return nullptr;
         }
@@ -1734,7 +1848,7 @@ static JsonValue *  pvt_parse_literal_impl(  JsonContext *context,
                                                 JsonValue *literal,
                                                 char const *key_word ) {
 
-    uint32_t current_index = context->input->current_index;
+    uint32_t current_index = context->input->current_byte_index;
     char const * keyword_ptr = key_word;
     char cur_char = pvt_current_char(context);
     enum json_error_type_e err_type = JSON_ERR_NONE;
@@ -1796,7 +1910,7 @@ static JsonValue *pvt_parse_value(JsonContext *context, JsonParseError *error, A
     Input *input = context->input;
 
     pvt_skip_whitespace(context);
-    input->parse_start = input->current_index;
+    input->parse_start = input->current_byte_index;
     JsonValue *value = nullptr;
 
     switch (pvt_current_char(context)) {
@@ -1825,15 +1939,14 @@ static JsonValue *pvt_parse_value(JsonContext *context, JsonParseError *error, A
             break;
 
         default:
-            if (error) {
-                int written = snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "unexpected character: ");
-                if (written > 0) {
-                    pvt_format_error_message_char(ERROR_MSG_BUFFER_SIZE - written,
-                        error->message + written, pvt_current_char(context) );
-                }
-                pvt_record_error(context, error, JSON_ERR_UNEXPECTED_TEXT, error->message);
-                return nullptr;
+            int written = snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "unexpected character: ");
+            if (written > 0) {
+                pvt_format_error_message_char(ERROR_MSG_BUFFER_SIZE - written,
+                    error->message + written, pvt_current_char(context) );
             }
+            pvt_record_error(context, error, JSON_ERR_UNEXPECTED_TEXT, error->message);
+            return nullptr;
+
             break;
 
     }
@@ -1859,8 +1972,9 @@ static JsonValue * pvt_jsonp_parse_impl(JsonContext *context, JsonParseError *er
 
     pvt_skip_whitespace(context);
     // todo (rob) this might need to compare to EOF not NUL for non-string sources?
-    if ( pvt_current_char(context) == NUL) {
-        pvt_record_error(context, error, JSON_ERR_EMPTY_TEXT, "empty json text");
+    char current_char = pvt_current_char(context);
+    if ( current_char == NUL || current_char == EOF) {
+        pvt_record_error(context, error, JSON_ERR_EMPTY_TEXT, "json text is composed only of white space");
         return nullptr;
     }
 
@@ -2032,14 +2146,13 @@ Input pvt_get_string_input_source( StringSourceInputContext *ss) {
     Input input = {
         .input_context            = (void*)ss,
         .read                     = string_read,
-        .next_char                = string_next_char,
         .current_char             = string_current_char,
         .peek_next_char           = string_peek_next_char,
         .peek_lookahead_chars     = string_peek_lookahead_chars,
         .advance_n_bytes          = string_advance_n_bytes,
         .sprint_n_lookahead_chars = string_sprint_n_lookahead_chars
     };
-    ss->look_behind_buffer = &input.look_behind_buffer;
+    // ss->look_behind_buffer = &input.look_behind_buffer;
     return input;
 }
 
@@ -2060,8 +2173,10 @@ JsonValue *jsonp_parse_string_using_context(const char *json_text, JsonParseErro
     pvt_reset_context(context);
     if (pvt_json_text_is_null_or_empty(json_text, error)) return nullptr;
 
-    StringSourceInputContext ss = { .json_text = json_text, .length_bytes = strlen(json_text), .current_index_byte = 0};
+    StringSourceInputContext ss = { .json_text = json_text, .length_bytes = strlen(json_text) };
     Input input = pvt_get_string_input_source(&ss);
+    ss.input = &input;
+
     context->input = &input;
 
     return pvt_jsonp_parse_impl(context, error, arena);
@@ -2071,8 +2186,10 @@ JsonValue *jsonp_parse_string_using_context(const char *json_text, JsonParseErro
 JsonValue * jsonp_parse_string(const char *json_text, JsonParseError *error, Arena *arena) {
     if (pvt_json_text_is_null_or_empty(json_text, error)) return nullptr;
 
-    StringSourceInputContext ss = { .json_text = json_text, .length_bytes = strlen(json_text), .current_index_byte = 0};
-    Input input = pvt_get_string_input_source( &ss);
+    StringSourceInputContext ss = { .json_text = json_text, .length_bytes = strlen(json_text) };
+    Input input = pvt_get_string_input_source( &ss );
+    ss.input = &input;
+
 
     JsonContext context = {};
     pvt_write_global_state(&context);
@@ -2087,8 +2204,9 @@ JsonValue * jsonp_parse_string(const char *json_text, JsonParseError *error, Are
 JsonValue *jsonp_parse_string_ex(const char *json_text, JsonParseError *error, Arena *arena, const uint32_t buffer_size) {
     if (pvt_json_text_is_null_or_empty(json_text, error)) return nullptr;
 
-    StringSourceInputContext ss = { .json_text = json_text, .length_bytes = buffer_size, .current_index_byte = 0};
+    StringSourceInputContext ss = { .json_text = json_text, .length_bytes = buffer_size };
     Input input = pvt_get_string_input_source( &ss);
+    ss.input = &input;
 
     JsonContext context = {};
     pvt_write_global_state(&context);
@@ -2097,12 +2215,12 @@ JsonValue *jsonp_parse_string_ex(const char *json_text, JsonParseError *error, A
     JsonValue *value = pvt_jsonp_parse_impl(&context, error, arena);
     if (!value) return nullptr;
 
-    if (input.current_index < buffer_size) {
+    if (input.current_byte_index < buffer_size) {
         snprintf(context.error_msg, ERROR_MSG_BUFFER_SIZE,
-    "JSON text was successfully parsed, but characters remain in the buffer."
+    "JSON text was successfully parsed, but unparsed characters remain in the buffer."
     " This can happen when the text is followed by embedded NUL characters.\nbuffer size=%u, bytes parsed=%u",
-    buffer_size, input.current_index );
-        pvt_record_error(&context, error, JSON_ERR_UNEXPECTED_EOF, context.error_msg);
+    buffer_size, input.current_byte_index );
+        pvt_record_error(&context, error, JSON_ERR_EXPECTED_EOF, context.error_msg);
         return nullptr;
 
     }
@@ -2111,15 +2229,15 @@ JsonValue *jsonp_parse_string_ex(const char *json_text, JsonParseError *error, A
 
 Input pvt_get_file_input_source( FileSourceInputContext *fs) {
     Input input = {
-        .input_context          = (void*)fs,
-        .read                   = file_read,
-        .next_char              = file_next_char,
-        .current_char           = file_current_char,
-        .peek_next_char         = file_peek_next_char,
-        .peek_lookahead_chars   = file_peek_lookahead_chars,
-        .advance_n_bytes        = file_advance_n_bytes
+        .input_context            = (void*)fs,
+        .read                     = file_read,
+        .current_char             = file_current_char,
+        .peek_next_char           = file_peek_next_char,
+        .peek_lookahead_chars     = file_peek_lookahead_chars,
+        .advance_n_bytes          = file_advance_n_bytes,
+        .sprint_n_lookahead_chars = file_sprint_n_lookahead_chars
     };
-    fs->look_behind_buffer = &input.look_behind_buffer;
+    // fs->look_behind_buffer = &input.look_behind_buffer;
 
     return input;
 }
@@ -2135,6 +2253,11 @@ static void pvt_debug_file_buffering(FILE *fp) {
 
     printf("--- stdio Debug ---\n");
     printf("Buffering Mode: %s\n", mode);
+    //prime the buffer
+    char c;
+    size_t num_read = fread(&c, 1, 1, fp);
+    int fseek_result = fseek( fp,  0, SEEK_SET );  // try to seek to start  to unread the char
+
     printf("Internal Buffer Size: %d bytes\n", internal->_bf._size);
 #endif
 
@@ -2149,50 +2272,76 @@ static void pvt_debug_file_buffering(FILE *fp) {
 }
 
 JsonValue * jsonp_parse_file(const char *json_filename, JsonParseError *error, Arena *arena) {
-    // todo (rob) error checking, does file exist, is it a json file, etc.
-    FILE *fp = fopen(json_filename, "rb");
+    if (!json_filename) {
+        *error = (JsonParseError){ .message = "JSON filename is a nullptr", .err_type = JSON_ERR_NULL_TEXT};
+        return nullptr;
+    }
+    if (json_filename[0] == NUL) {
+        *error = (JsonParseError){ .message = "JSON filename is empty string", .err_type = JSON_ERR_EMPTY_TEXT};
+        return nullptr;
+    }
 
+    // Check if file exists and is accessible before attempting to open
+    struct stat st;
+    if (stat(json_filename, &st) != 0) {
+        int saved_errno = errno;
+        if (saved_errno == ENOENT) {
+            snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "File '%s' not found.", json_filename);
+            error->err_type = JSON_ERR_FILE_NOT_FOUND;
+        } else if (saved_errno == EACCES) {
+            snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "Permission denied for file '%s': %s", json_filename, strerror(saved_errno));
+            error->err_type = JSON_ERR_FILE_ACCESS_ERROR;
+        } else {
+            snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "Error accessing file '%s': %s", json_filename, strerror(saved_errno));
+            error->err_type = JSON_ERR_FILE_ACCESS_ERROR;
+        }
+        return nullptr;
+    }
+
+    // todo (rob) check if it's a regular file (S_ISREG(st.st_mode))
+
+    FILE *fp = fopen(json_filename, "rb");
+    int saved_errno = errno;
 
     if (!fp) {
         // handle error
-        printf("fopen returned nullptr, ");
-        perror("");
-        putchar('\n');
+        // If stat() succeeded but fopen() failed, it's likely a different issue (e.g., too many open files, file is a directory)
+        snprintf( error->message, ERROR_MSG_BUFFER_SIZE, "Failed to open file '%s': %s", json_filename, strerror(saved_errno) );
+        error->err_type = JSON_ERR_FILE_OPEN_FAILED;
         return nullptr;
     }
 
     // Check buffering before we do anything.
     // Note: Some implementations don't allocate the buffer until the first I/O call.
-    pvt_debug_file_buffering(fp);
+    // pvt_debug_file_buffering(fp);
 
     // need to get file size
-    size_t file_size = 0;
+    long file_size = 0;
     // let's try fseek
-    int fseek_result = fseek( fp,  0, SEEK_END );  // try to seek to end
-    if (fseek_result) {
-        printf("fseek SEEK_END reports error: %d, ", fseek_result);
-        perror("");
-        putchar('\n');
-        int close_err = fclose(fp);
+    if (fseek(fp, 0, SEEK_END) != 0) {
+        saved_errno = errno;
+        snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "fseek(SEEK_END) failed: %s", strerror(saved_errno));
+        error->err_type = JSON_ERR_FILE_OPEN_FAILED;
+        fclose(fp);
         return nullptr;
     }
 
     // if we got here, we were able to seek to the end.
     long tell_pos = ftell( fp );
-    if (tell_pos < 0 ) {
-        printf("ftell returned %ld, error:", tell_pos);
-        perror("");
-        putchar('\n');
-    } else {
-        file_size = tell_pos;
+    if (tell_pos < 0) {
+        saved_errno = errno;
+        snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "ftell failed: %s", strerror(saved_errno));
+        error->err_type = JSON_ERR_FILE_OPEN_FAILED;
+        fclose(fp);
+        return nullptr;
     }
+    file_size = tell_pos;
 
-    fseek_result = fseek( fp,  0, SEEK_SET );  // try to seek to start
-    if (fseek_result) {
-        printf("fseek SEEK_SET reports error: %d, ", fseek_result);
-        perror("");
-        putchar('\n');
-        int close_err = fclose(fp);
+    if (fseek(fp, 0, SEEK_SET) != 0) {
+        saved_errno = errno;
+        snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "fseek(SEEK_SET) failed: %s", strerror(saved_errno));
+        error->err_type = JSON_ERR_FILE_OPEN_FAILED;
+        fclose(fp);
         return nullptr;
     }
 
@@ -2202,10 +2351,10 @@ JsonValue * jsonp_parse_file(const char *json_filename, JsonParseError *error, A
         .json_filename = json_filename,
         .file_ptr = fp,
         .length_bytes = file_size,
-        .current_index_byte = 0
     };
 
     Input input = pvt_get_file_input_source(&fs);
+    fs.input = &input;
 
     JsonContext context = {};
     pvt_write_global_state(&context);
@@ -2214,10 +2363,26 @@ JsonValue * jsonp_parse_file(const char *json_filename, JsonParseError *error, A
     JsonValue *value = nullptr;
     value = pvt_jsonp_parse_impl(&context, error, arena);
 
+
     int close_err = fclose(fp);
+    fs.file_ptr = nullptr;
+    // assigns no-op read function in case future calls to pvt_record_error() try to
+    // read from the file which is now closed.
+    input.read = string_read;
+
+    if (error->err_type != JSON_ERR_NONE ) return nullptr;
+
+    //check if there are still chars remaining that weren't parsed
+    if ( fs.length_bytes > input.current_byte_index ) {
+        snprintf(context.error_msg, ERROR_MSG_BUFFER_SIZE,
+        "JSON text was successfully parsed, but unparsed characters remain in the buffer."
+        " This can happen when the text is followed by embedded NUL characters.\nbuffer size=%zd, bytes parsed=%u",
+        fs.length_bytes, input.current_byte_index );
+        pvt_record_error(&context, error, JSON_ERR_EXPECTED_EOF, context.error_msg);
+        return nullptr;
+    }
 
 
-    // jsonp_parse_json_impl(&input);
     return value;
 }
 
@@ -2415,17 +2580,13 @@ constexpr char right_caret[] = "\033[91m<\033[0m";
 
 void jsonp_print_parse_error(JsonParseError *err) {
     if (!err) {
-        printf("(JsonParseError)null\n");
+        printf("(JsonParseError)nullptr\n");
         return;
     }
 
     printf("%d:%s  line:%d col:%d pos:%d start:%d end:%d :  %s  \n",
     err->err_type, jsonp_parse_error_type_name(err->err_type),
     err->line+1, err->column+1, err->first_bad_char, err->parse_start, err->parse_end, err->message);
-
-    // for display, replace new line chars with a space so the error message remains on the same line
-    // sutil_replace_match_chars( err->look_behind_buffer, NEWLINE_CHARS, SPACE_CHAR);
-    // sutil_replace_match_chars( err->look_ahead_buffer,  NEWLINE_CHARS, SPACE_CHAR);
 
     // debug version
     // printf("%d:%s  line:%d col:%d pos:%d start:%d end:%d :  %s   lab offset:%d look_behind_buffer: '%s', look_ahead_buffer: '%s', err->json: '%s'\n",
@@ -2434,26 +2595,31 @@ void jsonp_print_parse_error(JsonParseError *err) {
     //     err->lab_offset, err->look_behind_buffer, err->look_ahead_buffer, err->json);
 
 
+    if ( err->err_type == JSON_ERR_NULL_TEXT ||
+          ( err->err_type == JSON_ERR_EMPTY_TEXT && !strlen(err->look_behind_buffer)) ) {
+        return; // nothing was scanned, i.e. null/empty text
+    }
+
     uint32_t err_pos_offset = err->lab_offset;
-    StringBuilder json_text = {};
-    sb_init( &json_text, 80 + 20, err->look_behind_buffer);
+    StringBuilder json_err_text = {};
+    sb_init( &json_err_text, 80 + 20, err->look_behind_buffer);
     if (err_pos_offset > 0) {
-        uint32_t insert_pos = json_text.length - err_pos_offset;
-        sb_insert_str(&json_text,  right_caret, insert_pos + 1 );
-        sb_insert_str(&json_text,  left_caret, insert_pos );
-        sb_append_str(&json_text, err->look_ahead_buffer);
+        uint32_t insert_pos = json_err_text.length - err_pos_offset;
+        sb_insert_str(&json_err_text,  right_caret, insert_pos + 1 );
+        sb_insert_str(&json_err_text,  left_caret, insert_pos );
+        sb_append_str(&json_err_text, err->look_ahead_buffer);
     } else {
-        sb_append_str(&json_text, left_caret);
-        sb_append_char(&json_text, *err->look_ahead_buffer);
-        sb_append_str(&json_text, right_caret );
-        sb_append_str(&json_text, err->look_ahead_buffer + 1);
+        sb_append_str(&json_err_text, left_caret);
+        sb_append_char(&json_err_text, *err->look_ahead_buffer);
+        sb_append_str(&json_err_text, right_caret );
+        sb_append_str(&json_err_text, err->look_ahead_buffer + 1);
     }
 
     // for display, replace new line chars with a space so the error message remains on the same line
-    sb_replace_match_chars(&json_text,NEWLINE_CHARS, SPACE_CHAR );
-    printf("%s\n", json_text.buffer);
+    sb_replace_match_chars(&json_err_text,NEWLINE_CHARS, SPACE_CHAR );
+    printf("%s\n", json_err_text.buffer);
 
-    sb_destroy(&json_text);
+    sb_destroy(&json_err_text);
 }
 
 //// ------------------------------------------------------------
@@ -2930,8 +3096,39 @@ void parse_json_file(char const *filename) {
 }
 
 void test_one_json_file(void) {
-    char const *filename ="y_array_false.json";
-    parse_json_file(filename);
+    // parse_json_file(nullptr);
+    // parse_json_file("");
+    // parse_json_file("no such file");
+    //
+    // parse_json_file("../test/json_parser/JSONTestSuite/pass/y_string_1_2_3_bytes_UTF-8_sequences.json");
+    // parse_json_file("../test/json_parser/JSONTestSuite/pass/y_array_with_several_null.json");
+    //
+    // //fail
+    // parse_json_file("../test/json_parser/JSONTestSuite/fail/i_structure_500_nested_arrays.json");
+
+    // parse_json_file("../test/json_parser/JSONTestSuite/fail/n_object_with_single_string.json");
+
+    // n_structure_single_eacute.json
+    // parse_json_file("../test/json_parser/JSONTestSuite/fail/n_structure_single_eacute.json");
+
+    // this has only a BOM. It recocnizes it as empty text, but uses the length of the bom in the error message incorrectly
+    // n_structure_UTF8_BOM_no_data.json
+    // parse_json_file("../test/json_parser/JSONTestSuite/fail/n_structure_UTF8_BOM_no_data.json");
+
+    // n_multidigit_number_then_00.json
+    // want fail
+    parse_json_file("../test/json_parser/JSONTestSuite/fail/n_multidigit_number_then_00.json");
+
+    // when parsed as a file this gives the wrong error, 3:UNEXPECTED_TEXT  line:1 col:1 pos:1 start:1 end:1 :  unexpected character: EOF
+    // It should give a 'only whitespace' error
+
+    // n_single_space.json
+    // parse_json_file("../test/json_parser/JSONTestSuite/fail/n_single_space.json");
+
+
+    // parse_json_file("../test/json_parser/JSONTestSuite/fail/n_string_1_surrogate_then_escape_u1.json");
+
+
 }
 
 
@@ -2976,9 +3173,9 @@ int main( ) {
     // test_custom_flags();
 
     // test_fails_for_reporting();
-    test_json_test_suite_fails();
+    // test_json_test_suite_fails();
 
-    // test_one_json_file();
+    test_one_json_file();
 
 }
 #endif
