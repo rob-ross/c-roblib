@@ -3247,19 +3247,37 @@ void parse_json_stream(char const *filename) {
         jsonp_destroy();
         return;
     }
-    FILE *fp = fopen(filename, "rb");
-    int saved_errno = errno;
-
-    if (!fp) {
-        // handle error
-        // If stat() succeeded but fopen() failed, it's likely a different issue (e.g., too many open files, file is a directory)
-        printf("Failed to open file '%s': %s", filename, strerror(saved_errno) );
-
-    }
+    // FILE* fptr = nullptr;
+    JsonValue *jval = nullptr;
     JsonParseError err = {};
-    printf("\nParsing json file as stream: '%s': \n", filename);
-    JsonValue *jval = jsonp_parse_stream(fp, &err, &arena);
-    fclose(fp);
+
+    USING_FILE( fptr, filename, "rb") {
+        int saved_errno = errno;
+
+        if (!fptr) {
+            // handle error
+            // If stat() succeeded but fopen() failed, it's likely a different issue (e.g., too many open files, file is a directory)
+            printf("Failed to open file '%s': %s", filename, strerror(saved_errno) );
+
+        }
+
+        printf("\nParsing json file as stream: '%s': \n", filename);
+        jval = jsonp_parse_stream(fptr, &err, &arena);
+    };
+
+    // FILE *fp = fopen(filename, "rb");
+    // int saved_errno = errno;
+    //
+    // if (!fp) {
+    //     // handle error
+    //     // If stat() succeeded but fopen() failed, it's likely a different issue (e.g., too many open files, file is a directory)
+    //     printf("Failed to open file '%s': %s", filename, strerror(saved_errno) );
+    //
+    // }
+    // JsonParseError err = {};
+    // printf("\nParsing json file as stream: '%s': \n", filename);
+    // JsonValue *jval = jsonp_parse_stream(fp, &err, &arena);
+    // fclose(fp);
 
 
     if (!jval) {
@@ -3347,7 +3365,7 @@ void test_one_json_file(void) {
     parse_json_file("../test/json_parser/json_files/n_long_array_1.json");
     parse_json_stream("../test/json_parser/json_files/n_long_array_1.json");
 
-    parse_json_file("../test/json_parser/json_files/todos.json");
+    // parse_json_file("../test/json_parser/json_files/todos.json");
 
 }
 
@@ -3399,7 +3417,7 @@ int main( ) {
     // test_fails_for_reporting();
     // test_json_test_suite_fails();
 
-    // test_one_json_file();
+    test_one_json_file();
 
     // test_one_url();
 
