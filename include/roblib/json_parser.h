@@ -293,14 +293,15 @@ JsonValue * jsonp_parse_file(const char *json_filename, JsonParseError *error, A
  */
 JsonValue * jsonp_parse_stream( FILE *fp, JsonParseError *error, Arena *arena);
 
-// For future use. Not really tested.
+// For future use. Not really tested. Not for production.
 // How to integrate with security constraints, authorization, API keys, etc?
 JsonValue * jsonp_parse_url( const char* url, JsonParseError *error, Arena *arena);
 
 //// ------------------------------------------------------------
 ////
 ////    GLOBAL STATE
-////    values are set in the `jsonp_init()` methods.
+////    Getters only. Values are set in the `jsonp_init()` methods,
+///     or on a per-context basis below.
 //// ------------------------------------------------------------
 
 jp_bitset_t   jsonp_get_config_bitset();
@@ -314,10 +315,20 @@ char const *  jsonp_get_defined_whitespace_chars();
 ////
 //// ------------------------------------------------------------
 
+// Allocate a new JsonContext initialized with current global values, for use in `jsonp_parse_xxx_using_context` methods.
+// Contexts may be reused between parse calls.
 // caller must free(context) when done with it.
-JsonContext *jsonp_copy_global_context();
-// caller must free(context) when done with it.
-JsonContext *jsonp_get_empty_context();
+JsonContext * jsonp_copy_global_context();
+/**
+ *  Allocate a new empty JsonContext for use in `jsonp_parse_xxx_using_context` methods.
+ *  Caller must free(context) when done with it.
+ * @return A newly allocated, zero-initialized JsonContext.
+ *  See:
+ *  `jsonp_set_context_config_bitset`, `jsonp_set_context_config_flag`, `jsonp_set_context_max_depth`,
+ *  and `jsonp_set_context_whitespace_chars` to configure this context before use.
+ *  Contexts may be reused between parse calls.
+ */
+JsonContext *jsonp_make_empty_context(void);
 
 // -----------------------------------------------------------------
 //      CONFIG FLAGS
@@ -376,11 +387,11 @@ uint32_t jsonp_get_context_max_depth(JsonContext *context);
  *  %x0D Carriage return)
  *
  *  The C locale defines what counts as a space (via isspace()) as the above characters, and adds:
- *    form feed (`\\f`),
- *    vertical tab (’\v’)
+ *    form feed (`\f`),
+ *    vertical tab (`\v`)
  *  These are not included by default as white space characters in this parser.
  *
- *  Only supports max 16 chars. Chars after the 16th are ignored.
+ *  Only supports max 8 ASCII chars. Chars after the 8th are ignored.
  *
  *
  * @param context
