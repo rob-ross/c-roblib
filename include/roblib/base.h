@@ -4,6 +4,7 @@
 //
 
 #pragma once
+#include <assert.h>
 #if !defined(__STDC_VERSION__) || __STDC_VERSION__ < 202311L
     // If not C23, include the header that provides 'bool'
     #include <stdbool.h>
@@ -264,6 +265,77 @@ extern "C" {
     (a) = (b);                                              \
     (b) = UNIQUE_VAR(swap_temp);                            \
 )
+
+
+/*
+ *  Temp experiments making a RAII guard or resource manager.
+ *  You acquire something, do something, then finally release the thing you acquired.
+ *  USING_FILE lets you open a file and assign a FILE*, work with the file, then close the file.
+ *  Briefly tested, but it worked. good for quick & dirty work? No robust error checking/reporting
+ *  what happens if  you try to fclose() a file that failed to fopen()?
+ *
+ *  Design: the outer loop exists only to initialize the "loop variable". Here we generate a unique identifier via
+ *  UNIQUE_VAR. It will be something like `pvt_once345`. It is initialized to 1. The condition check passes, and
+ *  the body of the loop starts, which is the second for-loop.
+ *  This inner loop will also run exactly once. In the increment section, it decrements the loop variable, making it
+ *  zero. The purpose of the inner loop is twofold.
+ *      1. It acquires the resource, here a file via fopen(). The filename and mode are passed as arguments to the function
+ *          macro. An identifier name is also passed as the first argument, which is of typed as FILE*. in the macro.
+ *          This variable is assigned the FILE* returned from fopen().
+ *      2. It releases the resource, fclose(),  in the increment section as the first operand of the comma operator.
+ *          If you wanted the return value assigned to a variable, you could pass that variable to the Macro as a fourth
+ *          argument, e.g. USING_FILE( fp, "foo.txt", "rb", close_result)...
+ *          and in the second for-loop you'd write `...; close_result = fclose(FP), ...`
+ * The second for-loop in the macro has no body, so you write one after the macro invocation like:
+        USING_FILE( fptr, filename, "rb") {
+            int saved_errno = errno;
+            if (!fptr) {
+                // handle error
+                // don't break!!! You want the loop increment section to run.
+                // ...
+            } else {
+                int c = fgetc(fptr);
+                // ...
+            }
+        };
+
+    When the block following USING_FILE() exits, the file has been closed.
+ */
+
+#define USING_FILE( FP, name, mode)    \
+    for ( int UNIQUE_VAR(once) = 1; UNIQUE_VAR(once); )      \
+        for( FILE* FP = fopen( name, mode) ; UNIQUE_VAR(once) ; fclose(FP), FP = nullptr, UNIQUE_VAR(once)--)   \
+
+
+
+
+#define USING_VA_LIST(args, last) \
+    for ( int UNIQUE_VAR(once) = 1 ; UNIQUE_VAR(once) ; )            \
+        for( va_list args; UNIQUE_VAR(once) ; )            \
+            for( va_start(args, last) ; UNIQUE_VAR(once) ; va_end(args), UNIQUE_VAR(once)-- )         \
+
+
+/*
+ *  Example with USING_VA_LIST():
+ *
+ */
+static void my_printf(const char * format, ...) {
+    USING_VA_LIST(args, format) {
+        for ( size_t at = 0; format[at]; at++) {
+            switch (format[at]) {
+                case 'c': {
+                    int param = va_arg(args, int);
+                    char passed = (char)param;
+                    assert(passed == 'X');
+                }
+            }
+        }
+    }
+}
+
+static void example_applied_to_va_list(void) {
+    my_printf("c", 'X');
+}
 
 #ifdef __cplusplus
 }
