@@ -496,7 +496,7 @@ static _Atomic(const char *) pvt_whitespace_chars = nullptr;
 
 void jsonp_set_context_whitespace_chars( JsonContext *context, const char  *whitespace_chars ) {
     if (!whitespace_chars) return;
-    snprintf(context->whitespace_chars, sizeof(context->whitespace_chars), "%s", whitespace_chars);
+    snprintf(context->whitespace_chars, MIN(sizeof(context->whitespace_chars), 8), "%s", whitespace_chars);
     pvt_init_context_whitespace_table(context);
 }
 
@@ -2113,22 +2113,13 @@ void pvt_write_global_state(JsonContext *context) {
 
 }
 
-// caller must free(context) when done with it.
 JsonContext *jsonp_copy_global_context() {
     JsonContext *context  = (JsonContext *)calloc(1, sizeof(JsonContext));
     pvt_write_global_state(context);
     return context;
 }
 
-/**
- *  Allocate a new empty JsonContext for use in `jsonp_parse_using_context`.
- *  Caller must free(context) when done with it.
- * @return A newly allocated, zero-initialized JsonContext.
- *  See:
- *  `jsonp_set_context_config_bitset`, `jsonp_set_context_config_flag`, `jsonp_set_context_max_depth`,
- *  and `jsonp_set_context_whitespace_chars` to configure this context before use.
- */
-JsonContext *jsonp_empty_context(void) {
+JsonContext *jsonp_make_empty_context(void) {
     JsonContext *context  = (JsonContext *)calloc(1, sizeof(JsonContext));
     context->whitespace_chars[0] = NUL; // empty string
     return context;
@@ -2136,7 +2127,7 @@ JsonContext *jsonp_empty_context(void) {
 
 
 // reset to initial states all state-related members of the context.
-// Does not affect depth_max, config_flags, whitespace_chars, or ws_table.
+// Does not affect depth_max, config_flags, whitespace_chars, nor ws_table.
 static void pvt_reset_context(JsonContext *context) {
     context->depth_current  = 0;
     context->input          = nullptr;
@@ -2462,6 +2453,8 @@ WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp) {
 }
 
 JsonValue * jsonp_parse_url( const char* url, JsonParseError *error, Arena *arena) {
+    // todo (rob) curl is not installed by default. So this method should be in an API extension file that clients
+    // can choose to use if they want to d/l, but otherwise have no dependency on it if not.
     CURL *curl_handle;
     CURLcode res;
 
@@ -3408,6 +3401,7 @@ int main( ) {
 
     // test_one_json_file();
 
-    test_one_url();
+    // test_one_url();
+
 }
 #endif
