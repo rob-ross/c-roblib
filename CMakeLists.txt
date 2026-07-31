@@ -23,7 +23,7 @@ endif()
 # -fsanitize=address -fsanitize=leak
 set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -O0 -g -fno-omit-frame-pointer \
 -fsanitize=address -fsanitize=leak \
--Wall -Wpedantic -Wextra -Werror \
+-Wall -Wpedantic -Wextra -Werror -Wshadow \
 -Wno-unknown-attributes \
 -Wno-unused-const-variable \
 -Wno-gnu-zero-variadic-macro-arguments \
