@@ -314,11 +314,9 @@ extern "C" {
         for( va_list args; UNIQUE_VAR(once) ; )            \
             for( va_start(args, last) ; UNIQUE_VAR(once) ; va_end(args), UNIQUE_VAR(once)-- )         \
 
-
 /*
- *  Example with USING_VA_LIST():
  *
- */
+// Example with USING_VA_LIST():
 static void my_printf(const char * format, ...) {
     USING_VA_LIST(args, format) {
         for ( size_t at = 0; format[at]; at++) {
@@ -336,6 +334,7 @@ static void my_printf(const char * format, ...) {
 static void example_applied_to_va_list(void) {
     my_printf("c", 'X');
 }
+*/
 
 #ifdef __cplusplus
 }
