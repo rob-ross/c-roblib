@@ -34,24 +34,26 @@
 
 #include "error_result.h"
 
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-typedef struct page_header_t {
-    struct page_header_t * next_page;  // Links to the next OS memory block
-    size_t page_capacity;           // Tracks capacity of this block for mmap
-} PageHeader;
+
+typedef unsigned char byte;
+
+typedef struct block_header_t {
+    struct block_header_t * next_block;  // Links to the next memory block
+    size_t block_size;                   // Tracks size of this block for mmap
+} BlockHeader;
 
 typedef struct arena_s {
-    uint8_t    * current_buffer;  // Current active memory block being filled
-    size_t       capacity;        // Size of each OS block allocation
-    size_t       offset;          // Position inside the *current* active block (points to next available byte)
-    PageHeader * head_page;       // Pointer to the first block
+    byte         * current_block;  // Current active memory block being filled.
+    size_t         default_block_size;     // Size of each block allocation
+    size_t         offset;         // Position inside the *current* active block (points to next available byte)
+    BlockHeader  * head_block;        // Pointer to the first block
 } Arena;
 
-// todo move this to a top-level const-only header, and spell it correctly
-constexpr size_t ONE_MIBIBYTE = 1024 * 1024;
 
 
 typedef struct arena_err_result_s {
@@ -59,15 +61,16 @@ typedef struct arena_err_result_s {
     Arena * result;
 } ArenaErrResult;
 
-typedef struct pageheader_err_result_s {
+typedef struct block_header_err_result_s {
     ERROR_BASE;
-    PageHeader * result;
-} PageHeaderError;
+    BlockHeader * result;
+} BlockHeaderErrResult;
 
 
-ArenaErrResult arena_create_arena( Arena * arena,  size_t block_capacity);
+ArenaErrResult arena_create_arena( Arena * arena,  size_t block_size);
 void arena_destroy_arena( Arena * arena);
 void * arena_alloc(Arena * arena,  size_t size);
+void arena_reset(Arena * arena, bool zero_mem);
 
 #ifdef __cplusplus
 }
