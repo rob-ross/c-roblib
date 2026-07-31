@@ -45,6 +45,30 @@ extern "C" {
 // HELPER MACROS
 // ----------------------------
 
+/**
+ * @brief Generates a unique variable name token for use within a macro.
+ *
+ * It creates an identifier by concatenating a prefix, a user-provided base name,
+ * and the current line number. This is a common and portable technique to avoid
+ * name collisions for temporary variables inside macros.
+ *
+ * Example: `UNIQUE_VAR(my_temp)` on line 50 would expand to `pvt_my_temp_50`.
+ *
+ * @param base_name The root name for the variable.
+ */
+#define UNIQUE_VAR(base_name) CAT(CAT(pvt_, base_name), __LINE__)
+
+/**
+ * @brief Swaps the values of the two scalar argument variables.
+ * @param a scalar variable a
+ * @param b scalar variable b
+ */
+#define SWAP(a, b) STATEMENT(                               \
+    auto UNIQUE_VAR(swap_temp) = (a);                       \
+    (a) = (b);                                              \
+    (b) = UNIQUE_VAR(swap_temp);                            \
+)
+
 #define STATEMENT(S) do{ S }while(0)
 #define STRINGIFY_(S) #S
 #define STRINGIFY(S) STRINGIFY_(S)
@@ -222,6 +246,24 @@ extern "C" {
         putchar('\n');                  \
     } while (0)
 
+/**
+ * @brief Generates a unique variable name token for use within a macro.
+ *
+ * It creates an identifier by concatenating a prefix, a user-provided base name,
+ * and the current line number. This is a common and portable technique to avoid
+ * name collisions for temporary variables inside macros.
+ *
+ * Example: `UNIQUE_VAR(my_temp)` on line 50 would expand to `pvt_my_temp_50`.
+ *
+ * @param base_name The root name for the variable.
+ */
+#define UNIQUE_VAR(base_name) CAT(CAT(pvt_, base_name), __LINE__)
+
+#define SWAP(a, b) STATEMENT(                               \
+    auto UNIQUE_VAR(swap_temp) = (a);                       \
+    (a) = (b);                                              \
+    (b) = UNIQUE_VAR(swap_temp);                            \
+)
 
 #ifdef __cplusplus
 }
