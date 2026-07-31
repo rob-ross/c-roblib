@@ -9,7 +9,8 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
+
+
 
 #ifdef __cplusplus
 extern "C" {
@@ -21,6 +22,7 @@ extern "C" {
 ////
 //// ------------------------------------------------------------
 
+typedef struct arena_s Arena;
 constexpr size_t CharRingBuffer_SIZE = 40;
 
 /**
@@ -32,9 +34,10 @@ constexpr size_t CharRingBuffer_SIZE = 40;
  */
 typedef struct {
     size_t length;
+    const size_t capacity;
     size_t start_index;
     size_t end_index;
-    char   buffer[CharRingBuffer_SIZE];
+    char   buffer[];  // flexible member array
 } CharRingBuffer;
 
 typedef enum : long {
@@ -45,14 +48,7 @@ typedef enum : long {
 
 } CRBErrType;
 
-
-/**
- * Directly fills the ring buffer from a reader function.
- * This avoids an intermediate buffer and double-copying.
- */
-long crb_fill_ring_buffer_from_reader_CharRingBuffer(CharRingBuffer *crb,
-                                         long (*read_fn)(void *, unsigned char *, size_t),
-                                         void *read_context);
+CharRingBuffer * crb_new_CharRingBuffer(size_t capacity, Arena *arena);
 
 void crb_add_str_to_buffer_CharRingBuffer(CharRingBuffer *crb, size_t count, char const *src_chars);
 void crb_add_char_to_buffer_CharRingBuffer(CharRingBuffer *crb,  char src_char);
@@ -60,11 +56,11 @@ void crb_add_char_to_buffer_CharRingBuffer(CharRingBuffer *crb,  char src_char);
 long crb_add_str_to_buffer_strict_CharRingBuffer(CharRingBuffer *crb, size_t count, char const *src_chars);
 long crb_add_char_to_buffer_strict_CharRingBuffer(CharRingBuffer *crb, char src_char);
 int crb_get_next_char_CharRingBuffer(CharRingBuffer *crb);
-int crb_peek_char_CharRingBuffer(CharRingBuffer *crb, size_t offset);
+int crb_peek_char_CharRingBuffer(CharRingBuffer const *crb, size_t offset);
 int crb_advance_buffer_CharRingBuffer(CharRingBuffer *crb, size_t byte_count);
 
-void crb_print_repr_CharRingBuffer(CharRingBuffer *crb);
-void crb_sprint_buffer_CharRingBuffer(CharRingBuffer *crb, char *buffer);
+void crb_print_repr_CharRingBuffer(CharRingBuffer const *crb);
+void crb_sprint_buffer_CharRingBuffer(CharRingBuffer const *crb, char *buffer);
 
 //// ------------------------------------------------------------
 ////
