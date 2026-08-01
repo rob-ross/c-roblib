@@ -2783,8 +2783,8 @@ void parse_test_str(char const * str) {
         jsonp_destroy();
         return;
     }
-    Arena arena = {};
-    ArenaErrResult aer = arena_create_arena( &arena, ONE_MEBIBYTE * 100);
+    ArenaErrResult aer = arena_create_arena( ONE_MEBIBYTE * 100);
+    Arena *arena = aer.result;
     if ( aer.err ) {
         printf("arena_create_arena failed with %d, %s\n", aer.reported_err, aer.msg);
         jsonp_destroy();
@@ -2792,7 +2792,7 @@ void parse_test_str(char const * str) {
     }
     JsonParseError err = {};
     printf("\nParsing json string '%s': \n", str);
-    JsonValue *jval = jsonp_parse_string(str, &err, &arena);
+    JsonValue *jval = jsonp_parse_string(str, &err, arena);
 
     if (!jval) {
         printf("ERROR %d: first_bad_char:%d, line:%d col:%d start:%d end:%d  %s\n",
@@ -2803,7 +2803,7 @@ void parse_test_str(char const * str) {
         printf("\n");
     }
 
-    arena_destroy_arena(&arena);
+    arena_destroy_arena(arena);
     jsonp_destroy();
 }
 
@@ -2820,14 +2820,16 @@ void parse_test_str_custom_init(
         printf("reported error: %d, message: %s\n", err.reported_err, err.msg);
     }
 
-    Arena arena = {};
-    ArenaErrResult aer = arena_create_arena( &arena, ONE_MEBIBYTE * 100);
+
+    ArenaErrResult aer = arena_create_arena( ONE_MEBIBYTE * 100);
     if ( aer.err ) {
         printf("arena_create_arena failed with %d, %s\n", aer.reported_err, aer.msg);
     }
+    Arena *arena = aer.result;
+
     JsonParseError json_err = {};
     printf("\nParsing json string '%s': \n", str);
-    JsonValue *jval = jsonp_parse_string(str, &json_err, &arena);
+    JsonValue *jval = jsonp_parse_string(str, &json_err, arena);
     if (!jval) {
         printf("ERROR %d: first_bad_char:%d, line:%d col:%d start:%d end:%d  %s\n",
            json_err.err_type, json_err.first_bad_char,  json_err.line, json_err.column, json_err.parse_start,
@@ -2838,7 +2840,7 @@ void parse_test_str_custom_init(
         printf("\n");
     }
 
-    arena_destroy_arena(&arena);
+    arena_destroy_arena(arena);
     jsonp_destroy();
 
 }
@@ -2853,17 +2855,17 @@ void simple_parse(char const *json_text) {
         return;
     }
 
-    Arena arena = {};
-    ArenaErrResult aer = arena_create_arena( &arena, 1024 * 124);  // initially 1MB as an example. Grows as needed.
+    ArenaErrResult aer = arena_create_arena( 1024 * 124);  // initially 1MB as an example. Grows as needed.
     if ( aer.err ) {
         printf("arena_create_arena failed with %d, %s\n", aer.reported_err, aer.msg);
         jsonp_destroy();
         return;
     }
+    Arena *arena = aer.result;
 
     JsonParseError err = {};
 
-    JsonValue *jval = jsonp_parse_string(json_text, &err, &arena);
+    JsonValue *jval = jsonp_parse_string(json_text, &err, arena);
     if (!jval) {
         // handle error
         jsonp_print_parse_error(&err);
@@ -2872,7 +2874,7 @@ void simple_parse(char const *json_text) {
         putchar('\n');
     }
 
-    arena_destroy_arena(&arena);
+    arena_destroy_arena(arena);
     jsonp_destroy();
 }
 
@@ -3218,17 +3220,18 @@ void parse_json_file(char const *filename) {
         jsonp_destroy();
         return;
     }
-    Arena arena = {};
-    ArenaErrResult aer = arena_create_arena( &arena, ONE_MEBIBYTE * 100);
+    ArenaErrResult aer = arena_create_arena( ONE_MEBIBYTE * 100);
     if ( aer.err ) {
         printf("arena_create_arena failed with %d, %s\n", aer.reported_err, aer.msg);
         jsonp_destroy();
         return;
     }
+    Arena *arena = aer.result;
+
     JsonParseError err = {};
     printf("\nParsing json file '%s': \n", filename);
     // JsonValue *jval = jsonp_parse(str, &err, &arena);
-    JsonValue *jval = jsonp_parse_file(filename, &err, &arena);
+    JsonValue *jval = jsonp_parse_file(filename, &err, arena);
 
     if (!jval) {
         // printf("ERROR %d: first_bad_char:%d, line:%d col:%d start:%d end:%d  %s\n",
@@ -3240,7 +3243,7 @@ void parse_json_file(char const *filename) {
         printf("\n");
     }
 
-    arena_destroy_arena(&arena);
+    arena_destroy_arena(arena);
     jsonp_destroy();
 }
 
@@ -3251,13 +3254,14 @@ void parse_json_stream(char const *filename) {
         jsonp_destroy();
         return;
     }
-    Arena arena = {};
-    ArenaErrResult aer = arena_create_arena( &arena, ONE_MEBIBYTE * 100);
+    ArenaErrResult aer = arena_create_arena( ONE_MEBIBYTE * 100);
     if ( aer.err ) {
         printf("arena_create_arena failed with %d, %s\n", aer.reported_err, aer.msg);
         jsonp_destroy();
         return;
     }
+    Arena *arena = aer.result;
+
     // FILE* fptr = nullptr;
     JsonValue *jval = nullptr;
     JsonParseError err = {};
@@ -3273,7 +3277,7 @@ void parse_json_stream(char const *filename) {
         }
 
         printf("\nParsing json file as stream: '%s': \n", filename);
-        jval = jsonp_parse_stream(fptr, &err, &arena);
+        jval = jsonp_parse_stream(fptr, &err, arena);
     };
 
     // FILE *fp = fopen(filename, "rb");
@@ -3301,7 +3305,7 @@ void parse_json_stream(char const *filename) {
         printf("\n");
     }
 
-    arena_destroy_arena(&arena);
+    arena_destroy_arena(arena);
     jsonp_destroy();
 }
 
@@ -3312,17 +3316,17 @@ void parse_json_url(char const *url_string) {
         jsonp_destroy();
         return;
     }
-    Arena arena = {};
-    ArenaErrResult aer = arena_create_arena( &arena, ONE_MEBIBYTE * 100);
+    ArenaErrResult aer = arena_create_arena( ONE_MEBIBYTE * 100);
     if ( aer.err ) {
         printf("arena_create_arena failed with %d, %s\n", aer.reported_err, aer.msg);
         jsonp_destroy();
         return;
     }
+    Arena *arena = aer.result;
 
     JsonParseError err = {};
     printf("\nParsing json file from url: '%s': \n", url_string);
-    JsonValue *jval = jsonp_parse_url(url_string, &err, &arena);
+    JsonValue *jval = jsonp_parse_url(url_string, &err, arena);
 
 
     if (!jval) {
@@ -3335,7 +3339,7 @@ void parse_json_url(char const *url_string) {
         printf("\n");
     }
 
-    arena_destroy_arena(&arena);
+    arena_destroy_arena(arena);
     jsonp_destroy();
 }
 
