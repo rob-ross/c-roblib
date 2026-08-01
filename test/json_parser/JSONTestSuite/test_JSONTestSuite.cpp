@@ -245,7 +245,7 @@ TEST_P(JsonTestSuiteParam, jsonp_parse_stream) {
             << "\nExpected failure but succeeded on stream.\nContent: " << json_text;
         EXPECT_NE(err->err_type, JSON_ERR_NONE);
         // todo (rob) temp remove:
-        jsonp_print_parse_error(err);
+        // jsonp_print_parse_error(err);
     }
 
 }
