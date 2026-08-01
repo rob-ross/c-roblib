@@ -177,6 +177,7 @@ static void arena_zero(Arena const * arena) {
     }
 }
 
+// precondition: the alignment size is a power of two
 void * pvt_arena_alloc_impl(
                             Arena * arena,
                             const size_t size,
@@ -232,12 +233,15 @@ void * pvt_arena_alloc_impl(
     return ptr;
 }
 
+// todo (rob) add optional parameter for specifying alignment as `size_t alignment`
+// must verify that the alignment size is a power of two. use platform_specific.round_up_to_power_of_two.
 // Returns pointer to allocated chunk in the arena, or nullptr if arena is out of memory.
 void * _arena_alloc(Arena * arena, const size_t size, [[nullable]] ArenaErrResult * aer) {
     const size_t aligned_requested_size = arena_aligned_size(size);
     return pvt_arena_alloc_impl(arena, size, aer, aligned_requested_size);
 }
 
+// todo (rob) optional parameter to specify the default alignment
 ArenaErrResult arena_create_arena( const size_t arena_capacity) {
     // Account for the block header size and Arena size
     const size_t needed_capacity = arena_capacity + sizeof(BlockHeader) + sizeof(Arena);
@@ -302,6 +306,7 @@ void arena_destroy_arena(const Arena * arena) {
 //// ------------------------------------------------------------
 
 //todo (rob) test this!!
+// todo (rob) optional parameter to specify the default alignment
 StackAllocatorErrResult alloc_create_stack_allocator( const size_t capacity) {
     // In addition to the requested capacity, The first block requires:
     //   a BlockHeader, a StackAllocator, and an AllocatorHeader for the payload block.
@@ -368,9 +373,9 @@ void * stack_allocator_alloc(StackAllocator * stack_alloc, const size_t size, [[
     void* payload_mem = _arena_alloc(stack_alloc->payload_data, size, aer);
     // todo error checking
     // use 8-byte alignment for the pointer allocation
-    const size_t aligned_requested_size = ( size + POINTER_ALIGNMENT_MASK ) & ~POINTER_ALIGNMENT_MASK;
-    intptr_t * pointer_mem = pvt_arena_alloc_impl(stack_alloc->meta_data, sizeof(void*), aer, aligned_requested_size);
+    const size_t aligned_requested_size = ( sizeof(void*) + POINTER_ALIGNMENT_MASK ) & ~POINTER_ALIGNMENT_MASK;
+    void ** pointer_mem = pvt_arena_alloc_impl(stack_alloc->meta_data, sizeof(void*), aer, aligned_requested_size);
     // todo error checking
-    *pointer_mem = (intptr_t)payload_mem;
+    *pointer_mem = payload_mem;
     return payload_mem;
 }
