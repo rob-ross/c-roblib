@@ -36,6 +36,7 @@ The literal names MUST be lowercase.  No other literal names are allowed.
 
 
 #include <stdio.h>
+#include <stdint.h>
 
 #include "arena.h"
 #include "error_result.h"
