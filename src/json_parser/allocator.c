@@ -369,8 +369,8 @@ void * stack_allocator_alloc(StackAllocator * stack_alloc, const size_t size, [[
     // todo error checking
     // use 8-byte alignment for the pointer allocation
     const size_t aligned_requested_size = ( size + POINTER_ALIGNMENT_MASK ) & ~POINTER_ALIGNMENT_MASK;
-    size_t * pointer_mem = pvt_arena_alloc_impl(stack_alloc->meta_data, sizeof(void*), aer, aligned_requested_size);
+    intptr_t * pointer_mem = pvt_arena_alloc_impl(stack_alloc->meta_data, sizeof(void*), aer, aligned_requested_size);
     // todo error checking
-    *pointer_mem = (size_t)payload_mem;
+    *pointer_mem = (intptr_t)payload_mem;
     return payload_mem;
 }

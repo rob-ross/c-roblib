@@ -50,7 +50,7 @@
  * the owning object is disposed. As with MEM_DEFAULT_ALLOCATOR_POLICY, only a single object should OWN this MemPolicy,
  * and any other objects sharing the same policy should have their policy_type set to MEM_POLICY_MALLOC_SHARED.
  *
- * A new MemPolicy instance (not the defaults discussed above) will have it's policy_type set to  MEM_POLICY_NONE
+ * A new MemPolicy instance (not the defaults discussed above) will have its policy_type set to MEM_POLICY_NONE
  * indicating the policy_type has not yet been set. Some functions returning a MemPolicy may set policy_type to NULL
  * to indicate an error occurred or to indicate no MemPolicy exists.
  *
