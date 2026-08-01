@@ -1,4 +1,4 @@
-// arena.c
+// allocator.c
 //
 // Copyright (c) Rob Ross 2026.
 //
@@ -16,7 +16,7 @@
 // todo (rob) test _Win32 build
 // currently not tested on Windows.
 
-#include "roblib/arena.h"
+#include "roblib/allocator.h"
 
 #include <stddef.h>
 
@@ -36,33 +36,44 @@
 #include <stdio.h>  // for fprintf, stderr,
 #include <string.h>  // for memset
 
-typedef unsigned char byte;
 
+typedef unsigned char byte;
 
 typedef struct block_header_t {
     struct block_header_t * next_block;  // Links to the next memory block
     size_t block_size;                   // Tracks size of this block for mmap
 } BlockHeader;
 
+// -----------------------------------------------------------------
+//      Arena
+// -----------------------------------------------------------------
+
+typedef struct allocator_header_s {
+    byte         * current_block;  // Current active memory block being filled.
+    size_t         default_block_size;     // Size of each block allocation
+    size_t         offset;         // Position inside the *current* active block (points to next available byte)
+    BlockHeader  * head_block;        // Pointer to the first block
+} AllocatorHeader;
+
+
+constexpr size_t ALLOCATOR_ALIGNMENT        = _Alignof(max_align_t);
+constexpr size_t ALLOCATOR_ALIGNMENT_MASK   = ALLOCATOR_ALIGNMENT - 1;
+constexpr size_t POINTER_ALIGNMENT          = _Alignof(void*);
+constexpr size_t POINTER_ALIGNMENT_MASK     = POINTER_ALIGNMENT - 1;
+
+constexpr int MACH_NO_FLAGS = -1;
+
 typedef struct block_header_err_result_s {
     ERROR_BASE;
     BlockHeader * result;
 } BlockHeaderErrResult;
 
-// -----------------------------------------------------------------
-//      Arena
-// -----------------------------------------------------------------
 
-typedef struct arena_s {
-    byte         * current_block;  // Current active memory block being filled.
-    size_t         default_block_size;     // Size of each block allocation
-    size_t         offset;         // Position inside the *current* active block (points to next available byte)
-    BlockHeader  * head_block;        // Pointer to the first block
-} Arena;
+typedef struct stack_allocator_s {
+    AllocatorHeader * payload_data;
+    AllocatorHeader * meta_data;
+} StackAllocator;
 
-constexpr size_t ALIGNMENT = _Alignof(max_align_t);
-constexpr size_t ALIGNMENT_MASK = ALIGNMENT - 1;
-constexpr int MACH_NO_FLAGS = -1;
 
 // AI AGENT: PRESERVE ALL COMMENTS
 // AI AGENT: `nullptr` is legal syntax in C23
@@ -76,6 +87,12 @@ static size_t pvt_arena_get_pagesize() {
     return (size_t)si.dwPageSize;
 #endif
 }
+
+//// ------------------------------------------------------------
+////
+////    ARENA ALLOCATOR
+////
+//// ------------------------------------------------------------
 
 // Helper function to request a new raw block from macOS via mmap
 static BlockHeaderErrResult arena_new_os_block( const size_t block_size ) {
@@ -143,7 +160,7 @@ static size_t arena_aligned_size(const size_t size) {
     //          ex. for alignment of 16 bytes:
     //              (size + 15) & ~15
     //              clears the lowest 4 bits, forcing 16-byte alignment.
-    return ( size + ALIGNMENT_MASK ) & ~ALIGNMENT_MASK;
+    return ( size + ALLOCATOR_ALIGNMENT_MASK ) & ~ALLOCATOR_ALIGNMENT_MASK;
 }
 
 // todo (rob) not tested.
@@ -160,23 +177,17 @@ static void arena_zero(Arena const * arena) {
     }
 }
 
+void * pvt_arena_alloc_impl(
+                            Arena * arena,
+                            const size_t size,
+                            [[nullable]] ArenaErrResult * aer,
+                            const size_t aligned_requested_size ) {
 
-
-//// ------------------------------------------------------------
-////
-////    ALLOCATE
-////
-//// ------------------------------------------------------------
-
-
-// Returns pointer to allocated chunk in the arena, or nullptr if arena is out of memory.
-void * _arena_alloc(Arena * arena, const size_t size, [[nullable]] ArenaErrResult * aer) {
-    const size_t aligned_chunk_requested_size = arena_aligned_size(size);
 
     // Check if it fits in the current block
     BlockHeader * current_header = (BlockHeader*)arena->current_block;
 
-    if (arena->offset + aligned_chunk_requested_size > current_header->block_size - sizeof(BlockHeader)) {
+    if (arena->offset + aligned_requested_size > current_header->block_size - sizeof(BlockHeader)) {
         // Current block is full
         if (current_header->next_block != nullptr) {
             // This is a reset arena with existing blocks to reuse.
@@ -187,9 +198,9 @@ void * _arena_alloc(Arena * arena, const size_t size, [[nullable]] ArenaErrResul
             // We are at the end of the chain, need to allocate a new block.
             // Ensure that the requested size isn't larger than the standard block capacity
             size_t target_block_size = arena->default_block_size;
-            if (aligned_chunk_requested_size > target_block_size - sizeof(BlockHeader) ) {
+            if (aligned_requested_size > target_block_size - sizeof(BlockHeader) ) {
                 // requested chunk size too massive for standard block size, create special block for this request
-                // target_block_size = aligned_chunk_requested_size +  sizeof(BlockHeader);
+                // target_block_size = aligned_requested_size +  sizeof(BlockHeader);
                 target_block_size = size +  sizeof(BlockHeader);
             }
             size_t needed_capacity = target_block_size;
@@ -216,21 +227,20 @@ void * _arena_alloc(Arena * arena, const size_t size, [[nullable]] ArenaErrResul
     void * ptr = &arena->current_block[arena->offset];
 
     // Bump the offset forward by the aligned size
-    arena->offset += aligned_chunk_requested_size;
+    arena->offset += aligned_requested_size;
 
     return ptr;
 }
 
-
-//// ------------------------------------------------------------
-////
-////    CREATE / DESTROY
-////
-//// ------------------------------------------------------------
+// Returns pointer to allocated chunk in the arena, or nullptr if arena is out of memory.
+void * _arena_alloc(Arena * arena, const size_t size, [[nullable]] ArenaErrResult * aer) {
+    const size_t aligned_requested_size = arena_aligned_size(size);
+    return pvt_arena_alloc_impl(arena, size, aer, aligned_requested_size);
+}
 
 ArenaErrResult arena_create_arena( const size_t arena_capacity) {
-    // Account for the block header size
-    const size_t needed_capacity = arena_capacity + sizeof(Arena);  // we need space for the newly created Arena struct
+    // Account for the block header size and Arena size
+    const size_t needed_capacity = arena_capacity + sizeof(BlockHeader) + sizeof(Arena);
 
     BlockHeaderErrResult bher = arena_new_os_block(needed_capacity);
 
@@ -281,4 +291,86 @@ void arena_destroy_arena(const Arena * arena) {
 #endif
         current = next;
     }
+}
+
+
+
+//// ------------------------------------------------------------
+////
+////        STACK ALLOCATOR
+////
+//// ------------------------------------------------------------
+
+//todo (rob) test this!!
+StackAllocatorErrResult alloc_create_stack_allocator( const size_t capacity) {
+    // In addition to the requested capacity, The first block requires:
+    //   a BlockHeader, a StackAllocator, and an AllocatorHeader for the payload block.
+    // For the meta_data block, we need to calculate 25% of the capacity arg, then
+    //   a BlockHeader, and the AllocatorHeader
+    // If there are multiple blocks, every block after the first starts with just a BlockHeader
+    // We're adding the StackAllocator to the payload block because it will have max alignment and is more
+    // future-proof, if we add members to that struct. The metadata block will be aligned to 8 bytes for efficient
+    // memory use so we can't add ad hoc types.
+
+    const size_t needed_payload_capacity = capacity + sizeof(BlockHeader) + sizeof(StackAllocator) + sizeof(AllocatorHeader);
+    BlockHeaderErrResult bher = arena_new_os_block(needed_payload_capacity);
+    if ( bher.err ) {
+        // ReSharper disable once CppDFAUnreachableCode
+        return (StackAllocatorErrResult){ .error = bher.error };
+    }
+
+    // ReSharper disable once CppDFAUnreachableCode
+    BlockHeader * new_block_header = bher.result;
+    AllocatorHeader payload_allocator_header = {
+        .default_block_size = new_block_header->block_size,
+        .head_block = new_block_header,
+        .current_block = (byte*)new_block_header,
+        .offset = sizeof(BlockHeader)
+    };
+    // the very first allocation is for the StackAllocator struct itself
+    StackAllocator *new_stack_allocator = _arena_alloc(&payload_allocator_header, sizeof(StackAllocator), nullptr);
+
+    // the next allocation is for this block's allocator header
+    AllocatorHeader *new_payload_allocator_header = _arena_alloc(&payload_allocator_header, sizeof(AllocatorHeader), nullptr);
+    *new_payload_allocator_header = payload_allocator_header;
+
+    new_stack_allocator->payload_data = new_payload_allocator_header;
+
+    // now we create the second block for the allocation pointers
+    size_t needed_metadata_capacity = (size_t)( new_block_header->block_size * 0.25L ) + sizeof(BlockHeader) + sizeof(AllocatorHeader);
+    bher = arena_new_os_block(needed_metadata_capacity);
+    // ReSharper disable once CppDFAUnreachableCode
+    if ( bher.err ) {
+        // ReSharper disable once CppDFAUnreachableCode
+        // todo (rob) deallocate the payload block
+        return (StackAllocatorErrResult){ .error = bher.error };
+    }
+
+    new_block_header = bher.result;
+    AllocatorHeader metadata_allocator_header = {
+        .default_block_size = new_block_header->block_size,
+        .head_block = new_block_header,
+        .current_block = (byte*)new_block_header,
+        .offset = sizeof(BlockHeader)
+    };
+    // the very first allocation is for the AllocatorHeader struct itself
+    AllocatorHeader *new_metadata_allocator_header = _arena_alloc(&metadata_allocator_header, sizeof(AllocatorHeader), nullptr);
+    *new_metadata_allocator_header = metadata_allocator_header;
+
+    new_stack_allocator->meta_data = new_metadata_allocator_header;
+
+
+    return (StackAllocatorErrResult){ .err = false , .result =  new_stack_allocator };
+}
+
+void * stack_allocator_alloc(StackAllocator * stack_alloc, const size_t size, [[nullable]] ArenaErrResult * aer) {
+    // we allocate the payload data first, then we allocate the memory for the payload pointer.
+    void* payload_mem = _arena_alloc(stack_alloc->payload_data, size, aer);
+    // todo error checking
+    // use 8-byte alignment for the pointer allocation
+    const size_t aligned_requested_size = ( size + POINTER_ALIGNMENT_MASK ) & ~POINTER_ALIGNMENT_MASK;
+    size_t * pointer_mem = pvt_arena_alloc_impl(stack_alloc->meta_data, sizeof(void*), aer, aligned_requested_size);
+    // todo error checking
+    *pointer_mem = (size_t)payload_mem;
+    return payload_mem;
 }

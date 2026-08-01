@@ -8,7 +8,7 @@
 #include <string.h>
 #include <stdio.h>
 
-#include "roblib/arena.h"
+#include "roblib/allocator.h"
 
 //// ------------------------------------------------------------
 ////

@@ -53,17 +53,21 @@ extern "C" {
 #endif
 
 // opaque type
-typedef struct arena_s Arena;
+typedef struct allocator_header_s Arena;
 
 typedef struct arena_err_result_s {
     ERROR_BASE;
     Arena * result;
 } ArenaErrResult;
 
+typedef struct stack_allocator_s StackAllocator;
+typedef struct stack_allocator_err_result_s {
+    ERROR_BASE;
+    StackAllocator * result;
+} StackAllocatorErrResult;
 
 
-
-// must call arna_destroy() when done with the Arena
+// must call arena_destroy() when done with the Arena
 ArenaErrResult arena_create_arena( size_t arena_capacity );
 void arena_reset(Arena * arena, bool zero_mem);
 void arena_destroy_arena(const Arena * arena);
@@ -79,6 +83,7 @@ void arena_destroy_arena(const Arena * arena);
  * Otherwise, a nullptr is returned, and aer->err (if not null) will be set to true.
  * - `arena_alloc( arena, size_t size)`
  * - `arena_alloc( arena, size_t size, [[nullable]] ArenaErrResult * aer)`
+ * @returns void * to the newly allocated memory
  */
 #define arena_alloc(arena, size, ...) \
     _arena_alloc_SELECT_(__VA_ARGS__ __VA_OPT__(,) _arena_alloc_3, _arena_alloc_2)(arena, size __VA_OPT__(,) __VA_ARGS__)
@@ -87,7 +92,19 @@ void arena_destroy_arena(const Arena * arena);
 #define _arena_alloc_2(arena, size) (_arena_alloc)(arena, size, nullptr)
 #define _arena_alloc_3(arena, size, err) (_arena_alloc)(arena, size, err)
 #define _arena_alloc_SELECT_(_1, NAME, ...) NAME
-void * _arena_alloc(Arena * arena,  size_t size, [[nullable]] ArenaErrResult * aer);
+void * _arena_alloc(Arena * arena,  size_t size, [[nullable]] ArenaErrResult * aer); // NOLINT(*-reserved-identifier)
+
+
+
+//// ------------------------------------------------------------
+////
+////        STACK ALLOCATOR
+////
+//// ------------------------------------------------------------
+
+StackAllocatorErrResult alloc_create_stack_allocator( size_t capacity) ;
+
+
 
 #ifdef __cplusplus
 }

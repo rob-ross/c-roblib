@@ -22,7 +22,7 @@ extern "C" {
 ////
 //// ------------------------------------------------------------
 
-typedef struct arena_s Arena;
+typedef struct allocator_header_s Arena;
 constexpr size_t CharRingBuffer_SIZE = 40;
 
 /**

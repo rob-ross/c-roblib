@@ -13,8 +13,8 @@ typedef json_parse_error_s JsonParseError;
 
 // Forward declaration because we only use Arena* (Incomplete Type is fine)
 // This reduces coupling and improves compile times.
-struct arena_s;
-typedef arena_s Arena;
+struct allocator_header_s;
+typedef allocator_header_s Arena;
 
 using str_param = std::tuple<std::string, std::string>;
 
