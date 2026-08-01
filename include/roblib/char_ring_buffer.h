@@ -48,6 +48,13 @@ typedef enum : long {
 
 } CRBErrType;
 
+/**
+ * Allocate a new `CharRingBuffer` in the provided Arena.
+ * @param capacity the max length of this `CharRingBuffer`
+ * @param arena the Arena allocator from which to allocate memory for the new CharRingBuffer
+ * @return the new object as a CharRingBuffer *. It will be deallocated when
+ * arena_destroy_arena()  is called on the Arena object.
+ */
 CharRingBuffer * crb_new_CharRingBuffer(size_t capacity, Arena *arena);
 
 void crb_add_str_to_buffer_CharRingBuffer(CharRingBuffer *crb, size_t count, char const *src_chars);
