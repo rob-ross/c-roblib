@@ -170,7 +170,7 @@ static void arena_zero(Arena const * arena) {
 
 
 // Returns pointer to allocated chunk in the arena, or nullptr if arena is out of memory.
-void * _arena_alloc(Arena * arena, const size_t size, [[nullable]] ArenaErrResult * err) {
+void * _arena_alloc(Arena * arena, const size_t size, [[nullable]] ArenaErrResult * aer) {
     const size_t aligned_chunk_requested_size = arena_aligned_size(size);
 
     // Check if it fits in the current block
@@ -194,11 +194,11 @@ void * _arena_alloc(Arena * arena, const size_t size, [[nullable]] ArenaErrResul
             }
             size_t needed_capacity = target_block_size;
             BlockHeaderErrResult bher = arena_new_os_block(needed_capacity);  // this page-aligns our request for us
-            if (bher.err) {
-                if (err) {
-                    err->error = bher.error;
-                    err->result = nullptr;
-                }
+            // ReSharper disable once CppDFAUnreachableCode
+            if (bher.err && aer) {
+                // ReSharper disable once CppDFAUnreachableCode
+                aer->error = bher.error;
+                aer->result = nullptr;
                 return nullptr;
             }
             // ReSharper disable once CppDFAUnreachableCode
