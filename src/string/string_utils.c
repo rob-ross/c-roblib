@@ -498,3 +498,15 @@ char * sutil_zfill(const char* str, const int width){
 
     return new_str;
 }
+
+
+/*
+ *  interesting things to remember
+ *  '%.*s' allows you to include an int before the string in the vararg list, and that will only print n chars from
+ *  the string
+ *
+ *  %ns allows you to refer to a vararg by position in the list, and reuse it.
+ *  This example uses the same int twice: (from hisarya)
+ *  printf("dec: %1$d hex: %1$x\n", 32)
+
+ */
