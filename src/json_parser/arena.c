@@ -151,7 +151,7 @@ static void arena_zero(Arena const * arena) {
     BlockHeader * current = arena->head_block;
     while (current != nullptr) {
         if (current == arena->head_block) {
-            // first block stores the Arena struct itself.
+            // The first block stores the Arena struct itself. We don't want to zero it out!!
             memset(((byte*)current + sizeof(BlockHeader) + sizeof(Arena)), 0, current->block_size - sizeof(BlockHeader) - sizeof(Arena));
         } else {
             memset(((byte*)current + sizeof(BlockHeader)), 0, current->block_size - sizeof(BlockHeader));
@@ -170,7 +170,7 @@ static void arena_zero(Arena const * arena) {
 
 
 // Returns pointer to allocated chunk in the arena, or nullptr if arena is out of memory.
-void * arena_alloc(Arena * arena, const size_t size) {
+void * _arena_alloc(Arena * arena, const size_t size, [[nullable]] ArenaErrResult * err) {
     const size_t aligned_chunk_requested_size = arena_aligned_size(size);
 
     // Check if it fits in the current block
@@ -189,19 +189,16 @@ void * arena_alloc(Arena * arena, const size_t size) {
             size_t target_block_size = arena->default_block_size;
             if (aligned_chunk_requested_size > target_block_size - sizeof(BlockHeader) ) {
                 // requested chunk size too massive for standard block size, create special block for this request
-                target_block_size = aligned_chunk_requested_size +  sizeof(BlockHeader);
+                // target_block_size = aligned_chunk_requested_size +  sizeof(BlockHeader);
                 target_block_size = size +  sizeof(BlockHeader);
             }
             size_t needed_capacity = target_block_size;
             BlockHeaderErrResult bher = arena_new_os_block(needed_capacity);  // this page-aligns our request for us
             if (bher.err) {
-                // ReSharper disable once CppDFAUnreachableCode
-                // todo error reporting.
-                // the BlockHeaderErrResult contains the details of the error, how can we export this to the caller?
-                // we can take an optional pointer to a BlockHeaderErrResult in the argument list. If null we do
-                // nothing. If not null, we can copy this error information into that pointer.
-                // using a macro we can implement default arguments for this function, where nullptr will be passed
-                // as default.
+                if (err) {
+                    err->error = bher.error;
+                    err->result = nullptr;
+                }
                 return nullptr;
             }
             // ReSharper disable once CppDFAUnreachableCode
@@ -253,7 +250,7 @@ ArenaErrResult arena_create_arena( const size_t arena_capacity) {
     arena_prototype.offset = sizeof(BlockHeader);
 
     // the very first allocation is for the Arena struct itself
-    Arena *new_arena = arena_alloc(&arena_prototype, sizeof(Arena));
+    Arena *new_arena = _arena_alloc(&arena_prototype, sizeof(Arena), nullptr);
     *new_arena = arena_prototype;
 
     return (ArenaErrResult){
@@ -285,12 +282,3 @@ void arena_destroy_arena(const Arena * arena) {
         current = next;
     }
 }
-
-
-
-
-
-
-
-
-

@@ -64,11 +64,30 @@ typedef struct arena_err_result_s {
 
 
 // must call arna_destroy() when done with the Arena
-ArenaErrResult arena_create_arena( size_t arena_capacity);
+ArenaErrResult arena_create_arena( size_t arena_capacity );
 void arena_reset(Arena * arena, bool zero_mem);
 void arena_destroy_arena(const Arena * arena);
 
-void * arena_alloc(Arena * arena,  size_t size);
+
+/**
+ * @brief Allocates memory from the arena.
+ *
+ * This function can be called with 2 or 3 arguments. The `ArenaErrResult` parameter is optional.
+ * If passed and an error occurs, it will contain the error information.
+ * If no error occurs, a pointer to the newly allocated memory is returned,
+ * and aer->err (if not null) will be set to false.
+ * Otherwise, a nullptr is returned, and aer->err (if not null) will be set to true.
+ * - `arena_alloc( arena, size_t size)`
+ * - `arena_alloc( arena, size_t size, [[nullable]] ArenaErrResult * aer)`
+ */
+#define arena_alloc(arena, size, ...) \
+    _arena_alloc_SELECT_(__VA_ARGS__ __VA_OPT__(,) _arena_alloc_3, _arena_alloc_2)(arena, size __VA_OPT__(,) __VA_ARGS__)
+
+// --- Internal Use Only ---
+#define _arena_alloc_2(arena, size) (_arena_alloc)(arena, size, nullptr)
+#define _arena_alloc_3(arena, size, err) (_arena_alloc)(arena, size, err)
+#define _arena_alloc_SELECT_(_1, NAME, ...) NAME
+void * _arena_alloc(Arena * arena,  size_t size, [[nullable]] ArenaErrResult * aer);
 
 #ifdef __cplusplus
 }
