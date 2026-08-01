@@ -34,6 +34,10 @@ The literal names MUST be lowercase.  No other literal names are allowed.
 #ifndef JSON_PARSER_H
 #define JSON_PARSER_H
 
+
+#include <stdio.h>
+#include <stdint.h>
+
 #include "arena.h"
 #include "error_result.h"
 
@@ -238,32 +242,42 @@ char const * const    JSON_WHITESPACE_CHARS_DEFAULT = " \t\n\r";
 //      INITIALIZE / DESTROY
 // -----------------------------------------------------------------
 
-// Must call at application startup to initialize the parser before first use.
 /**
- *  Notes:
- *  init() is intended to be called once before the parser is used.
- *  destroy() is intended to be called when done using the parser, before the application terminates.
- *  However, this isn't mandatory. init() and destroy() calls can bracket a call to jsonp_parse(). It's just more
- *  efficient to only call init() once.
+ * @brief Initializes the JSON parser's global state. Must be called before first use. Call `jsonp_destroy()` when
+ * done with the parser.
  *
- *  init() sets the value of global variables used by all calls to API methods from multiple threads.
- *  These globals are the bitset config flags, the max depth of nested structures, and the definition of whitespace characters.
- *  These globals are used to initialize a JsonContext when one is not explicitly provided. They become the default values
- *  used by every new JsonContext. But these variables can be changed on a per-JsonContext basis. Thus, every JsonContext
- *  has its own private versions of these variables. Thus, all calls to API methods are thread-safe.
+ * This function can be called with 0, 1, 2, or 3 arguments, with defaults provided for omitted ones.
+ * It sets the default global configuration for all subsequent parsing operations. These defaults can be
+ * overridden on a per-parse basis using a `JsonContext`. E.g., see `jsonp_parse_string_using_context()`.
  *
- *  Even if multiple threads are running API methods and another thread calls jsonp_destroy(), those methods will run
- *  to successful completion as they do not rely on any global state. (hmmm, except for running on Windows, which
- *  requires the c_locale_obj. ...WINDOWS!!! GRRR)
+ * You may call `jsonp_init()` once at program startup and call `jsonp_destroy()` once before exiting. Or you may
+ * freely call init/destroy between parse calls. Any pending parsing in any thread will run to completion, as
+ * every parse call uses a local `JsonContext`. You may not make any API calls after `jsonp_destroy()` has been called
+ * until `jsonp_init()` is called again.
  *
- * @return Error if initialization failed
+ * `jsonp_init()` sets the values of global variables used by all calls to API methods from any thread. These globals
+ *  are the bitset config flags, the max depth of nested structures, and the definition of whitespace characters.
+ *  The globals are used to initialize a JsonContext when one is not explicitly provided. They become the default
+ *  values used by every new JsonContext. These values can be changed on a per-JsonContext basis.
+ *  Every JsonContext has its own private versions of these variables. Thus, all calls to API methods are thread-safe.
  *
- * // todo (rob) macro for jsonp_init() to support default argument values
+ * @param config_flags (Optional) A bitset of `JsonConfigFlag` values. Defaults to `JSON_CONFIG_FLAGS_DEFAULT`.
+ * @param max_depth (Optional) The maximum allowed nesting depth of JSON objects and arrays. Defaults to `JSON_DEPTH_MAX_DEFAULT`.
+ * @param whitespace_chars (Optional) A string of characters to be considered whitespace. Defaults to `JSON_WHITESPACE_CHARS_DEFAULT`.
+ *
+ * @return An `Error` struct. The `err` field will be `true` if initialization failed.
  */
-Error jsonp_init();
-Error jsonp_init_1(jp_bitset_t config_flags);
-Error jsonp_init_2(jp_bitset_t config_flags, uint32_t max_depth);
-Error jsonp_init_3(jp_bitset_t config_flags, uint32_t max_depth, char const * whitespace_chars);
+#define jsonp_init(...) \
+    _jsonp_init_SELECT_(__VA_ARGS__ __VA_OPT__(,) _jsonp_init_3, _jsonp_init_2, _jsonp_init_1, _jsonp_init_0 ) (__VA_ARGS__)
+
+// --- Internal Use Only ---
+// Helper macros for providing default arguments to jsonp_init().
+#define _jsonp_init_0() (jsonp_init)( JSON_CONFIG_FLAGS_DEFAULT, JSON_DEPTH_MAX_DEFAULT, JSON_WHITESPACE_CHARS_DEFAULT)
+#define _jsonp_init_1(_1) (jsonp_init)(_1, JSON_DEPTH_MAX_DEFAULT, JSON_WHITESPACE_CHARS_DEFAULT)
+#define _jsonp_init_2(_1, _2) (jsonp_init)(_1, _2, JSON_WHITESPACE_CHARS_DEFAULT)
+#define _jsonp_init_3(_1, _2, _3) (jsonp_init)(_1, _2, _3)
+#define _jsonp_init_SELECT_(_1, _2, _3, NAME, ...) NAME
+Error (jsonp_init)(jp_bitset_t config_flags, uint32_t max_depth, char const * whitespace_chars);
 
 // call when done with parsing module, frees up resources acquired in init().
 void jsonp_destroy(void);
@@ -284,10 +298,21 @@ JsonValue *jsonp_parse_string_ex(const char *json, JsonParseError *error, Arena 
 
 JsonValue * jsonp_parse_file(const char *json_filename, JsonParseError *error, Arena *arena);
 
+/**
+ * The user is responsible for passing a FILE* opened in binary mode ("rb").
+ * The behavior is unspecified otherwise and will likely fail on Windows.
+ */
+JsonValue * jsonp_parse_stream( FILE *fp, JsonParseError *error, Arena *arena);
+
+// For future use. Not really tested. Not for production.
+// How to integrate with security constraints, authorization, API keys, etc?
+JsonValue * jsonp_parse_url( const char* url, JsonParseError *error, Arena *arena);
+
 //// ------------------------------------------------------------
 ////
 ////    GLOBAL STATE
-////    values are set in the `jsonp_init()` methods.
+////    Getters only. Values are set in the `jsonp_init()` methods,
+///     or on a per-context basis below.
 //// ------------------------------------------------------------
 
 jp_bitset_t   jsonp_get_config_bitset();
@@ -301,10 +326,20 @@ char const *  jsonp_get_defined_whitespace_chars();
 ////
 //// ------------------------------------------------------------
 
+// Allocate a new JsonContext initialized with current global values, for use in `jsonp_parse_xxx_using_context` methods.
+// Contexts may be reused between parse calls.
 // caller must free(context) when done with it.
-JsonContext *jsonp_copy_global_context();
-// caller must free(context) when done with it.
-JsonContext *jsonp_get_empty_context();
+JsonContext * jsonp_copy_global_context();
+/**
+ *  Allocate a new empty JsonContext for use in `jsonp_parse_xxx_using_context` methods.
+ *  Caller must free(context) when done with it.
+ * @return A newly allocated, zero-initialized JsonContext.
+ *  See:
+ *  `jsonp_set_context_config_bitset`, `jsonp_set_context_config_flag`, `jsonp_set_context_max_depth`,
+ *  and `jsonp_set_context_whitespace_chars` to configure this context before use.
+ *  Contexts may be reused between parse calls.
+ */
+JsonContext *jsonp_make_empty_context(void);
 
 // -----------------------------------------------------------------
 //      CONFIG FLAGS
@@ -363,11 +398,11 @@ uint32_t jsonp_get_context_max_depth(JsonContext *context);
  *  %x0D Carriage return)
  *
  *  The C locale defines what counts as a space (via isspace()) as the above characters, and adds:
- *    form feed (`\\f`),
- *    vertical tab (’\v’)
+ *    form feed (`\f`),
+ *    vertical tab (`\v`)
  *  These are not included by default as white space characters in this parser.
  *
- *  Only supports max 16 chars. Chars after the 16th are ignored.
+ *  Only supports max 8 ASCII chars. Chars after the 8th are ignored.
  *
  *
  * @param context

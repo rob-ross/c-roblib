@@ -9,7 +9,8 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
+
+
 
 #ifdef __cplusplus
 extern "C" {
@@ -21,20 +22,22 @@ extern "C" {
 ////
 //// ------------------------------------------------------------
 
+typedef struct arena_s Arena;
 constexpr size_t CharRingBuffer_SIZE = 40;
 
 /**
  * CharRingBuffer is the "prototype" definition of a CharRingBuffer and accompanying API methods.
- * When debugging, adding, and modifing code in the macro, use the concrete version for CharRingBuffer
+ * When debugging, adding, and modifying code in the macro, use the concrete version for CharRingBuffer
  * to implement and debug the final changes, then edit the macro to include the new generic code.
  * Keep the flow one-way from Concrete Implementation -> Macro code
  *
  */
 typedef struct {
     size_t length;
+    const size_t capacity;
     size_t start_index;
     size_t end_index;
-    char   buffer[CharRingBuffer_SIZE];
+    char   buffer[];  // flexible member array
 } CharRingBuffer;
 
 typedef enum : long {
@@ -45,14 +48,14 @@ typedef enum : long {
 
 } CRBErrType;
 
-
 /**
- * Directly fills the ring buffer from a reader function.
- * This avoids an intermediate buffer and double-copying.
+ * Allocate a new `CharRingBuffer` in the provided Arena.
+ * @param capacity the max length of this `CharRingBuffer`
+ * @param arena the Arena allocator from which to allocate memory for the new CharRingBuffer
+ * @return the new object as a CharRingBuffer *. It will be deallocated when
+ * arena_destroy_arena()  is called on the Arena object.
  */
-long crb_fill_ring_buffer_from_reader_CharRingBuffer(CharRingBuffer *crb,
-                                         long (*read_fn)(void *, unsigned char *, size_t),
-                                         void *read_context);
+CharRingBuffer * crb_new_CharRingBuffer(size_t capacity, Arena *arena);
 
 void crb_add_str_to_buffer_CharRingBuffer(CharRingBuffer *crb, size_t count, char const *src_chars);
 void crb_add_char_to_buffer_CharRingBuffer(CharRingBuffer *crb,  char src_char);
@@ -60,11 +63,11 @@ void crb_add_char_to_buffer_CharRingBuffer(CharRingBuffer *crb,  char src_char);
 long crb_add_str_to_buffer_strict_CharRingBuffer(CharRingBuffer *crb, size_t count, char const *src_chars);
 long crb_add_char_to_buffer_strict_CharRingBuffer(CharRingBuffer *crb, char src_char);
 int crb_get_next_char_CharRingBuffer(CharRingBuffer *crb);
-int crb_peek_char_CharRingBuffer(CharRingBuffer *crb, size_t offset);
+int crb_peek_char_CharRingBuffer(CharRingBuffer const *crb, size_t offset);
 int crb_advance_buffer_CharRingBuffer(CharRingBuffer *crb, size_t byte_count);
 
-void crb_print_repr_CharRingBuffer(CharRingBuffer *crb);
-void crb_sprint_buffer_CharRingBuffer(CharRingBuffer *crb, char *buffer);
+void crb_print_repr_CharRingBuffer(CharRingBuffer const *crb);
+void crb_sprint_buffer_CharRingBuffer(CharRingBuffer const *crb, char *buffer);
 
 //// ------------------------------------------------------------
 ////
@@ -208,12 +211,8 @@ static void pvt_crb_sprint_buffer_##TYPENAME##SIZE(TYPENAME##SIZE *crb, char *bu
     buffer[crb->length] = '\0';                                                                               \
 }                                                                                                                 \
 
-
-
-
-
-#endif //C_ROBLIB_CHAR_RING_BUFFER_H
-
 #ifdef __cplusplus
 }
 #endif
+
+#endif //C_ROBLIB_CHAR_RING_BUFFER_H

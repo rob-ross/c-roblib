@@ -11,18 +11,16 @@
 #include <locale.h>
 #include <sys/stat.h>
 #include <unistd.h> // For access() or stat() on POSIX
-#include <stdlib.h>
-#include <string.h>
 #include <errno.h>
 #include <stdatomic.h>
 
-
-#include <assert.h>
+#include <curl/curl.h>
 
 #include "roblib/string_builder.h"
 #include "roblib/char_ring_buffer.h"
 #include "roblib/unicode_tools.h"
 #include "roblib/base.h"
+#include "roblib/constants.h"
 
 /*
  *  todo (rob) tasks:
@@ -46,6 +44,7 @@
 
 
 constexpr char NUL = '\0';
+constexpr size_t LOOK_AHEAD_BUF_SIZE = 40;
 
 
 // -----------------------------------------------------------------
@@ -77,7 +76,7 @@ typedef void (*sprint_n_lookahead_chars_fn)(void *context, uint32_t n_chars, cha
 
 typedef struct {
     void                        *input_context;  // StringSourceInputContext, or FileSourceInputContext
-    CharRingBuffer              look_behind_buffer; // holds most recent 40 bytes of scanned input
+    CharRingBuffer              *look_behind_buffer; // holds most recent 40 bytes of scanned input
 
     uint32_t       current_byte_index; // the index of the byte-char the lexer is scanning
     uint32_t       line;
@@ -137,38 +136,35 @@ typedef struct {
     const char          *json_filename;
     FILE                *file_ptr;
     // scanner_buffer is private to this FileSourceInputContext instance
-    CharRingBuffer      scanner_buffer;     // next 40 bytes from file
+    CharRingBuffer      *scanner_buffer;     // next 40 bytes from file
 
-    size_t              length_bytes;
+    size_t              length_bytes;       // 0 if unknown (streams/pipes)
 } FileSourceInputContext;
 
 
-
-
-long file_read( void *context, size_t max_bytes)
+long file_read( void *context, size_t requested_bytes)
 {
     FileSourceInputContext *src = context;
     Input *input = src->input;
-    CharRingBuffer *lab = &src->scanner_buffer;
+    CharRingBuffer *scan_buf = src->scanner_buffer;
 
-    const size_t capacity = sizeof(lab->buffer);
-    uint32_t wanted_bytes = max_bytes > ( capacity - lab->length) ? capacity - lab->length : max_bytes;
+    const size_t capacity = scan_buf->capacity;
+    if (src->length_bytes > 0) {
+        // if we know the length of the stream, we'll try to read the max capacity bytes.
+        // if we don't know the length of the stream, we'll honor requested_bytes
+        requested_bytes = capacity;
+    }
+
+    uint32_t wanted_bytes = requested_bytes > ( capacity - scan_buf->length) ? capacity - scan_buf->length : requested_bytes;
 
     if (! wanted_bytes ) return 0;  // nothing to read
 
     FILE *fp = (FILE*)src->file_ptr;
 
-    size_t remaining = src->length_bytes - input->current_byte_index;
+    // If length is unknown (0), we just try to read. Otherwise, respect the limit.
+    size_t remaining = (src->length_bytes == 0) ? wanted_bytes : (src->length_bytes - input->current_byte_index);
 
-    long tell_pos = ftell( fp );
-    if (tell_pos < 0 ) {
-        printf("ftell returned %ld, error: %s, filename: %s", tell_pos, strerror(errno), src->json_filename);
-    } else {
-        // printf("ftell-pos:%ld, src-pos=%u, src len =%zd, remaining=%zd, max_bytes=%zd\n",
-        //     tell_pos, input->current_byte_index, src->length_bytes, remaining, max_bytes);
-    }
-    if (remaining == 0) return EOF;
-
+    if (src->length_bytes > 0 && remaining == 0) return EOF;
 
     if (remaining > wanted_bytes) remaining = wanted_bytes;
     char buf[41] = {};
@@ -181,41 +177,38 @@ long file_read( void *context, size_t max_bytes)
         }
         return EOF;
     }
-    crb_add_str_to_buffer_strict_CharRingBuffer(lab, bytes_read, buf);
+    crb_add_str_to_buffer_strict_CharRingBuffer(scan_buf, bytes_read, buf);
     // printf("src->position=%u\n", input->current_byte_index);
     return (long)bytes_read;
 }
 
 // try to ensure the CharRingBuffer has num_bytes elements, read from file if needed
-static long file_ensure_char_ring_buffer_capacity(FileSourceInputContext *src, size_t num_bytes) {
+static long file_ensure_char_ring_buffer_length(FileSourceInputContext *src, size_t num_bytes) {
     Input *input = src->input;
-    CharRingBuffer *lab = &src->scanner_buffer;
-
-    size_t remaining = src->length_bytes - input->current_byte_index;
-    num_bytes = MIN(num_bytes, remaining);
-
-    if ( lab->length >= num_bytes ) {
+    CharRingBuffer *scan_buf = src->scanner_buffer;
+    if ( scan_buf->length >= num_bytes ) {
         return (long)num_bytes;  // buffer is already at desired length
     }
+    // If length is 0 (unknown), assume there is more data until fread tells us otherwise
+    size_t remaining = (src->length_bytes == 0) ? num_bytes : (src->length_bytes - input->current_byte_index);
+    num_bytes = MIN(num_bytes, remaining);
 
-    // read more characters into the lookahead buffer.
-    size_t capacity = sizeof(lab->buffer);
-
-    return input->read(src, capacity);  // try to fill as much of the buffer as we can
+    // read more characters into the scanner buffer.
+    return input->read(src, num_bytes);  // try to fill as much of the buffer as we can
 }
 
 int file_next_char(void *context)
 {
     FileSourceInputContext *src = context;
     Input *input = src->input;
-    if (input->current_byte_index == src->length_bytes) return EOF;
+    if ( src->length_bytes > 0 && input->current_byte_index == src->length_bytes ) return EOF;
     uint32_t bytes_advanced = input->advance_n_bytes(context, 1);
     if (! bytes_advanced ) return EOF;
 
-    CharRingBuffer *lab = &src->scanner_buffer;
-    if (lab->length == 0 ) {
+    CharRingBuffer *scan_buf = src->scanner_buffer;
+    if (scan_buf->length == 0 ) {
         // need to read into the buffer first
-        file_read(context, 40);
+        file_read(context, 1);
     }
 
     return (unsigned char)input->current_char(src);
@@ -225,25 +218,25 @@ int file_current_char(void *context) {
     FileSourceInputContext *src = context;
     Input *input = src->input;
 
-    if (input->current_byte_index == src->length_bytes) return EOF;
+    if ( src->length_bytes > 0 && input->current_byte_index == src->length_bytes ) return EOF;
 
-    CharRingBuffer *lab = &src->scanner_buffer;
-    long result = file_ensure_char_ring_buffer_capacity(src, 1);
+    CharRingBuffer *scan_buf = src->scanner_buffer;
+    long result = file_ensure_char_ring_buffer_length(src, 1);
     if (result < 0) {
         // error
         printf("file_ensure_char_ring_buffer_capacity() returned %ld in file_current_char", result);
         return EOF;
     }
-    return crb_peek_char_CharRingBuffer(lab, 0);
+    return crb_peek_char_CharRingBuffer(scan_buf, 0);
 }
 
 int file_peek_next_char(void *context) {
     FileSourceInputContext *src = context;
     Input *input = src->input;
-    if (input->current_byte_index == src->length_bytes) return EOF;
+    if ( src->length_bytes > 0 && input->current_byte_index == src->length_bytes ) return EOF;
 
-    CharRingBuffer *scanner_buffer = &src->scanner_buffer;
-    long result = file_ensure_char_ring_buffer_capacity(src, 2);
+    CharRingBuffer *scanner_buffer = src->scanner_buffer;
+    long result = file_ensure_char_ring_buffer_length(src, 2);
     if (result < 2) {
         // error
         printf("file_ensure_char_ring_buffer_capacity() returned %ld in file_peek_next_char()", result);
@@ -252,17 +245,18 @@ int file_peek_next_char(void *context) {
     return crb_peek_char_CharRingBuffer(scanner_buffer, 1);
 }
 
-// we only intend to support max lookahead of 2
+// we only intend to support max lookahead of:
+// 6 for \U0XXXXX, 4 for \uXXXX, 3 for BOM, 2 for \t, etc.
 int file_peek_lookahead_chars(void *context, uint32_t lookahead ) {
     FileSourceInputContext *src = context;
     Input *input = src->input;
 
-    if (input->current_byte_index + lookahead >= src->length_bytes)
+    if ( src->length_bytes > 0 && input->current_byte_index + lookahead >= src->length_bytes )
         return EOF;
 
     // return src->json_text[src->position + lookahead];
-    CharRingBuffer *scanner_buffer = &src->scanner_buffer;
-    long result = file_ensure_char_ring_buffer_capacity(src, lookahead);
+    CharRingBuffer *scanner_buffer = src->scanner_buffer;
+    long result = file_ensure_char_ring_buffer_length(src, lookahead + 1);
     if (result < lookahead) {
         // error
         printf("file_ensure_char_ring_buffer_capacity() returned %ld in file_peek_lookahead_chars()", result);
@@ -274,13 +268,13 @@ int file_peek_lookahead_chars(void *context, uint32_t lookahead ) {
 uint32_t file_advance_n_bytes( void *context, uint32_t num_bytes) {
     FileSourceInputContext *src = context;
     Input *input = src->input;
-    CharRingBuffer *look_behind_buffer = &input->look_behind_buffer;
-    CharRingBuffer *scanner_buffer = &src->scanner_buffer;
+    CharRingBuffer *look_behind_buffer = input->look_behind_buffer;
+    CharRingBuffer *scanner_buffer = src->scanner_buffer;
 
     // add chars to look-behind-buffer
-    const size_t capacity = sizeof(look_behind_buffer->buffer);
+    const size_t capacity = look_behind_buffer->capacity;
 
-    long result = file_ensure_char_ring_buffer_capacity(src, num_bytes);
+    long result = file_ensure_char_ring_buffer_length(src, num_bytes);
     if (result < num_bytes) {
         printf("file_ensure_char_ring_buffer_capacity() returned %ld in file_advance_n_bytes()", result);
         return EOF;
@@ -305,7 +299,7 @@ uint32_t file_advance_n_bytes( void *context, uint32_t num_bytes) {
         crb_add_str_to_buffer_CharRingBuffer(look_behind_buffer, num_to_add, cb);
     }
 
-    if (input->current_byte_index >= src->length_bytes - num_bytes  ) {
+    if (src->length_bytes > 0 && input->current_byte_index >= src->length_bytes - num_bytes  ) {
         input->current_byte_index = src->length_bytes;
         return 0;
     }
@@ -318,16 +312,19 @@ uint32_t file_advance_n_bytes( void *context, uint32_t num_bytes) {
 void file_sprint_n_lookahead_chars(void *context, const uint32_t n_chars, char buffer[ static n_chars + 1 ] ) {
     FileSourceInputContext *src = context;
     Input *input = src->input;
-    if (input->current_byte_index == src->length_bytes) return;
+    if ( src->length_bytes > 0 && input->current_byte_index == src->length_bytes) return;
 
-    long result = file_ensure_char_ring_buffer_capacity(src, n_chars);
-    CharRingBuffer *scanner_buffer = &src->scanner_buffer;
-
-    if (result < 0) {
-        // error
-        printf("file_ensure_char_ring_buffer_capacity() returned %ld in file_sprint_n_lookahead_chars", result);
-        return;
+    if ( src->length_bytes > 0 ) {
+        long result = file_ensure_char_ring_buffer_length(src, n_chars);
+        if (result < 0) {
+            // error
+            printf("file_ensure_char_ring_buffer_capacity() returned %ld in file_sprint_n_lookahead_chars", result);
+        }
     }
+
+    // printf("file_sprint_n_lookahead_chars: length_bytes:%zd, filename:%s\n", src->length_bytes, src->json_filename);
+
+    CharRingBuffer *scanner_buffer = src->scanner_buffer;
 
     crb_sprint_buffer_CharRingBuffer(scanner_buffer, buffer );
 }
@@ -373,9 +370,9 @@ int string_current_char(void *context) {
 int string_next_char(void *context) {
     StringSourceInputContext *src = context;
     Input *input = src->input;
-    if (input->current_byte_index == src->length_bytes) return (unsigned char)src->json_text[src->length_bytes];
+    if ( input->current_byte_index == src->length_bytes ) return (unsigned char)src->json_text[src->length_bytes];
 
-    CharRingBuffer *look_behind_buffer = &input->look_behind_buffer;
+    CharRingBuffer *look_behind_buffer = input->look_behind_buffer;
     crb_add_char_to_buffer_CharRingBuffer(look_behind_buffer,  src->json_text[input->current_byte_index]);
     return (unsigned char)src->json_text[input->current_byte_index++];
 }
@@ -399,10 +396,10 @@ int string_peek_lookahead_chars( void *context, uint32_t lookahead ) {
 uint32_t string_advance_n_bytes( void *context, const uint32_t num_bytes) {
     StringSourceInputContext *src = context;
     Input *input = src->input;
-    CharRingBuffer *look_behind_buffer = &input->look_behind_buffer;
+    CharRingBuffer *look_behind_buffer = input->look_behind_buffer;
 
     // add chars to look-behind-buffer
-    const size_t capacity = sizeof(look_behind_buffer->buffer);
+    const size_t capacity = look_behind_buffer->capacity;
     char const * start_ptr = src->json_text + input->current_byte_index;
 
     if (num_bytes == 1 ) {
@@ -435,6 +432,7 @@ uint32_t string_advance_n_bytes( void *context, const uint32_t num_bytes) {
 void string_sprint_n_lookahead_chars(void *context, const uint32_t n_chars, char buffer[ static n_chars + 1 ] ) {
     StringSourceInputContext *src = context;
     Input *input = src->input;
+
     char const *ptr = src->json_text + input->current_byte_index;
     size_t index = 0;
     while ( *ptr && index < n_chars ) {
@@ -500,7 +498,7 @@ static _Atomic(const char *) pvt_whitespace_chars = nullptr;
 
 void jsonp_set_context_whitespace_chars( JsonContext *context, const char  *whitespace_chars ) {
     if (!whitespace_chars) return;
-    snprintf(context->whitespace_chars, sizeof(context->whitespace_chars), "%s", whitespace_chars);
+    snprintf(context->whitespace_chars, MIN(sizeof(context->whitespace_chars), 8), "%s", whitespace_chars);
     pvt_init_context_whitespace_table(context);
 }
 
@@ -588,7 +586,7 @@ static void pvt_record_error(   JsonContext *context,
         strncpy(error->message, msg, ERROR_MSG_BUFFER_SIZE);
     }
 
-    crb_sprint_buffer_CharRingBuffer(&context->input->look_behind_buffer, error->look_behind_buffer);
+    crb_sprint_buffer_CharRingBuffer(context->input->look_behind_buffer, error->look_behind_buffer);
     input->sprint_n_lookahead_chars(input->input_context, 40, error->look_ahead_buffer);
 
     error->err_type = err_type;
@@ -2117,22 +2115,13 @@ void pvt_write_global_state(JsonContext *context) {
 
 }
 
-// caller must free(context) when done with it.
 JsonContext *jsonp_copy_global_context() {
     JsonContext *context  = (JsonContext *)calloc(1, sizeof(JsonContext));
     pvt_write_global_state(context);
     return context;
 }
 
-/**
- *  Allocate a new empty JsonContext for use in `jsonp_parse_using_context`.
- *  Caller must free(context) when done with it.
- * @return A newly allocated, zero-initialized JsonContext.
- *  See:
- *  `jsonp_set_context_config_bitset`, `jsonp_set_context_config_flag`, `jsonp_set_context_max_depth`,
- *  and `jsonp_set_context_whitespace_chars` to configure this context before use.
- */
-JsonContext *jsonp_empty_context(void) {
+JsonContext *jsonp_make_empty_context(void) {
     JsonContext *context  = (JsonContext *)calloc(1, sizeof(JsonContext));
     context->whitespace_chars[0] = NUL; // empty string
     return context;
@@ -2140,7 +2129,7 @@ JsonContext *jsonp_empty_context(void) {
 
 
 // reset to initial states all state-related members of the context.
-// Does not affect depth_max, config_flags, whitespace_chars, or ws_table.
+// Does not affect depth_max, config_flags, whitespace_chars, nor ws_table.
 static void pvt_reset_context(JsonContext *context) {
     context->depth_current  = 0;
     context->input          = nullptr;
@@ -2182,7 +2171,8 @@ JsonValue *jsonp_parse_string_using_context(const char *json_text, JsonParseErro
     StringSourceInputContext ss = { .json_text = json_text, .length_bytes = strlen(json_text) };
     Input input = pvt_get_string_input_source(&ss);
     ss.input = &input;
-
+    CharRingBuffer *crb = crb_new_CharRingBuffer(LOOK_AHEAD_BUF_SIZE, arena);
+    input.look_behind_buffer = crb;
     context->input = &input;
 
     return pvt_jsonp_parse_impl(context, error, arena);
@@ -2196,12 +2186,14 @@ JsonValue * jsonp_parse_string(const char *json_text, JsonParseError *error, Are
     Input input = pvt_get_string_input_source( &ss );
     ss.input = &input;
 
-
+    CharRingBuffer *crb = crb_new_CharRingBuffer(LOOK_AHEAD_BUF_SIZE, arena);
+    input.look_behind_buffer = crb;
     JsonContext context = {};
     pvt_write_global_state(&context);
     context.input = &input;
+    JsonValue *value = pvt_jsonp_parse_impl(&context, error, arena);
 
-    return pvt_jsonp_parse_impl(&context, error, arena);
+    return value;
     // return jsonp_parse_string_impl(&input, error, arena);
 }
 
@@ -2213,7 +2205,8 @@ JsonValue *jsonp_parse_string_ex(const char *json_text, JsonParseError *error, A
     StringSourceInputContext ss = { .json_text = json_text, .length_bytes = buffer_size };
     Input input = pvt_get_string_input_source( &ss);
     ss.input = &input;
-
+    CharRingBuffer *crb = crb_new_CharRingBuffer(LOOK_AHEAD_BUF_SIZE, arena);
+    input.look_behind_buffer = crb;
     JsonContext context = {};
     pvt_write_global_state(&context);
     context.input = &input;
@@ -2357,11 +2350,13 @@ JsonValue * jsonp_parse_file(const char *json_filename, JsonParseError *error, A
         .json_filename = json_filename,
         .file_ptr = fp,
         .length_bytes = file_size,
+        .scanner_buffer = crb_new_CharRingBuffer(LOOK_AHEAD_BUF_SIZE, arena),
     };
 
     Input input = pvt_get_file_input_source(&fs);
     fs.input = &input;
-
+    CharRingBuffer *crb = crb_new_CharRingBuffer(LOOK_AHEAD_BUF_SIZE, arena);
+    input.look_behind_buffer = crb;
     JsonContext context = {};
     pvt_write_global_state(&context);
     context.input = &input;
@@ -2392,6 +2387,143 @@ JsonValue * jsonp_parse_file(const char *json_filename, JsonParseError *error, A
     return value;
 }
 
+JsonValue * jsonp_parse_stream( FILE* fp, JsonParseError *error, Arena *arena) {
+    if (!fp) {
+        *error = (JsonParseError){ .message = "FILE pointer is nullptr", .err_type = JSON_ERR_NULL_TEXT};
+        return nullptr;
+    }
+
+    // Try to determine size for buffering logic.
+    // Note: This may fail for non-seekable streams like pipes/stdin.
+    long current_pos = ftell(fp);
+    long file_size = 0;
+    if (current_pos != -1) {
+        if (fseek(fp, 0, SEEK_END) == 0) {
+            file_size = ftell(fp);
+            fseek(fp, current_pos, SEEK_SET);
+        }
+    }
+    // file_size = 0;  // simulate a sequential stream
+
+    FileSourceInputContext fs = {
+        .json_file_full_path = "stream",
+        .json_filename = "stream",
+        .file_ptr = fp,
+        .length_bytes = file_size,
+        .scanner_buffer = crb_new_CharRingBuffer(LOOK_AHEAD_BUF_SIZE, arena),
+    };
+
+    Input input = pvt_get_file_input_source(&fs);
+    fs.input = &input;
+    CharRingBuffer *crb = crb_new_CharRingBuffer(LOOK_AHEAD_BUF_SIZE, arena);
+    input.look_behind_buffer = crb;
+    JsonContext context = {};
+    pvt_write_global_state(&context);
+    context.input = &input;
+
+    JsonValue *value = nullptr;
+    value = pvt_jsonp_parse_impl(&context, error, arena);
+
+
+    fs.file_ptr = nullptr;
+    // assigns no-op read function in case future calls to pvt_record_error() try to
+    // read from the file which is now closed.
+    input.read = string_read;
+
+
+    return value;
+}
+
+
+// A struct to help us collect the data from libcurl
+struct MemoryStruct {
+    char *memory;
+    size_t size;
+};
+
+// This is a callback function that libcurl will call with chunks of data
+static size_t
+WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp) {
+    size_t realsize = size * nmemb;
+    struct MemoryStruct *mem = (struct MemoryStruct *)userp;
+
+    // todo (rob) use arena
+    char *ptr = realloc(mem->memory, mem->size + realsize + 1);
+    if(!ptr) {
+        /* out of memory! */
+        printf("not enough memory (realloc returned NULL)\n");
+        return 0;
+    }
+    mem->memory = ptr;
+    memcpy(&(mem->memory[mem->size]), contents, realsize);
+    mem->size += realsize;
+    mem->memory[mem->size] = 0;
+
+    return realsize;
+}
+
+JsonValue * jsonp_parse_url( const char* url, JsonParseError *error, Arena *arena) {
+    // todo (rob) curl is not installed by default. So this method should be in an API extension file that clients
+    // can choose to use if they want to d/l, but otherwise have no dependency on it if not.
+    CURL *curl_handle;
+    CURLcode res;
+
+    struct MemoryStruct chunk;
+    // todo (rob) use arena
+    chunk.memory = malloc(1);  /* will be grown as needed by the callback */
+    chunk.size = 0;            /* no data at this point */
+
+    curl_global_init(CURL_GLOBAL_ALL);
+    curl_handle = curl_easy_init();
+
+    // Set the URL to fetch
+    curl_easy_setopt(curl_handle, CURLOPT_URL, url);
+    // Set the callback function to handle the data
+    curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+    // Pass our 'chunk' struct to the callback
+    curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *)&chunk);
+    // Some servers don't like requests that are not from a "browser"
+    curl_easy_setopt(curl_handle, CURLOPT_USERAGENT, "libcurl-agent/1.0");
+
+    // Perform the request
+    res = curl_easy_perform(curl_handle);
+
+    JsonValue* value = nullptr;
+    if(res != CURLE_OK) {
+        snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "curl_easy_perform() failed: %s", curl_easy_strerror(res));
+        // TODO(rob): Add a new, more specific error type like JSON_ERR_NETWORK_ERROR
+        error->err_type = JSON_ERR_FILE_ACCESS_ERROR;
+    } else {
+        // Now, parse the downloaded data from memory
+        printf("Downloaded %zu bytes. Parsing...\n", chunk.size);
+        // value = jsonp_parse_string(chunk.memory, error, arena);
+        // jsonp_parse_string_ex is better here as it handles embedded nulls.
+        value = jsonp_parse_string_ex(chunk.memory, error, arena, chunk.size);
+
+        // Alternately, we could create an in-memory FILE* stream from the downloaded data
+        // if the file is very large we could have a read and write buffer in a background thread to parse
+        // as the file is being downloaded.
+        // FILE* stream = fmemopen(chunk.memory, chunk.size, "rb");
+        // if (stream == NULL) {
+        //     snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "fmemopen() failed.");
+        //     error->err_type = JSON_ERR_FILE_OPEN_FAILED;
+        // } else {
+        //     // Now you can use your new function!
+        //     value = jsonp_parse_stream(stream, error, arena);
+        //     fclose(stream);
+        // }
+    }
+
+    // Cleanup
+    curl_easy_cleanup(curl_handle);
+    // Free the temporary buffer used by the callback.
+    free(chunk.memory);
+    curl_global_cleanup();
+
+    return value;
+}
+
+
 
 // -----------------------------------------------------------------
 //      INITIALIZE
@@ -2403,7 +2535,7 @@ static _Atomic(bool) is_initialized = false;
 // Note, to parse Unicode and UTF-8 correctly, the caller should have called `setlocale` before here
 // with an utf-8 locale.
 // E.g., `setlocale(LC_ALL, "en_US.UTF-8");`
-Error jsonp_init_3(jp_bitset_t config_flags, uint32_t max_depth, char const * whitespace_chars) {
+Error (jsonp_init)(jp_bitset_t config_flags, uint32_t max_depth, char const * whitespace_chars) {
 
 
     //todo temp debug remove
@@ -2411,8 +2543,15 @@ Error jsonp_init_3(jp_bitset_t config_flags, uint32_t max_depth, char const * wh
 
 
     if (atomic_load(&is_initialized)) {
-        return (Error){};  // already initialized, no-op, empty error
+        return (Error){ .err = false };  // already initialized, no-op, empty error
     }
+
+    // todo (rob) parsing a url should be in an extension unit and initialization should be handled separately
+    // Initialize libcurl globally. This is thread-safe and safe to call multiple times,
+    // but it's best practice to call it once at the start.
+    // if (curl_global_init(CURL_GLOBAL_ALL) != CURLE_OK) {
+    //     return (Error){ .err = true, .msg = "Failed to initialize libcurl" };
+    // }
 
     // Initialize Whitespace (Copy the argument)
     // ReSharper disable once CppDFAMemoryLeak
@@ -2432,18 +2571,18 @@ Error jsonp_init_3(jp_bitset_t config_flags, uint32_t max_depth, char const * wh
     return (Error){};
 }
 
-Error jsonp_init_2(jp_bitset_t config_flags, uint32_t max_depth) {
-    return jsonp_init_3(config_flags, max_depth, JSON_WHITESPACE_CHARS_DEFAULT);
-}
+// Error jsonp_init_2(jp_bitset_t config_flags, uint32_t max_depth) {
+//     return jsonp_init_3(config_flags, max_depth, JSON_WHITESPACE_CHARS_DEFAULT);
+// }
 
-Error jsonp_init_1(jp_bitset_t config_flags) {
-    return jsonp_init_3( config_flags, JSON_DEPTH_MAX_DEFAULT, JSON_WHITESPACE_CHARS_DEFAULT);
-}
+// Error jsonp_init_1(jp_bitset_t config_flags) {
+//     return jsonp_init_3( config_flags, JSON_DEPTH_MAX_DEFAULT, JSON_WHITESPACE_CHARS_DEFAULT);
+// }
 
 
-Error jsonp_init() {
-    return jsonp_init_3(JSON_CONFIG_FLAGS_DEFAULT, JSON_DEPTH_MAX_DEFAULT, JSON_WHITESPACE_CHARS_DEFAULT);
-}
+// Error jsonp_init() {
+//     return jsonp_init_3(JSON_CONFIG_FLAGS_DEFAULT, JSON_DEPTH_MAX_DEFAULT, JSON_WHITESPACE_CHARS_DEFAULT);
+// }
 
 
 // -----------------------------------------------------------------
@@ -2456,6 +2595,8 @@ void jsonp_destroy(void) {
         if (ws) {
             free( (void*)ws);
         }
+        // Clean up libcurl resources.
+        // curl_global_cleanup();
     }
 }
 
@@ -2642,8 +2783,8 @@ void parse_test_str(char const * str) {
         jsonp_destroy();
         return;
     }
-    Arena arena = {};
-    ArenaErrResult aer = arena_create_arena( &arena, ONE_MIBIBYTE * 100);
+    ArenaErrResult aer = arena_create_arena( ONE_MEBIBYTE * 100);
+    Arena *arena = aer.result;
     if ( aer.err ) {
         printf("arena_create_arena failed with %d, %s\n", aer.reported_err, aer.msg);
         jsonp_destroy();
@@ -2651,7 +2792,7 @@ void parse_test_str(char const * str) {
     }
     JsonParseError err = {};
     printf("\nParsing json string '%s': \n", str);
-    JsonValue *jval = jsonp_parse_string(str, &err, &arena);
+    JsonValue *jval = jsonp_parse_string(str, &err, arena);
 
     if (!jval) {
         printf("ERROR %d: first_bad_char:%d, line:%d col:%d start:%d end:%d  %s\n",
@@ -2662,7 +2803,7 @@ void parse_test_str(char const * str) {
         printf("\n");
     }
 
-    arena_destroy_arena(&arena);
+    arena_destroy_arena(arena);
     jsonp_destroy();
 }
 
@@ -2674,19 +2815,21 @@ void parse_test_str_custom_init(
 {
 
     if (! whitespace_chars ) whitespace_chars = JSON_WHITESPACE_CHARS_DEFAULT;
-    Error err = jsonp_init_3( config_flags, max_depth,whitespace_chars );
+    Error err = jsonp_init( config_flags, max_depth,whitespace_chars );
     if (err.err) {
         printf("reported error: %d, message: %s\n", err.reported_err, err.msg);
     }
 
-    Arena arena = {};
-    ArenaErrResult aer = arena_create_arena( &arena, ONE_MIBIBYTE * 100);
+
+    ArenaErrResult aer = arena_create_arena( ONE_MEBIBYTE * 100);
     if ( aer.err ) {
         printf("arena_create_arena failed with %d, %s\n", aer.reported_err, aer.msg);
     }
+    Arena *arena = aer.result;
+
     JsonParseError json_err = {};
     printf("\nParsing json string '%s': \n", str);
-    JsonValue *jval = jsonp_parse_string(str, &json_err, &arena);
+    JsonValue *jval = jsonp_parse_string(str, &json_err, arena);
     if (!jval) {
         printf("ERROR %d: first_bad_char:%d, line:%d col:%d start:%d end:%d  %s\n",
            json_err.err_type, json_err.first_bad_char,  json_err.line, json_err.column, json_err.parse_start,
@@ -2697,7 +2840,7 @@ void parse_test_str_custom_init(
         printf("\n");
     }
 
-    arena_destroy_arena(&arena);
+    arena_destroy_arena(arena);
     jsonp_destroy();
 
 }
@@ -2712,17 +2855,17 @@ void simple_parse(char const *json_text) {
         return;
     }
 
-    Arena arena = {};
-    ArenaErrResult aer = arena_create_arena( &arena, 1024 * 124);  // initially 1MB as an example. Grows as needed.
+    ArenaErrResult aer = arena_create_arena( 1024 * 124);  // initially 1MB as an example. Grows as needed.
     if ( aer.err ) {
         printf("arena_create_arena failed with %d, %s\n", aer.reported_err, aer.msg);
         jsonp_destroy();
         return;
     }
+    Arena *arena = aer.result;
 
     JsonParseError err = {};
 
-    JsonValue *jval = jsonp_parse_string(json_text, &err, &arena);
+    JsonValue *jval = jsonp_parse_string(json_text, &err, arena);
     if (!jval) {
         // handle error
         jsonp_print_parse_error(&err);
@@ -2731,7 +2874,7 @@ void simple_parse(char const *json_text) {
         putchar('\n');
     }
 
-    arena_destroy_arena(&arena);
+    arena_destroy_arena(arena);
     jsonp_destroy();
 }
 
@@ -2929,10 +3072,13 @@ void test_array_parse(void) {
 
     // parse_test_str("[ [1,2,3], [4,5,6], [true,false,null] ] ");
 
-    simple_parse("[\"\",]");
-    simple_parse("[\"\",");
-    simple_parse("[\"\"");
+    // simple_parse("[\"\",]");
+    // simple_parse("[\"\",");
+    // simple_parse("[\"\"");
 
+    // 80 chars with error in middle to test error display
+    // 85 chars
+    simple_parse("[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16, 17,18,19   20,21,22,23,24,25,26,27,28,29,30,31]");
 }
 
 void test_parse_objects(void ) {
@@ -3074,17 +3220,18 @@ void parse_json_file(char const *filename) {
         jsonp_destroy();
         return;
     }
-    Arena arena = {};
-    ArenaErrResult aer = arena_create_arena( &arena, ONE_MIBIBYTE * 100);
+    ArenaErrResult aer = arena_create_arena( ONE_MEBIBYTE * 100);
     if ( aer.err ) {
         printf("arena_create_arena failed with %d, %s\n", aer.reported_err, aer.msg);
         jsonp_destroy();
         return;
     }
+    Arena *arena = aer.result;
+
     JsonParseError err = {};
     printf("\nParsing json file '%s': \n", filename);
     // JsonValue *jval = jsonp_parse(str, &err, &arena);
-    JsonValue *jval = jsonp_parse_file(filename, &err, &arena);
+    JsonValue *jval = jsonp_parse_file(filename, &err, arena);
 
     if (!jval) {
         // printf("ERROR %d: first_bad_char:%d, line:%d col:%d start:%d end:%d  %s\n",
@@ -3096,10 +3243,106 @@ void parse_json_file(char const *filename) {
         printf("\n");
     }
 
-    arena_destroy_arena(&arena);
+    arena_destroy_arena(arena);
     jsonp_destroy();
-
 }
+
+void parse_json_stream(char const *filename) {
+    Error init_err = jsonp_init();
+    if (init_err.err) {
+        err_print(init_err);
+        jsonp_destroy();
+        return;
+    }
+    ArenaErrResult aer = arena_create_arena( ONE_MEBIBYTE * 100);
+    if ( aer.err ) {
+        printf("arena_create_arena failed with %d, %s\n", aer.reported_err, aer.msg);
+        jsonp_destroy();
+        return;
+    }
+    Arena *arena = aer.result;
+
+    // FILE* fptr = nullptr;
+    JsonValue *jval = nullptr;
+    JsonParseError err = {};
+
+    USING_FILE( fptr, filename, "rb") {
+        int saved_errno = errno;
+
+        if (!fptr) {
+            // handle error
+            // If stat() succeeded but fopen() failed, it's likely a different issue (e.g., too many open files, file is a directory)
+            printf("Failed to open file '%s': %s", filename, strerror(saved_errno) );
+
+        }
+
+        printf("\nParsing json file as stream: '%s': \n", filename);
+        jval = jsonp_parse_stream(fptr, &err, arena);
+    };
+
+    // FILE *fp = fopen(filename, "rb");
+    // int saved_errno = errno;
+    //
+    // if (!fp) {
+    //     // handle error
+    //     // If stat() succeeded but fopen() failed, it's likely a different issue (e.g., too many open files, file is a directory)
+    //     printf("Failed to open file '%s': %s", filename, strerror(saved_errno) );
+    //
+    // }
+    // JsonParseError err = {};
+    // printf("\nParsing json file as stream: '%s': \n", filename);
+    // JsonValue *jval = jsonp_parse_stream(fp, &err, &arena);
+    // fclose(fp);
+
+
+    if (!jval) {
+        // printf("ERROR %d: first_bad_char:%d, line:%d col:%d start:%d end:%d  %s\n",
+        //    err.err_type, err.first_bad_char,  err.line, err.column, err.parse_start, err.parse_end, err.message);
+        jsonp_print_parse_error(&err);
+    }
+    else {
+        jsonp_print_json_value(jval);
+        printf("\n");
+    }
+
+    arena_destroy_arena(arena);
+    jsonp_destroy();
+}
+
+void parse_json_url(char const *url_string) {
+    Error init_err = jsonp_init();
+    if (init_err.err) {
+        err_print(init_err);
+        jsonp_destroy();
+        return;
+    }
+    ArenaErrResult aer = arena_create_arena( ONE_MEBIBYTE * 100);
+    if ( aer.err ) {
+        printf("arena_create_arena failed with %d, %s\n", aer.reported_err, aer.msg);
+        jsonp_destroy();
+        return;
+    }
+    Arena *arena = aer.result;
+
+    JsonParseError err = {};
+    printf("\nParsing json file from url: '%s': \n", url_string);
+    JsonValue *jval = jsonp_parse_url(url_string, &err, arena);
+
+
+    if (!jval) {
+        // printf("ERROR %d: first_bad_char:%d, line:%d col:%d start:%d end:%d  %s\n",
+        //    err.err_type, err.first_bad_char,  err.line, err.column, err.parse_start, err.parse_end, err.message);
+        jsonp_print_parse_error(&err);
+    }
+    else {
+        jsonp_print_json_value(jval);
+        printf("\n");
+    }
+
+    arena_destroy_arena(arena);
+    jsonp_destroy();
+}
+
 
 void test_one_json_file(void) {
     // parse_json_file(nullptr);
@@ -3123,7 +3366,7 @@ void test_one_json_file(void) {
 
     // n_multidigit_number_then_00.json
     // want fail
-    parse_json_file("../test/json_parser/JSONTestSuite/fail/n_multidigit_number_then_00.json");
+    // parse_json_file("../test/json_parser/JSONTestSuite/fail/n_multidigit_number_then_00.json");
 
     // when parsed as a file this gives the wrong error, 3:UNEXPECTED_TEXT  line:1 col:1 pos:1 start:1 end:1 :  unexpected character: EOF
     // It should give a 'only whitespace' error
@@ -3133,8 +3376,16 @@ void test_one_json_file(void) {
 
 
     // parse_json_file("../test/json_parser/JSONTestSuite/fail/n_string_1_surrogate_then_escape_u1.json");
+    simple_parse("[1,2 3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]");
+    parse_json_file("../test/json_parser/json_files/n_long_array_1.json");
+    parse_json_stream("../test/json_parser/json_files/n_long_array_1.json");
 
+    // parse_json_file("../test/json_parser/json_files/todos.json");
 
+}
+
+void test_one_url(void) {
+    parse_json_url("https://jsonplaceholder.typicode.com/todos");
 }
 
 
@@ -3182,6 +3433,8 @@ int main( ) {
     // test_json_test_suite_fails();
 
     test_one_json_file();
+
+    // test_one_url();
 
 }
 #endif

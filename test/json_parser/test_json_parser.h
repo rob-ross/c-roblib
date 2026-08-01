@@ -2,6 +2,8 @@
 
 #pragma once
 
+// test data note: you can download Greeked JSON files over http from https://jsonplaceholder.typicode.com
+
 #include <gtest/gtest.h>
 #include <string>
 #include <tuple>

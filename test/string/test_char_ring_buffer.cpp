@@ -7,8 +7,6 @@
 
 #include "roblib/char_ring_buffer.h"
 
-extern "C" {
-}
 
 CHAR_RING_BUFFER(CharRingBuffer, 10);
 
