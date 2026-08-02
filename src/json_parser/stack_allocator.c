@@ -18,7 +18,7 @@
  *  arena_aligned_size
  *  Arena - maybe some members, maybe we'll need to add more
  *  we'll want to be able to specify if the allocator can grow when it's out of memory, or if it's fixed size.
- *  and let's update arena_create_arena with the same ability as well.
+ *  and let's update arena_bump_create with the same ability as well.
  *
  *  similar methods of arena but must be implemented in the stack_allocator
  *  stack_allocator_create();

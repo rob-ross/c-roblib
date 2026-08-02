@@ -625,7 +625,7 @@ typedef struct json_object_entry_node_s {
 
 static JsonObjectEntryNode * pvt_add_json_object_entry_node(JsonObjectEntryNode * first_node, JsonObjectEntry *object_entry, Arena *arena ) {
     if (!object_entry) return nullptr;
-    JsonObjectEntryNode * new_node = (JsonObjectEntryNode*) arena_alloc(arena, sizeof(JsonObjectEntryNode) );
+    JsonObjectEntryNode * new_node = (JsonObjectEntryNode*) arena_bump_alloc(arena, sizeof(JsonObjectEntryNode) );
     new_node->object_entry = object_entry;
     new_node->next = first_node;
     return new_node;
@@ -699,7 +699,7 @@ static JsonObjectEntry * pvt_parse_one_entry(JsonContext *context, JsonParseErro
         // error-out immediately
         return nullptr;
     }
-    JsonObjectEntry *joe = (JsonObjectEntry*)arena_alloc(arena, sizeof(JsonObjectEntry));
+    JsonObjectEntry *joe = (JsonObjectEntry*)arena_bump_alloc(arena, sizeof(JsonObjectEntry));
     if (!joe) {
         char const *const msg = "pvt_parse_one_entry(): arena alloc failed for JsonObjectEntry *joe\n";
         fprintf(stderr, msg);
@@ -722,7 +722,7 @@ static JsonValue * pvt_parse_object(JsonContext *context, JsonParseError *error,
     }
 
     Input *input = context->input;
-    JsonValue *object =  arena_alloc(arena, sizeof(JsonValue) );
+    JsonValue *object =  arena_bump_alloc(arena, sizeof(JsonValue) );
 
     size_t num_entries = 0;
     object->type = JSON_OBJECT;
@@ -795,7 +795,7 @@ static JsonValue * pvt_parse_object(JsonContext *context, JsonParseError *error,
     }
 
     pvt_advance(context, 1);  // consume '}'
-    JsonObjectEntry **entries_array = arena_alloc(arena, sizeof(JsonObjectEntry) *  num_entries);
+    JsonObjectEntry **entries_array = arena_bump_alloc(arena, sizeof(JsonObjectEntry) *  num_entries);
     // copy linked list elements into new array in reverse order so the object entries maintain
     // the order from the JSON file.
 
@@ -820,7 +820,7 @@ typedef struct json_value_node_s {
 // Returns the new first_node.
 static JsonValueNode * pvt_add_json_value_node(JsonValueNode * first_node, JsonValue *value, Arena *arena ) {
     if (!value) return nullptr;
-    JsonValueNode * new_node = (JsonValueNode*) arena_alloc(arena, sizeof(JsonValueNode) );
+    JsonValueNode * new_node = (JsonValueNode*) arena_bump_alloc(arena, sizeof(JsonValueNode) );
     new_node->value = value;
     new_node->next = first_node;
     return new_node;
@@ -837,7 +837,7 @@ static JsonValue * pvt_parse_array(JsonContext *context, JsonParseError *error, 
     }
     Input *input = context->input;
 
-    JsonValue *array =  arena_alloc(arena, sizeof(JsonValue) );
+    JsonValue *array =  arena_bump_alloc(arena, sizeof(JsonValue) );
 
     size_t num_elements = 0;
     array->type = JSON_ARRAY;
@@ -920,7 +920,7 @@ static JsonValue * pvt_parse_array(JsonContext *context, JsonParseError *error, 
     }
     pvt_advance(context, 1);  // consume ']'
     pvt_skip_whitespace(context);
-    JsonValue **element_array = arena_alloc(arena, sizeof(JsonValue) *  num_elements);
+    JsonValue **element_array = arena_bump_alloc(arena, sizeof(JsonValue) *  num_elements);
     // copy linked list elements into new array in reverse order so the list maintains the order from the JSON file.
 
     for (size_t i = num_elements; i--> 0; ) {
@@ -1533,13 +1533,13 @@ static JsonValue * pvt_parse_string(JsonContext *context, JsonParseError *error,
     while (current_byte) {
         if (current_byte == QUOTE) {
             // happy case. We found the terminating quote
-            value = arena_alloc(arena, sizeof(JsonValue) );
+            value = arena_bump_alloc(arena, sizeof(JsonValue) );
             value->type = JSON_STRING;
 
             // Ensure the result is null-terminated from the StringBuilder
             // before copying into the arena.
             size_t len = sb.length;
-            char * str_value = arena_alloc(arena, len + 1);
+            char * str_value = arena_bump_alloc(arena, len + 1);
             memcpy(str_value, sb.buffer, len);
             str_value[len] = NUL;
 
@@ -1707,7 +1707,7 @@ static JsonValue * pvt_parse_number(JsonContext *context, JsonParseError *error,
         // leading zero only valid if next character is a period, e or E and not a digit
         if (  c != '.' && c != 'e' && c != 'E' ) {
             // we parsed a zero
-            value = arena_alloc(arena, sizeof(JsonValue) );
+            value = arena_bump_alloc(arena, sizeof(JsonValue) );
             value->type = JSON_LONG;
             value->u.n_long = 0;
             return value;
@@ -1727,7 +1727,7 @@ static JsonValue * pvt_parse_number(JsonContext *context, JsonParseError *error,
     cur_char = pvt_current_char(context);
     if ( cur_char != '.' && cur_char != 'e' && cur_char != 'E') {
         // we parsed an integer
-        value = arena_alloc(arena, sizeof(JsonValue) );
+        value = arena_bump_alloc(arena, sizeof(JsonValue) );
         value->type = JSON_LONG;
         errno = 0; // Reset errno before the calls
         char *str_end =  nullptr;
@@ -1823,7 +1823,7 @@ static JsonValue * pvt_parse_number(JsonContext *context, JsonParseError *error,
     // -----------------------------------------------------------------
 
     // we've now parsed a float number
-    value = arena_alloc(arena, sizeof(JsonValue) );
+    value = arena_bump_alloc(arena, sizeof(JsonValue) );
     value->type = JSON_DOUBLE;
     errno = 0; // Reset errno before the calls
     char *str_end =  nullptr;
@@ -2783,10 +2783,10 @@ void parse_test_str(char const * str) {
         jsonp_destroy();
         return;
     }
-    ArenaErrResult aer = arena_create_arena( ONE_MEBIBYTE * 100);
+    ArenaErrResult aer = arena_bump_create( ONE_MEBIBYTE * 100);
     Arena *arena = aer.result;
     if ( aer.err ) {
-        printf("arena_create_arena failed with %d, %s\n", aer.reported_err, aer.msg);
+        printf("arena_bump_create failed with %d, %s\n", aer.reported_err, aer.msg);
         jsonp_destroy();
         return;
     }
@@ -2803,7 +2803,7 @@ void parse_test_str(char const * str) {
         printf("\n");
     }
 
-    arena_destroy_arena(arena);
+    arena_bump_destroy(arena);
     jsonp_destroy();
 }
 
@@ -2821,9 +2821,9 @@ void parse_test_str_custom_init(
     }
 
 
-    ArenaErrResult aer = arena_create_arena( ONE_MEBIBYTE * 100);
+    ArenaErrResult aer = arena_bump_create( ONE_MEBIBYTE * 100);
     if ( aer.err ) {
-        printf("arena_create_arena failed with %d, %s\n", aer.reported_err, aer.msg);
+        printf("arena_bump_create failed with %d, %s\n", aer.reported_err, aer.msg);
     }
     Arena *arena = aer.result;
 
@@ -2840,7 +2840,7 @@ void parse_test_str_custom_init(
         printf("\n");
     }
 
-    arena_destroy_arena(arena);
+    arena_bump_destroy(arena);
     jsonp_destroy();
 
 }
@@ -2855,9 +2855,9 @@ void simple_parse(char const *json_text) {
         return;
     }
 
-    ArenaErrResult aer = arena_create_arena( 1024 * 124);  // initially 1MB as an example. Grows as needed.
+    ArenaErrResult aer = arena_bump_create( 1024 * 124);  // initially 1MB as an example. Grows as needed.
     if ( aer.err ) {
-        printf("arena_create_arena failed with %d, %s\n", aer.reported_err, aer.msg);
+        printf("arena_bump_create failed with %d, %s\n", aer.reported_err, aer.msg);
         jsonp_destroy();
         return;
     }
@@ -2874,7 +2874,7 @@ void simple_parse(char const *json_text) {
         putchar('\n');
     }
 
-    arena_destroy_arena(arena);
+    arena_bump_destroy(arena);
     jsonp_destroy();
 }
 
@@ -3220,9 +3220,9 @@ void parse_json_file(char const *filename) {
         jsonp_destroy();
         return;
     }
-    ArenaErrResult aer = arena_create_arena( ONE_MEBIBYTE * 100);
+    ArenaErrResult aer = arena_bump_create( ONE_MEBIBYTE * 100);
     if ( aer.err ) {
-        printf("arena_create_arena failed with %d, %s\n", aer.reported_err, aer.msg);
+        printf("arena_bump_create failed with %d, %s\n", aer.reported_err, aer.msg);
         jsonp_destroy();
         return;
     }
@@ -3243,7 +3243,7 @@ void parse_json_file(char const *filename) {
         printf("\n");
     }
 
-    arena_destroy_arena(arena);
+    arena_bump_destroy(arena);
     jsonp_destroy();
 }
 
@@ -3254,9 +3254,9 @@ void parse_json_stream(char const *filename) {
         jsonp_destroy();
         return;
     }
-    ArenaErrResult aer = arena_create_arena( ONE_MEBIBYTE * 100);
+    ArenaErrResult aer = arena_bump_create( ONE_MEBIBYTE * 100);
     if ( aer.err ) {
-        printf("arena_create_arena failed with %d, %s\n", aer.reported_err, aer.msg);
+        printf("arena_bump_create failed with %d, %s\n", aer.reported_err, aer.msg);
         jsonp_destroy();
         return;
     }
@@ -3305,7 +3305,7 @@ void parse_json_stream(char const *filename) {
         printf("\n");
     }
 
-    arena_destroy_arena(arena);
+    arena_bump_destroy(arena);
     jsonp_destroy();
 }
 
@@ -3316,9 +3316,9 @@ void parse_json_url(char const *url_string) {
         jsonp_destroy();
         return;
     }
-    ArenaErrResult aer = arena_create_arena( ONE_MEBIBYTE * 100);
+    ArenaErrResult aer = arena_bump_create( ONE_MEBIBYTE * 100);
     if ( aer.err ) {
-        printf("arena_create_arena failed with %d, %s\n", aer.reported_err, aer.msg);
+        printf("arena_bump_create failed with %d, %s\n", aer.reported_err, aer.msg);
         jsonp_destroy();
         return;
     }
@@ -3339,7 +3339,7 @@ void parse_json_url(char const *url_string) {
         printf("\n");
     }
 
-    arena_destroy_arena(arena);
+    arena_bump_destroy(arena);
     jsonp_destroy();
 }
 

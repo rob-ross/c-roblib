@@ -26,7 +26,7 @@ void lkup_map_init(SimpleMap *map, enum lkup_key_type key_type,  int initial_cap
     map->key_type = key_type;
     map->capacity = initial_capacity;
     map->length = 0;
-    map->entries = arena_alloc(arena, sizeof(KVEntry) * map->capacity);
+    map->entries = arena_bump_alloc(arena, sizeof(KVEntry) * map->capacity);
 }
 
 // Simple linear search for a key
@@ -54,7 +54,7 @@ static int lkup_map_find_index_for_long_key(SimpleMap *map, long key) {
 static KVEntry * lkup_realloc(SimpleMap *map, uint32_t new_capacity, Arena * arena) {
     // we can't realloc in the arena, so we just allocate new memory and
     // copy over the old data to the new allocation
-    KVEntry * new_entries = (KVEntry *)arena_alloc(arena, sizeof(KVEntry) * new_capacity);
+    KVEntry * new_entries = (KVEntry *)arena_bump_alloc(arena, sizeof(KVEntry) * new_capacity);
     if (!new_entries) {
         return nullptr;
     }
