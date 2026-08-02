@@ -30,7 +30,7 @@
  *      next available byte of unallocated memory and increments this pointer based on the requested allocation size.
  *      It will pad the request to align it to 16 byte boundaries (via _Alignof(max_align_t)). It will grow the arena
  *      dynamically if a memory request is larger than the arena capacity. The entire arena is freed with the call to
- *      arena_destroy_arena().
+ *      arena_bump_destroy().
  *
  *
  *
@@ -50,6 +50,8 @@
 
 #ifdef __cplusplus
 extern "C" {
+// Map the C11 keyword to the native C++ keyword
+#define _Alignof alignof
 #endif
 
 // opaque type
@@ -67,32 +69,50 @@ typedef struct stack_allocator_err_result_s {
 } StackAllocatorErrResult;
 
 
-// must call arena_destroy() when done with the Arena
-ArenaErrResult arena_create_arena( size_t arena_capacity );
-void arena_reset(Arena * arena, bool zero_mem);
-void arena_destroy_arena(const Arena * arena);
+typedef struct stack_allocator_err_result2_s {
+    Error2 error;
+    StackAllocator * result;
+} StackAllocatorErrResult2;
+
+
+
+constexpr size_t MAX_ALIGNMENT     = _Alignof(max_align_t);
+constexpr size_t POINTER_ALIGNMENT = _Alignof(void*);
+constexpr size_t DEFAULT_ALIGNMENT = MAX_ALIGNMENT;
+
+
+
+// must call arena_bump_destroy() when done with the Arena
+ArenaErrResult arena_bump_create( size_t arena_capacity );
+void arena_bump_reset(Arena * arena, bool zero_mem);
+void arena_bump_destroy(const Arena * arena);
 
 
 /**
  * @brief Allocates memory from the arena.
  *
- * This function can be called with 2 or 3 arguments. The `ArenaErrResult` parameter is optional.
+ * This function can be called with 2 - 4 arguments. The `ArenaErrResult` and `align_size` parameters are optional.
  * If passed and an error occurs, it will contain the error information.
  * If no error occurs, a pointer to the newly allocated memory is returned,
  * and aer->err (if not null) will be set to false.
  * Otherwise, a nullptr is returned, and aer->err (if not null) will be set to true.
+ * If `align_size` is omitted, DEFAULT_ALIGNMENT is used. Otherwise, it is used to align the memory location at which
+ * the allocation is made.
  * - `arena_alloc( arena, size_t size)`
  * - `arena_alloc( arena, size_t size, [[nullable]] ArenaErrResult * aer)`
+ * - `arena_alloc( arena, size_t size, [[nullable]] ArenaErrResult * aer, size_t align_size)`
  * @returns void * to the newly allocated memory
  */
-#define arena_alloc(arena, size, ...) \
-    _arena_alloc_SELECT_(__VA_ARGS__ __VA_OPT__(,) _arena_alloc_3, _arena_alloc_2)(arena, size __VA_OPT__(,) __VA_ARGS__)
+#define arena_bump_alloc(_1, _2, ...) \
+    _arena_bump_alloc_SELECT_(__VA_ARGS__ __VA_OPT__(,) _arena_bump_alloc_4, _arena_bump_alloc_3, _arena_bump_alloc_2)(_1, _2 __VA_OPT__(,) __VA_ARGS__)
 
 // --- Internal Use Only ---
-#define _arena_alloc_2(arena, size) (_arena_alloc)(arena, size, nullptr)
-#define _arena_alloc_3(arena, size, err) (_arena_alloc)(arena, size, err)
-#define _arena_alloc_SELECT_(_1, NAME, ...) NAME
-void * _arena_alloc(Arena * arena,  size_t size, [[nullable]] ArenaErrResult * aer); // NOLINT(*-reserved-identifier)
+
+#define _arena_bump_alloc_2(_1, _2)        (_arena_bump_alloc)(_1, _2, nullptr, DEFAULT_ALIGNMENT)
+#define _arena_bump_alloc_3(_1, _2, _3)    (_arena_bump_alloc)(_1, _2, _3,      DEFAULT_ALIGNMENT)
+#define _arena_bump_alloc_4(_1, _2, _3, _4)(_arena_bump_alloc)(_1, _2, _3,      _4)
+#define _arena_bump_alloc_SELECT_(_1, _2, NAME, ...) NAME
+void * _arena_bump_alloc(Arena * arena,  size_t size, [[nullable]] ArenaErrResult * aer, size_t alignment); // NOLINT(*-reserved-identifier)
 
 
 
@@ -102,11 +122,12 @@ void * _arena_alloc(Arena * arena,  size_t size, [[nullable]] ArenaErrResult * a
 ////
 //// ------------------------------------------------------------
 
-StackAllocatorErrResult alloc_create_stack_allocator( size_t capacity) ;
+StackAllocatorErrResult arena_stack_create( size_t capacity) ;
 
 
 
 #ifdef __cplusplus
+#undef _Alignof // Clean up the macro
 }
 #endif
 

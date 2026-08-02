@@ -8,7 +8,7 @@
 /*
  *  Some definitions of terms used in this Arena class
  *  Page: an OS memory page, normally 4096 bytes. This is the smallest unit we can request from the OS.
- *      The API doesn't concern itself with Pages. When arena_create_arena() is called, it is passed the block size
+ *      The API doesn't concern itself with Pages. When arena_bump_create() is called, it is passed the block size
  *
  */
 
@@ -58,7 +58,6 @@ typedef struct allocator_header_s {
 
 constexpr size_t ALLOCATOR_ALIGNMENT        = _Alignof(max_align_t);
 constexpr size_t ALLOCATOR_ALIGNMENT_MASK   = ALLOCATOR_ALIGNMENT - 1;
-constexpr size_t POINTER_ALIGNMENT          = _Alignof(void*);
 constexpr size_t POINTER_ALIGNMENT_MASK     = POINTER_ALIGNMENT - 1;
 
 constexpr int MACH_NO_FLAGS = -1;
@@ -163,6 +162,11 @@ static size_t arena_aligned_size(const size_t size) {
     return ( size + ALLOCATOR_ALIGNMENT_MASK ) & ~ALLOCATOR_ALIGNMENT_MASK;
 }
 
+// align the offset value to the requested alignment size
+static size_t arena_align_offset(const size_t offset, const size_t alignment) {
+    return ( offset + alignment - 1 ) & ~ ( alignment - 1 ) ;
+}
+
 // todo (rob) not tested.
 static void arena_zero(Arena const * arena) {
     BlockHeader * current = arena->head_block;
@@ -177,18 +181,20 @@ static void arena_zero(Arena const * arena) {
     }
 }
 
-// precondition: the alignment size is a power of two
+// precondition: the align_size size is a power of two
 void * pvt_arena_alloc_impl(
                             Arena * arena,
                             const size_t size,
                             [[nullable]] ArenaErrResult * aer,
-                            const size_t aligned_requested_size ) {
+                            const size_t align_size ) {
 
+    const size_t aligned_offset    = arena_align_offset( arena->offset, align_size);
+    const size_t alignment_padding = aligned_offset - arena->offset;
 
     // Check if it fits in the current block
     BlockHeader * current_header = (BlockHeader*)arena->current_block;
 
-    if (arena->offset + aligned_requested_size > current_header->block_size - sizeof(BlockHeader)) {
+    if ( aligned_offset + size > current_header->block_size - sizeof(BlockHeader)) {
         // Current block is full
         if (current_header->next_block != nullptr) {
             // This is a reset arena with existing blocks to reuse.
@@ -196,21 +202,28 @@ void * pvt_arena_alloc_impl(
             arena->current_block = (byte*)current_header->next_block;
             arena->offset = sizeof(BlockHeader);
         } else {
+            // todo check a "is_resizeable" flag here. If false, report EMEM error
             // We are at the end of the chain, need to allocate a new block.
+            // -----------------------------------------------------------------
+            //                  Allocate New Block
+            // -----------------------------------------------------------------
             // Ensure that the requested size isn't larger than the standard block capacity
             size_t target_block_size = arena->default_block_size;
-            if (aligned_requested_size > target_block_size - sizeof(BlockHeader) ) {
-                // requested chunk size too massive for standard block size, create special block for this request
+            // todo ASK AI I think we still need to check aligned_requested_size here
+            if ( size + sizeof(BlockHeader) > target_block_size  ) {
+                // requested allocation size too massive for standard block size, create special block for this request
                 // target_block_size = aligned_requested_size +  sizeof(BlockHeader);
-                target_block_size = size +  sizeof(BlockHeader);
+                target_block_size = size  +  sizeof(BlockHeader);
             }
-            size_t needed_capacity = target_block_size;
+            const size_t needed_capacity = target_block_size;
             BlockHeaderErrResult bher = arena_new_os_block(needed_capacity);  // this page-aligns our request for us
             // ReSharper disable once CppDFAUnreachableCode
-            if (bher.err && aer) {
+            if ( bher.err ) {
                 // ReSharper disable once CppDFAUnreachableCode
-                aer->error = bher.error;
-                aer->result = nullptr;
+                if (aer) {
+                    aer->error = bher.error;
+                    aer->result = nullptr;
+                }
                 return nullptr;
             }
             // ReSharper disable once CppDFAUnreachableCode
@@ -220,15 +233,16 @@ void * pvt_arena_alloc_impl(
             // Pivot the arena to use the brand-new OS block
             arena->current_block = (byte*)new_block;
             arena->offset = sizeof(BlockHeader);
-
         }
     }
 
-    // Allocate from the current active block
-    void * ptr = &arena->current_block[arena->offset];
+    arena->offset += alignment_padding;
 
-    // Bump the offset forward by the aligned size
-    arena->offset += aligned_requested_size;
+    // Allocate from the top of the current active block
+    void * ptr = &arena->current_block[ arena->offset ];
+
+    // Bump the offset forward by the allocation size
+    arena->offset +=  size;
 
     return ptr;
 }
@@ -236,13 +250,13 @@ void * pvt_arena_alloc_impl(
 // todo (rob) add optional parameter for specifying alignment as `size_t alignment`
 // must verify that the alignment size is a power of two. use platform_specific.round_up_to_power_of_two.
 // Returns pointer to allocated chunk in the arena, or nullptr if arena is out of memory.
-void * _arena_alloc(Arena * arena, const size_t size, [[nullable]] ArenaErrResult * aer) {
-    const size_t aligned_requested_size = arena_aligned_size(size);
-    return pvt_arena_alloc_impl(arena, size, aer, aligned_requested_size);
+void * _arena_bump_alloc(Arena * arena, const size_t size, [[nullable]] ArenaErrResult * aer, size_t align_size) {
+    return pvt_arena_alloc_impl(arena, size, aer, align_size);
 }
 
 // todo (rob) optional parameter to specify the default alignment
-ArenaErrResult arena_create_arena( const size_t arena_capacity) {
+// add optional parameter 'resizable`, defaults to true.
+ArenaErrResult arena_bump_create( const size_t arena_capacity) {
     // Account for the block header size and Arena size
     const size_t needed_capacity = arena_capacity + sizeof(BlockHeader) + sizeof(Arena);
 
@@ -264,7 +278,7 @@ ArenaErrResult arena_create_arena( const size_t arena_capacity) {
     arena_prototype.offset = sizeof(BlockHeader);
 
     // the very first allocation is for the Arena struct itself
-    Arena *new_arena = _arena_alloc(&arena_prototype, sizeof(Arena), nullptr);
+    Arena *new_arena = _arena_bump_alloc(&arena_prototype, sizeof(Arena), nullptr, _Alignof(Arena));
     *new_arena = arena_prototype;
 
     return (ArenaErrResult){
@@ -273,7 +287,7 @@ ArenaErrResult arena_create_arena( const size_t arena_capacity) {
         };
 }
 
-void arena_reset(Arena * arena, bool zero_mem) {
+void arena_bump_reset(Arena * arena, bool zero_mem) {
     if (!arena || !arena->head_block) {
         return;
     }
@@ -284,7 +298,7 @@ void arena_reset(Arena * arena, bool zero_mem) {
     arena->offset = sizeof(BlockHeader) + sizeof(Arena);
 }
 
-void arena_destroy_arena(const Arena * arena) {
+void arena_bump_destroy(const Arena * arena) {
     BlockHeader * current = arena->head_block;
     while (current != nullptr) {
         BlockHeader * next = current->next_block;
@@ -307,7 +321,7 @@ void arena_destroy_arena(const Arena * arena) {
 
 //todo (rob) test this!!
 // todo (rob) optional parameter to specify the default alignment
-StackAllocatorErrResult alloc_create_stack_allocator( const size_t capacity) {
+StackAllocatorErrResult arena_stack_create( const size_t capacity) {
     // In addition to the requested capacity, The first block requires:
     //   a BlockHeader, a StackAllocator, and an AllocatorHeader for the payload block.
     // For the meta_data block, we need to calculate 25% of the capacity arg, then
@@ -333,10 +347,10 @@ StackAllocatorErrResult alloc_create_stack_allocator( const size_t capacity) {
         .offset = sizeof(BlockHeader)
     };
     // the very first allocation is for the StackAllocator struct itself
-    StackAllocator *new_stack_allocator = _arena_alloc(&payload_allocator_header, sizeof(StackAllocator), nullptr);
+    StackAllocator *new_stack_allocator = _arena_bump_alloc(&payload_allocator_header, sizeof(StackAllocator), nullptr, _Alignof(StackAllocator));
 
     // the next allocation is for this block's allocator header
-    AllocatorHeader *new_payload_allocator_header = _arena_alloc(&payload_allocator_header, sizeof(AllocatorHeader), nullptr);
+    AllocatorHeader *new_payload_allocator_header = _arena_bump_alloc(&payload_allocator_header, sizeof(AllocatorHeader), nullptr, _Alignof(AllocatorHeader));
     *new_payload_allocator_header = payload_allocator_header;
 
     new_stack_allocator->payload_data = new_payload_allocator_header;
@@ -359,7 +373,7 @@ StackAllocatorErrResult alloc_create_stack_allocator( const size_t capacity) {
         .offset = sizeof(BlockHeader)
     };
     // the very first allocation is for the AllocatorHeader struct itself
-    AllocatorHeader *new_metadata_allocator_header = _arena_alloc(&metadata_allocator_header, sizeof(AllocatorHeader), nullptr);
+    AllocatorHeader *new_metadata_allocator_header = _arena_bump_alloc(&metadata_allocator_header, sizeof(AllocatorHeader), nullptr, _Alignof(AllocatorHeader));
     *new_metadata_allocator_header = metadata_allocator_header;
 
     new_stack_allocator->meta_data = new_metadata_allocator_header;
@@ -370,11 +384,10 @@ StackAllocatorErrResult alloc_create_stack_allocator( const size_t capacity) {
 
 void * stack_allocator_alloc(StackAllocator * stack_alloc, const size_t size, [[nullable]] ArenaErrResult * aer) {
     // we allocate the payload data first, then we allocate the memory for the payload pointer.
-    void* payload_mem = _arena_alloc(stack_alloc->payload_data, size, aer);
+    void* payload_mem = _arena_bump_alloc(stack_alloc->payload_data, size, aer, DEFAULT_ALIGNMENT);
     // todo error checking
     // use 8-byte alignment for the pointer allocation
-    const size_t aligned_requested_size = ( sizeof(void*) + POINTER_ALIGNMENT_MASK ) & ~POINTER_ALIGNMENT_MASK;
-    void ** pointer_mem = pvt_arena_alloc_impl(stack_alloc->meta_data, sizeof(void*), aer, aligned_requested_size);
+    void ** pointer_mem = pvt_arena_alloc_impl(stack_alloc->meta_data, sizeof(void*), aer, POINTER_ALIGNMENT);
     // todo error checking
     *pointer_mem = payload_mem;
     return payload_mem;
