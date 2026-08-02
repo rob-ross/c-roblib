@@ -58,22 +58,15 @@ extern "C" {
 typedef struct allocator_header_s Arena;
 
 typedef struct arena_err_result_s {
-    ERROR_BASE;
+    ERR_FIELDS_UNION;
     Arena * result;
 } ArenaErrResult;
 
 typedef struct stack_allocator_s StackAllocator;
 typedef struct stack_allocator_err_result_s {
-    ERROR_BASE;
+    ERR_FIELDS_UNION;
     StackAllocator * result;
 } StackAllocatorErrResult;
-
-
-typedef struct stack_allocator_err_result2_s {
-    Error2 error;
-    StackAllocator * result;
-} StackAllocatorErrResult2;
-
 
 
 constexpr size_t MAX_ALIGNMENT     = _Alignof(max_align_t);

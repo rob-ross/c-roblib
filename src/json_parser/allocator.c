@@ -63,7 +63,7 @@ constexpr size_t POINTER_ALIGNMENT_MASK     = POINTER_ALIGNMENT - 1;
 constexpr int MACH_NO_FLAGS = -1;
 
 typedef struct block_header_err_result_s {
-    ERROR_BASE;
+    ERR_FIELDS_UNION;
     BlockHeader * result;
 } BlockHeaderErrResult;
 
@@ -87,17 +87,15 @@ static size_t pvt_arena_get_pagesize() {
 #endif
 }
 
-//// ------------------------------------------------------------
-////
-////    ARENA ALLOCATOR
-////
-//// ------------------------------------------------------------
 
 // Helper function to request a new raw block from macOS via mmap
 static BlockHeaderErrResult arena_new_os_block( const size_t block_size ) {
     static size_t os_page_size = 0;
 
     if (os_page_size == 0) { // Cache the page size on the first call
+        //todo this value could be loaded once in an arena_init() global method and we wouldn't have to check
+        // every time this function is called. Then again, this method is called infrequently compared to
+        // allocation methods so it may be fine here.
         os_page_size = pvt_arena_get_pagesize();
     }
 
@@ -167,6 +165,13 @@ static size_t arena_align_offset(const size_t offset, const size_t alignment) {
     return ( offset + alignment - 1 ) & ~ ( alignment - 1 ) ;
 }
 
+//// ------------------------------------------------------------
+////
+////    MONOTONIC (BUMP)  ALLOCATOR
+////
+//// ------------------------------------------------------------
+
+
 // todo (rob) not tested.
 static void arena_zero(Arena const * arena) {
     BlockHeader * current = arena->head_block;
@@ -182,7 +187,7 @@ static void arena_zero(Arena const * arena) {
 }
 
 // precondition: the align_size size is a power of two
-void * pvt_arena_alloc_impl(
+static void * pvt_arena_bump_alloc_impl(
                             Arena * arena,
                             const size_t size,
                             [[nullable]] ArenaErrResult * aer,
@@ -217,16 +222,13 @@ void * pvt_arena_alloc_impl(
             }
             const size_t needed_capacity = target_block_size;
             BlockHeaderErrResult bher = arena_new_os_block(needed_capacity);  // this page-aligns our request for us
-            // ReSharper disable once CppDFAUnreachableCode
             if ( bher.err ) {
-                // ReSharper disable once CppDFAUnreachableCode
                 if (aer) {
-                    aer->error = bher.error;
+                    aer->err_fields = bher.err_fields;
                     aer->result = nullptr;
                 }
                 return nullptr;
             }
-            // ReSharper disable once CppDFAUnreachableCode
             BlockHeader * new_block = bher.result;
             current_header->next_block = new_block;
 
@@ -251,7 +253,7 @@ void * pvt_arena_alloc_impl(
 // must verify that the alignment size is a power of two. use platform_specific.round_up_to_power_of_two.
 // Returns pointer to allocated chunk in the arena, or nullptr if arena is out of memory.
 void * _arena_bump_alloc(Arena * arena, const size_t size, [[nullable]] ArenaErrResult * aer, size_t align_size) {
-    return pvt_arena_alloc_impl(arena, size, aer, align_size);
+    return pvt_arena_bump_alloc_impl(arena, size, aer, align_size);
 }
 
 // todo (rob) optional parameter to specify the default alignment
@@ -263,11 +265,9 @@ ArenaErrResult arena_bump_create( const size_t arena_capacity) {
     BlockHeaderErrResult bher = arena_new_os_block(needed_capacity);
 
     if ( bher.err ) {
-        // ReSharper disable once CppDFAUnreachableCode
-        return (ArenaErrResult){ .error = bher.error };
+        return (ArenaErrResult){ .err_fields = bher.err_fields };
     }
 
-    // ReSharper disable once CppDFAUnreachableCode
     BlockHeader * new_block_header = bher.result;
 
     Arena arena_prototype = {};
@@ -282,7 +282,7 @@ ArenaErrResult arena_bump_create( const size_t arena_capacity) {
     *new_arena = arena_prototype;
 
     return (ArenaErrResult){
-        .error = { .err = false },
+        .err_fields = { .err = false },
         .result =  new_arena,
         };
 }
@@ -334,11 +334,9 @@ StackAllocatorErrResult arena_stack_create( const size_t capacity) {
     const size_t needed_payload_capacity = capacity + sizeof(BlockHeader) + sizeof(StackAllocator) + sizeof(AllocatorHeader);
     BlockHeaderErrResult bher = arena_new_os_block(needed_payload_capacity);
     if ( bher.err ) {
-        // ReSharper disable once CppDFAUnreachableCode
-        return (StackAllocatorErrResult){ .error = bher.error };
+        return (StackAllocatorErrResult){ .err_fields = bher.err_fields };
     }
 
-    // ReSharper disable once CppDFAUnreachableCode
     BlockHeader * new_block_header = bher.result;
     AllocatorHeader payload_allocator_header = {
         .default_block_size = new_block_header->block_size,
@@ -358,11 +356,9 @@ StackAllocatorErrResult arena_stack_create( const size_t capacity) {
     // now we create the second block for the allocation pointers
     size_t needed_metadata_capacity = (size_t)( new_block_header->block_size * 0.25L ) + sizeof(BlockHeader) + sizeof(AllocatorHeader);
     bher = arena_new_os_block(needed_metadata_capacity);
-    // ReSharper disable once CppDFAUnreachableCode
     if ( bher.err ) {
-        // ReSharper disable once CppDFAUnreachableCode
         // todo (rob) deallocate the payload block
-        return (StackAllocatorErrResult){ .error = bher.error };
+        return (StackAllocatorErrResult){ .err_fields = bher.err_fields };
     }
 
     new_block_header = bher.result;
@@ -387,7 +383,7 @@ void * stack_allocator_alloc(StackAllocator * stack_alloc, const size_t size, [[
     void* payload_mem = _arena_bump_alloc(stack_alloc->payload_data, size, aer, DEFAULT_ALIGNMENT);
     // todo error checking
     // use 8-byte alignment for the pointer allocation
-    void ** pointer_mem = pvt_arena_alloc_impl(stack_alloc->meta_data, sizeof(void*), aer, POINTER_ALIGNMENT);
+    void ** pointer_mem = pvt_arena_bump_alloc_impl(stack_alloc->meta_data, sizeof(void*), aer, POINTER_ALIGNMENT);
     // todo error checking
     *pointer_mem = payload_mem;
     return payload_mem;
