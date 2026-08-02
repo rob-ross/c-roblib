@@ -33,7 +33,7 @@ extern "C" {
  * } else { // do happy path }
  *
  *
- * `err_obj` will be nullptr for most cases. But if an underlying function returns a more detailed error reporting object
+ * `err_obj` will be nullptr for most cases. But if an underlying function returns a more detailed error-reporting object
  * like an err struct, this pointer will hold that object.
  *
  * Let's see how well this works in practice!!!
@@ -42,31 +42,71 @@ extern "C" {
 
 // other functions can create err structures as needed to wrap other data types or structures they return.
 
+// #define ERROR_FIELDS  \
+// struct {               \
+//     bool err;          \
+//     int reported_err;  \
+//     char msg[1024];    \
+//     void* err_obj;     \
+// }
 
 
-#define ERROR_FIELDS \
+typedef struct ErrorFields {
+    bool err;
+    int reported_err;
+    char msg[1024];
+    void* err_obj;
+} ErrorFields;
+
+#define ERR_FIELDS_UNION         \
+    union {                      \
+        struct {                 \
+            bool err;            \
+            void* err_obj;       \
+            int reported_err;    \
+            char msg[1024];      \
+        };                       \
+        ErrorFields err_fields;  \
+    }
+
+typedef struct error_s {
+    ERR_FIELDS_UNION;
+} Error;
+
+
+
+void err_print(Error err);
+
+
+
+
+
+// -----------------------------------------------------------------
+//      ORIGINAL MACROS, DON'T DELETE
+// -----------------------------------------------------------------
+/*
+#define ERROR_FIELDS_OLD \
     bool err; \
     int reported_err; \
     char msg[1024]; \
     void* err_obj;
 
-typedef struct error_fields_s {
-    ERROR_FIELDS
-} ErrorFields;
+typedef struct error_fields_s_OLD {
+    ERROR_FIELDS_OLD
+} ErrorFields_OLD;
 
-#define ERROR_BASE \
+#define ERROR_BASE_OLD \
     union { \
-        ErrorFields error; \
-        struct {ERROR_FIELDS}; \
+        ErrorFields_OLD error; \
+        struct {ERROR_FIELDS_OLD}; \
 }
 
-typedef ERROR_BASE Error ;
+typedef ERROR_BASE_OLD Error_OLD ;
+*/
 
-#endif //ROBLIB__ERROR_RESULT_H
-
-
-void err_print(Error err);
 
 #ifdef __cplusplus
 }
 #endif
+
+#endif //ROBLIB__ERROR_RESULT_H
