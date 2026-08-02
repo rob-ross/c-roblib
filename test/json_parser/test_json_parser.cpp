@@ -12,17 +12,19 @@ void JsonParserEnvironment::SetUp() {
     jsonp_init();
     // Using {} (List Initialization) to ensure the C struct is completely
     // zero-initialized before passing it to the C API.
-    ArenaErrResult aer = arena_create_arena( 1024 * 1024);
+    ArenaErrResult aer = arena_bump_create( 1024 * 1024);
     if (aer.err ) {
         fprintf(stderr, "Could not allocate Arena");
-        err_print(static_cast<Error>(aer.error));
+        // ugly cast but C++ doesn't play well with my Error framework
+        Error *e = static_cast<Error *>(static_cast<void *>(&aer));
+        err_print(*e);
     }
     arena =  aer.result;
 }
 
 
 void JsonParserEnvironment::TearDown() {
-    arena_destroy_arena(arena);
+    arena_bump_destroy(arena);
     jsonp_destroy();
 }
 
@@ -31,7 +33,7 @@ void JsonParserTest::SetUp() {
     // (especially the enum and buffers) start at zero.
     err = new JsonParseError{};
     // todo (rob) for future optimization - we should reset the Arena here so it starts from the beginning
-    arena_reset(arena, false);
+    arena_bump_reset(arena, false);
     // for each test. Thus the memory allocated for the Arena will attain a "high water mark",
     // but won't grow without bound.
 }
