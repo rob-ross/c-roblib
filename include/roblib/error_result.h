@@ -40,7 +40,7 @@ extern "C" {
 
 */
 
-// other functions can create err structures as needed to wrap other data types or structures they return.
+// other functions can create ErrorResult structures as needed to wrap other data types or structures they return.
 
 // #define ERROR_FIELDS  \
 // struct {               \
@@ -73,6 +73,12 @@ typedef struct error_s {
     ERR_FIELDS_UNION;
 } Error;
 
+// This is like a base class for derived classes, where the `result` member is specifically typed to whatever the
+// function returns in the happy path. It's here to allow casting to a common struct type, in case its useful.
+typedef struct error_result_s {
+    ERR_FIELDS_UNION;
+    void * result;
+} ErrorResult;
 
 
 void err_print(Error err);
