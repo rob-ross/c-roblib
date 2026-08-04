@@ -3278,7 +3278,7 @@ void parse_json_stream(char const *filename) {
 
         printf("\nParsing json file as stream: '%s': \n", filename);
         jval = jsonp_parse_stream(fptr, &err, arena);
-    };
+    }
 
     // FILE *fp = fopen(filename, "rb");
     // int saved_errno = errno;
