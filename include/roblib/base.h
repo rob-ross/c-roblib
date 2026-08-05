@@ -247,24 +247,6 @@ extern "C" {
         putchar('\n');                  \
     } while (0)
 
-/**
- * @brief Generates a unique variable name token for use within a macro.
- *
- * It creates an identifier by concatenating a prefix, a user-provided base name,
- * and the current line number. This is a common and portable technique to avoid
- * name collisions for temporary variables inside macros.
- *
- * Example: `UNIQUE_VAR(my_temp)` on line 50 would expand to `pvt_my_temp_50`.
- *
- * @param base_name The root name for the variable.
- */
-#define UNIQUE_VAR(base_name) CAT(CAT(pvt_, base_name), __LINE__)
-
-#define SWAP(a, b) STATEMENT(                               \
-    auto UNIQUE_VAR(swap_temp) = (a);                       \
-    (a) = (b);                                              \
-    (b) = UNIQUE_VAR(swap_temp);                            \
-)
 
 
 /*
@@ -302,13 +284,14 @@ extern "C" {
     When the block following USING_FILE() exits, the file has been closed.
  */
 
+// Can't use `break` nor `continue` in the block
 #define USING_FILE( FP, name, mode)    \
     for ( int UNIQUE_VAR(once) = 1; UNIQUE_VAR(once); )      \
         for( FILE* FP = fopen( name, mode) ; UNIQUE_VAR(once) ; fclose(FP), FP = nullptr, UNIQUE_VAR(once)--)   \
 
 
 
-
+// Can't use `break` nor `continue` in the block
 #define USING_VA_LIST(args, last) \
     for ( int UNIQUE_VAR(once) = 1 ; UNIQUE_VAR(once) ; )            \
         for( va_list args; UNIQUE_VAR(once) ; )            \

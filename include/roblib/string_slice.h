@@ -1,4 +1,4 @@
-//  string_view.h
+//  string_slice.h
 //
 //  Created by Rob Ross on 8/1/26.
 //
@@ -17,14 +17,18 @@
 extern "C" {
 #endif
 
-
+// Helper that creates local function call scope buffer for `slice_as_cstring` to write into
+#define SLICE_BUF(S, BUFSZ) slice_as_cstring( (S), BUFSZ - 1, (char [BUFSZ]){ } )
+// Helper for formatting a StringSlice when printing
+#define SV_FMT "%.*s"
+// Helper for specifying length and char array of StringSlice for printing
+#define SV_FIELDS(S) (int)(S).length, (S).data
 
 typedef struct string_slice_s {
     char const * data;
     size_t length;
 
 } StringSlice;
-
 
 typedef struct string_slice_3_tuple_s {
     StringSlice _1;
@@ -43,22 +47,21 @@ StringSlice         slice_from_cstring( char const * cstring );
 // Writes at most max_chars of the StringSlice `s` into `buf`, plus the null terminator.
 // buf must be large enough to accommodate max_chars + null terminator.
 // Returns the argument `buf`
-char *              slice_as_cstring(StringSlice s, size_t max_chars, char buf[static max_chars + 1 ]);
+char *              slice_as_cstring(StringSlice s, size_t max_chars, char * buf);
 
-bool                slice_starts_with( StringSlice s, StringSlice prefix);
-bool                slice_starts_with_by_case( StringSlice s,  StringSlice prefix, bool case_sensitive);
-bool                slice_ends_with( StringSlice s, StringSlice suffix);
-bool                slice_ends_with_by_case( StringSlice s,  StringSlice suffix, bool case_sensitive);
+StringSlice         slice_empty_slice();
+bool                slice_equal(StringSlice s1, StringSlice s2);
+bool                slice_equal_by_case(StringSlice s1, StringSlice s2, bool case_sensitive);
 
+
+// gets the chars up to the nth byte
 StringSlice         slice_take(StringSlice s, size_t n);
 // get the chars after the nth byte
 StringSlice         slice_drop(StringSlice s, size_t n);
 // todo (rob) should we support a Python-like Range argument here? Allow `step`? Negative indices?
 StringSlice         slice_substring(StringSlice s, size_t start, size_t end);
 
-StringSlice         slice_empty_slice();
-bool                slice_equal(StringSlice s1, StringSlice s2);
-bool                slice_equal_by_case(StringSlice s1, StringSlice s2, bool case_sensitive);
+
 // Return the lowest index in the slice where substring sub is found within the slice s[start:end].
 //  (Optional arguments start and end are interpreted as in slice notation.)
 //  Returns -1 if sub is not found.
@@ -84,11 +87,25 @@ StringSlice3Tuple   slice_partition(StringSlice s,StringSlice sep);
 // the string in half by the first delimiter and returns to you the first string, and modifies
 // the argument slice to represent the remainder of the string after the first split.
 
-StringSliceArray    slice_split(StringSlice s, char const* delimiter);
+
+StringSliceArray slice_split(StringSlice s, StringSlice delimiter);
+StringSliceArray slice_split_by_str(StringSlice s, char const * delimiter);
+
+size_t slice_split_to_out_buffer(
+            StringSlice s,
+            StringSlice delimiter,
+            size_t out_count,
+            StringSlice *out,
+            size_t *consumed) ;
+
 
 StringSlice slice_chop_by_delimiter(StringSlice *s, StringSlice delimiter);
 StringSlice slice_chop_by_delimiter_str(StringSlice *s, char const * delimiter);
 
+bool                slice_starts_with( StringSlice s, StringSlice prefix);
+bool                slice_starts_with_by_case( StringSlice s,  StringSlice prefix, bool case_sensitive);
+bool                slice_ends_with( StringSlice s, StringSlice suffix);
+bool                slice_ends_with_by_case( StringSlice s,  StringSlice suffix, bool case_sensitive);
 
 StringSlice         slice_trim(StringSlice s);
 StringSlice         slice_trim_left(StringSlice s);
@@ -111,7 +128,7 @@ size_t              slice_print(StringSlice s);
 // Assumes buf is large enough to accommodate n chars plus the null terminator. I.e., bufsz == n + 1.
 //
 // Returns the number of characters written to `buf`, not counting the null terminator
-size_t              slice_snprint(StringSlice s, size_t n, char buf[static n + 1]);
+size_t              slice_snprint(StringSlice s, size_t n, char * buf);
 
 
 

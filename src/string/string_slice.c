@@ -6,7 +6,7 @@
 
 //
 
-#include "string_view.h"
+#include "../../include/roblib/string_slice.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -44,17 +44,22 @@ bool slice_ends_with_by_case(const StringSlice s, const StringSlice suffix, bool
     return true;
 }
 
+// todo (rob) FUTURE SIMD here?
 bool slice_equal(StringSlice s1, StringSlice s2) {
     if ( s1.length != s2.length ) return false;
+    if (s1.data == s2.data) return true; // same count, and data identity
     for (size_t i = 0; i < s1.length; ++i) {
         if (s1.data[i] != s2.data[i] ) return false;
     }
     return true;
 }
 
+// todo (rob) FUTURE SIMD here?
 bool slice_equal_by_case(StringSlice s1, StringSlice s2, bool case_sensitive) {
     if ( case_sensitive ) return slice_equal(s1, s2);
-        if ( s1.length != s2.length ) return false;
+    if ( s1.length != s2.length ) return false;
+    if (s1.data == s2.data) return true; // same count, and data identity
+
     for (size_t i = 0; i < s1.length; ++i) {
         if ( toupper(s1.data[i]) != toupper(s2.data[i]) ) return false;
     }
@@ -62,6 +67,7 @@ bool slice_equal_by_case(StringSlice s1, StringSlice s2, bool case_sensitive) {
 }
 
 StringSlice slice_from_cstring( char const * cstring ) {
+    if (!cstring) return EMPTY_STRING_SLICE;
     StringSlice result =  (StringSlice){ .data = cstring, .length = strlen(cstring) };
     return result;
 }
@@ -146,6 +152,61 @@ size_t slice_snprint(StringSlice s, size_t n, char buf[static n + 1]) {
     return n;
 }
 
+StringSliceArray slice_split(StringSlice s, StringSlice delimiter);
+
+StringSliceArray slice_split_by_str(StringSlice s, char const * delimiter);
+
+size_t slice_split_to_out_buffer(
+            StringSlice s,
+            StringSlice delimiter,
+            size_t out_count,
+            StringSlice *out,
+            size_t *consumed) {
+
+    if (s.length == 0 || out_count == 0 || delimiter.length == 0 ) {
+        if (out) {
+            out->length = s.length;
+            out->data   = s.data;
+        }
+        return 0;
+    }
+
+    size_t result = 1;
+
+    out->length = s.length;
+    out->data   = s.data;
+
+    while (s.length > 0 && out_count > 0 ) {
+        if (slice_starts_with(s, delimiter)) {
+            out_count -= 1;
+            if (out_count > 0 ) {
+                s.data += delimiter.length;
+                s.length -= delimiter.length;
+
+                out += 1;
+                out->data = s.data;
+                out->length = 0;
+
+                result +=1;
+            }
+
+            if (consumed) {
+                *consumed += delimiter.length;
+            }
+        } else {
+            s.data   += 1;
+            s.length -= 1;
+            out->length += 1;
+
+            if (consumed) {
+                *consumed +=1;
+            }
+        }
+    }
+
+    return result;
+}
+
 // Returns the first substring of s that is followed by the delimiter.
 // `s` is modified to contain the remainder of the string following the first delimiter, not including the
 // delimiter string.
@@ -203,7 +264,7 @@ StringSlice slice_substring(StringSlice s, size_t start, size_t end) {
     if (start > s.length) return EMPTY_STRING_SLICE;
     if ( end > s.length ) end = s.length;
     if (start >= end) return EMPTY_STRING_SLICE;
-    StringSlice result = (StringSlice){ .data = s.data + start, .length =  end - start + 1 };
+    StringSlice result = (StringSlice){ .data = s.data + start, .length =  end - start };
     return result;
 }
 // get first n bytes of the slice
@@ -291,16 +352,6 @@ void test_split(void) {
     }
 }
 
-void test_ends_with(void) {
-    StringSlice s = slice_from_cstring("This ends with foo");
-    printf("slice ");
-    slice_print(s);
-    putchar('\n');
-    printf(" ends with 'foo': %d\n", slice_ends_with(s, slice_from_cstring("foo")));
-    printf(" ends with 'bar': %d\n", slice_ends_with(s, slice_from_cstring("bar")));
-
-}
-
 void test_trim_left(void) {
     StringSlice s = slice_from_cstring("     5 Leading spaces. 5 Trailing too!     ");
     StringSlice trimmed  = slice_trim_left(s);
@@ -359,7 +410,7 @@ void test_slice_partition(void) {
 }
 #define SLICE_BUF(S, BUFSZ) slice_as_cstring( (S), BUFSZ - 1, (char [BUFSZ]){ } )
 #define SV_FMT "%.*s"
-#define SV_FIELDS(S) (S).length, (S).data
+#define SV_FIELDS(S) (int)(S).length, (S).data
 
 void test_substring(void) {
     StringSlice s = slice_from_cstring("This is a string Joey.");
@@ -373,15 +424,14 @@ void test_substring(void) {
     // note: the SV_FIELDS macro doesn't require a buffer or a copy, so it seems to be the best method of printing.
 
 }
+// #define STRING_SLICE_MAIN
+#ifdef STRING_SLICE_MAIN
 int main(int argc, char *argv[]) {
-#if (1)
+#if (0)
     test_equal();
     test_take_drop();
     test_trim();
     test_split();
-
-
-    test_ends_with();
     test_trim_left();
     test_trim_right();
     test_index_of();
@@ -390,8 +440,8 @@ int main(int argc, char *argv[]) {
     test_substring();
 #endif
 
+    printf("sizeof(long double) = %zu\n", sizeof(long double));
 
 
 }
-
-
+#endif
