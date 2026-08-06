@@ -66,6 +66,13 @@ constexpr s64 S64_MAX = (s64)0x7FFFFFFFFFFFFFFFllu;
 constexpr u64 U64_MIN = (u64)0x0000000000000000llu;
 constexpr u64 U64_MAX = (u64)0xFFFFFFFFFFFFFFFFllu;
 
+
+// -----------------------------------------------------------------
+//      Float Limits.
+//
+//     see: https://en.wikipedia.org/wiki/Floating-point_arithmetic
+// -----------------------------------------------------------------
+
 // 32 bit float
 constexpr f32 F32_MIN_POS_SUBNORMAL = 1.401'298'464'3e-45f;
 constexpr f32 F32_MAX_SUBNORMAL     = 1.175'494'210'7e-38f;
@@ -86,12 +93,18 @@ constexpr f80 F80_MAX_NORMAL        = 1.189'731'495'357'231'765'021'26e4932L;
 
 #if (1)
 // 128-bit float - for future use
-constexpr f128 F128_MIN_POS_SUBNORMAL = 6.475'175'119'438'025'110'924'438'958'227'646'552'5e-4951L;
+
+// note F128_MIN_POS_SUBNORMAL: the commented-out limit is the true limit for long double. But this number is too small
+// for the long double implementation on my machine, which only uses 80 bits.
 // constexpr f128 F128_MIN_POS_SUBNORMAL_ = 6.475'175'119'438'025'110'924'438'958'227'646'552'5e-4966L;
+constexpr f128 F128_MIN_POS_SUBNORMAL = 6.475'175'119'438'025'110'924'438'958'227'646'552'5e-4951L;
 constexpr f128 F128_MAX_SUBNORMAL     = 3.362'103'143'112'093'506'262'677'817'321'751'955'1e-4932L;
 constexpr f128 F128_MIN_POS_NORMAL    = 3.362'103'143'112'093'506'262'677'817'321'752'602'6e-4932L;
-constexpr f128 F128_MAX_NORMAL        = 1.189'731'495'357'231'765'021'26e4932L;
-// constexpr f128 F128_MAX_NORMAL_        = 1.189'731'495'357'231'765'085'759'326'628'007'016'2e4932L;
+
+// note f128 F128_MAX_NORMAL: the commented-out limit is the true limit for long double. But this number is too large
+// for the long double implementation on my machine, which only uses 80 bits.
+// constexpr f128 F128_MAX_NORMAL_ = 1.189'731'495'357'231'765'085'759'326'628'007'016'2e4932L;
+constexpr f128 F128_MAX_NORMAL        = F80_MAX_NORMAL;
 #endif
 
 
