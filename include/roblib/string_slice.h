@@ -12,6 +12,19 @@
 #include <stddef.h>
 #include <stdio.h>
 
+/**
+*  Notes
+*  The "Coordinate" Model (Substrings and Slices)
+*  When dealing with sequences (substrings, ranges, or slices), it is often more helpful to think of indices
+*  as the boundaries or the "gutters" between characters. This is the model used by almost all text editors
+*  (the cursor position) and slice-based languages like Python, Swift, or even C++ std::string_view.
+*       Indices:  0   1   2   3   4   5
+*                 | H | e | l | l | o |
+    • The character 'H' occupies the space between index 0 and index 1.
+    • The substring "Hell" occupies the space between index 0 and index 4.
+    • The empty string "" occupies the space between index 0 and index 0.
+ *
+ */
 
 #ifdef __cplusplus
 extern "C" {
@@ -47,13 +60,29 @@ StringSlice         slice_from_cstring( char const * cstring );
 // Writes at most max_chars of the StringSlice `s` into `buf`, plus the null terminator.
 // buf must be large enough to accommodate max_chars + null terminator.
 // Returns the argument `buf`
+// Consider using this method only as a last resort, or when you must call a library function that requires a C string.
 char *              slice_as_cstring(StringSlice s, size_t max_chars, char * buf);
+
+// Return a negative number if s1 < s2, 0 if s1 == s2, and a positive number if s1 > 2
+// only works for ASCII characters
+int                 slice_compare(StringSlice s1, StringSlice s2);
+
+// todo (rob) need to think about this. I don't think comparing by case is useful.... research this
+// context is important. compare is supposed to be consistent with equal and hashcode.
+// Useful case that might influence this design: sorting a list of strings where "banana" and "Banana" appear
+// next to each other in the list, with "banana" before it. Otherwise, standard sorting using compare
+// will put "Banana" at the top of the list with all the other strings that start with a capital letter, and
+// thus quite far from the lowercase "banana." I think a 2-level sort is needed, one using case-insensitive
+// sorting for a gross sort of the list, then a fine-grained sort using case-sensitive sorting.
+// int                 slice_compare_by_case(StringSlice s1, StringSlice s2, bool case_sensitive);
 
 StringSlice         slice_empty_slice();
 bool                slice_equal(StringSlice s1, StringSlice s2);
 bool                slice_equal_by_case(StringSlice s1, StringSlice s2, bool case_sensitive);
 
 
+// todo (rob) note, take and drop are just special cases of slice_substring(). Perhaps we could use macros to
+// allow default values.
 // gets the chars up to the nth byte
 StringSlice         slice_take(StringSlice s, size_t n);
 // get the chars after the nth byte
