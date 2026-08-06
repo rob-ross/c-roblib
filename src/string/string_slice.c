@@ -18,6 +18,31 @@ char * slice_as_cstring(StringSlice s, size_t max_chars, char buf[static max_cha
     return buf;
 }
 
+int slice_compare(StringSlice s1, StringSlice s2) {
+    if ( s1.length < s2.length ) return -1;
+    if ( s1.length > s2.length)  return  1;
+    for (size_t i = 0; i < s1.length; ++i) {
+        int diff = (unsigned char)s1.data[i] - (unsigned char)s2.data[i];
+        if ( diff == 0 ) continue;
+        return diff;
+    }
+    return 0;
+}
+
+#if (0)
+int slice_compare_by_case(StringSlice s1, StringSlice s2, bool case_sensitive) {
+    if (case_sensitive) return slice_compare(s1, s2);
+    if ( s1.length < s2.length ) return -1;
+    if ( s1.length > s2.length)  return  1;
+    for (size_t i = 0; i < s1.length; ++i) {
+        int diff = toupper((unsigned char)s1.data[i]) - toupper((unsigned char)s2.data[i]);
+        if ( diff == 0 ) continue;
+        return diff;
+    }
+    return 0;
+}
+#endif
+
 StringSlice slice_drop(StringSlice s, size_t n) {
     if ( n > s.length) n = s.length;
     StringSlice result =  (StringSlice){ .data = s.data + n, .length = s.length - n };
@@ -38,6 +63,9 @@ bool slice_ends_with(const StringSlice s, const StringSlice suffix) {
 
 bool slice_ends_with_by_case(const StringSlice s, const StringSlice suffix, bool case_sensitive) {
     if (case_sensitive) return slice_ends_with(s, suffix);
+
+    if ( suffix.length > s.length ) return false;
+
     for (size_t i = 0 ; i < suffix.length; i++ ) {
         if ( toupper(s.data[s.length - i]) != toupper(suffix.data[suffix.length - i]) ) return false;
     }
@@ -79,8 +107,10 @@ size_t slice_fprint(StringSlice s, FILE* stream ) {
 
 ssize_t slice_index_of(const StringSlice s, const StringSlice subs) {
     if (subs.length > s.length) return -1;
+    if (subs.length == 0) return 0;  // every string starts with the empty string
+
     size_t subs_len = subs.length;
-    for (size_t i = 0; i < s.length - subs_len; ++i) {
+    for (size_t i = 0; i < s.length - subs_len + 1 ; ++i) {
         if (slice_starts_with(slice_drop(s, i), subs)) {
             return i;
         }
@@ -90,8 +120,12 @@ ssize_t slice_index_of(const StringSlice s, const StringSlice subs) {
 
 ssize_t slice_index_of_by_case(const StringSlice s, const StringSlice subs, bool case_sensitive ) {
     if (case_sensitive) return slice_index_of(s, subs);
+
+    if (subs.length > s.length) return -1;
+    if (subs.length == 0) return 0;  // every string starts with the empty string
+
     size_t subs_len = subs.length;
-    for (size_t i = 0; i < s.length - subs_len; ++i) {
+    for (size_t i = 0; i < s.length - subs_len + 1; ++i) {
         if (slice_starts_with_by_case(slice_drop(s, i), subs, false)) {
             return i;
         }
@@ -102,8 +136,10 @@ ssize_t slice_index_of_by_case(const StringSlice s, const StringSlice subs, bool
 
 ssize_t slice_rindex_of(const StringSlice s, const StringSlice subs) {
     if (subs.length > s.length) return -1;
+    if (subs.length == 0) return s.length;  // every string ends with the empty string
+
     size_t subs_len = subs.length;
-    for (size_t i = s.length - subs_len;  i--> 0; ) {
+    for (size_t i = s.length - subs_len + 1;  i--> 0; ) {
         if (slice_starts_with(slice_drop(s, i), subs)) {
             return i;
         }
@@ -113,8 +149,12 @@ ssize_t slice_rindex_of(const StringSlice s, const StringSlice subs) {
 
 ssize_t slice_rindex_of_by_case(const StringSlice s, const StringSlice subs, bool case_sensitive) {
     if (case_sensitive) return slice_rindex_of(s, subs);
+
+    if (subs.length > s.length) return -1;
+    if (subs.length == 0) return s.length;  // every string ends with the empty string
+
     size_t subs_len = subs.length;
-    for (size_t i = s.length - subs_len;  i--> 0; ) {
+    for (size_t i = s.length - subs_len + 1;  i--> 0; ) {
         if (slice_starts_with_by_case(slice_drop(s, i), subs, false)) {
             return i;
         }
@@ -368,16 +408,6 @@ void test_trim_right(void) {
     printf("]\n");
 }
 
-void test_index_of(void) {
-    StringSlice s = slice_from_cstring("The quick brown fox jumped over the lazy derg.");
-    StringSlice subs = slice_from_cstring("brown");  // index 10
-    ssize_t index = slice_index_of(s, subs);
-    printf("index of subs = %zd\n", index);
-
-    ssize_t index2 = slice_index_of(s, slice_from_cstring("yellow")); // not present
-    printf("index of subs = %zd\n", index2);
-
-}
 
 void test_rindex_of(void) {
     StringSlice s = slice_from_cstring("The brown quick fox jumped over the lazy brown derg.");
@@ -412,7 +442,7 @@ void test_slice_partition(void) {
 #define SV_FMT "%.*s"
 #define SV_FIELDS(S) (int)(S).length, (S).data
 
-void test_substring(void) {
+void terst_substring(void) {
     StringSlice s = slice_from_cstring("This is a string Joey.");
     StringSlice substr = slice_substring(s, 10, 15); // "string"
     printf("substring(10,15) is '"); slice_print(substr); printf("'\n");
@@ -434,10 +464,9 @@ int main(int argc, char *argv[]) {
     test_split();
     test_trim_left();
     test_trim_right();
-    test_index_of();
     test_rindex_of();
     test_slice_partition();
-    test_substring();
+    terst_substring();
 #endif
 
     printf("sizeof(long double) = %zu\n", sizeof(long double));
