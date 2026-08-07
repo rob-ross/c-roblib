@@ -57,7 +57,7 @@ typedef struct string_slice_array_s {
 const StringSlice EMPTY_STRING_SLICE = { .data = "", .length = 0};
 
 StringSlice         slice_from_cstring( char const * cstring );
-// Writes at most max_chars of the StringSlice `s` into `buf`, plus the null terminator.
+// Writes at most `max_chars` of the StringSlice `s` into `buf`, plus the null terminator.
 // buf must be large enough to accommodate max_chars + null terminator.
 // Returns the argument `buf`
 // Consider using this method only as a last resort, or when you must call a library function that requires a C string.
@@ -74,11 +74,11 @@ int                 slice_compare(StringSlice s1, StringSlice s2);
 // will put "Banana" at the top of the list with all the other strings that start with a capital letter, and
 // thus quite far from the lowercase "banana." I think a 2-level sort is needed, one using case-insensitive
 // sorting for a gross sort of the list, then a fine-grained sort using case-sensitive sorting.
-// int                 slice_compare_by_case(StringSlice s1, StringSlice s2, bool case_sensitive);
+int                 slice_compare_by_case(StringSlice s1, StringSlice s2, bool ignore_case);
 
 StringSlice         slice_empty_slice();
 bool                slice_equal(StringSlice s1, StringSlice s2);
-bool                slice_equal_by_case(StringSlice s1, StringSlice s2, bool case_sensitive);
+bool                slice_equal_by_case(StringSlice s1, StringSlice s2, bool ignore_case);
 
 
 // todo (rob) note, take and drop are just special cases of slice_substring(). Perhaps we could use macros to
@@ -95,18 +95,19 @@ StringSlice         slice_substring(StringSlice s, size_t start, size_t end);
 //  (Optional arguments start and end are interpreted as in slice notation.)
 //  Returns -1 if sub is not found.
 ssize_t             slice_index_of( StringSlice s, StringSlice subs);
-ssize_t             slice_index_of_by_case( StringSlice s, StringSlice subs, bool case_sensitive );
+ssize_t             slice_index_of_by_case( StringSlice s, StringSlice subs, bool ignore_case );
 // Returns the highest index in the string where substring `subs` is found, such that `subs` is contained within s.
 // Returns -1 if not found
 ssize_t             slice_rindex_of( StringSlice s, StringSlice subs);
-ssize_t             slice_rindex_of_by_case( StringSlice s,  StringSlice subs, bool case_sensitive);
+ssize_t             slice_rindex_of_by_case( StringSlice s,  StringSlice subs, bool ignore_case);
 
 //Split the string at the first occurrence of `sep`, and return a 3-tuple containing:
 // 1. the part before the separator,
 // 2. the separator itself, and
 // 3. the part after the separator.
 // If the separator is not found, return a 3-tuple containing the string itself, followed by two empty strings.
-StringSlice3Tuple   slice_partition(StringSlice s,StringSlice sep);
+// todo what does Python do in the case that the sep is the empty string? If both are empty string?
+StringSlice3Tuple   slice_partition(StringSlice s, StringSlice sep);
 
 
 // split can be implemented several ways. In Python, you can split on a str, a sequence of chars, not just
@@ -132,9 +133,9 @@ StringSlice slice_chop_by_delimiter(StringSlice *s, StringSlice delimiter);
 StringSlice slice_chop_by_delimiter_str(StringSlice *s, char const * delimiter);
 
 bool                slice_starts_with( StringSlice s, StringSlice prefix);
-bool                slice_starts_with_by_case( StringSlice s,  StringSlice prefix, bool case_sensitive);
+bool                slice_starts_with_by_case( StringSlice s,  StringSlice prefix, bool ignore_case);
 bool                slice_ends_with( StringSlice s, StringSlice suffix);
-bool                slice_ends_with_by_case( StringSlice s,  StringSlice suffix, bool case_sensitive);
+bool                slice_ends_with_by_case( StringSlice s,  StringSlice suffix, bool ignore_case);
 
 StringSlice         slice_trim(StringSlice s);
 StringSlice         slice_trim_left(StringSlice s);

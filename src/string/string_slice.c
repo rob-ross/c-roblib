@@ -29,9 +29,9 @@ int slice_compare(StringSlice s1, StringSlice s2) {
     return 0;
 }
 
-#if (0)
-int slice_compare_by_case(StringSlice s1, StringSlice s2, bool case_sensitive) {
-    if (case_sensitive) return slice_compare(s1, s2);
+
+int slice_compare_by_case(StringSlice s1, StringSlice s2, bool ignore_case) {
+    if (ignore_case == false) return slice_compare(s1, s2);
     if ( s1.length < s2.length ) return -1;
     if ( s1.length > s2.length)  return  1;
     for (size_t i = 0; i < s1.length; ++i) {
@@ -41,7 +41,7 @@ int slice_compare_by_case(StringSlice s1, StringSlice s2, bool case_sensitive) {
     }
     return 0;
 }
-#endif
+
 
 StringSlice slice_drop(StringSlice s, size_t n) {
     if ( n > s.length) n = s.length;
@@ -61,8 +61,8 @@ bool slice_ends_with(const StringSlice s, const StringSlice suffix) {
     return true;
 }
 
-bool slice_ends_with_by_case(const StringSlice s, const StringSlice suffix, bool case_sensitive) {
-    if (case_sensitive) return slice_ends_with(s, suffix);
+bool slice_ends_with_by_case(const StringSlice s, const StringSlice suffix, bool ignore_case) {
+    if ( ignore_case == false ) return slice_ends_with(s, suffix);
 
     if ( suffix.length > s.length ) return false;
 
@@ -83,8 +83,8 @@ bool slice_equal(StringSlice s1, StringSlice s2) {
 }
 
 // todo (rob) FUTURE SIMD here?
-bool slice_equal_by_case(StringSlice s1, StringSlice s2, bool case_sensitive) {
-    if ( case_sensitive ) return slice_equal(s1, s2);
+bool slice_equal_by_case(StringSlice s1, StringSlice s2, bool ignore_case) {
+    if ( ignore_case == false ) return slice_equal(s1, s2);
     if ( s1.length != s2.length ) return false;
     if (s1.data == s2.data) return true; // same count, and data identity
 
@@ -118,15 +118,15 @@ ssize_t slice_index_of(const StringSlice s, const StringSlice subs) {
     return -1;
 }
 
-ssize_t slice_index_of_by_case(const StringSlice s, const StringSlice subs, bool case_sensitive ) {
-    if (case_sensitive) return slice_index_of(s, subs);
+ssize_t slice_index_of_by_case(const StringSlice s, const StringSlice subs, bool ignore_case ) {
+    if ( ignore_case == false ) return slice_index_of(s, subs);
 
     if (subs.length > s.length) return -1;
     if (subs.length == 0) return 0;  // every string starts with the empty string
 
     size_t subs_len = subs.length;
     for (size_t i = 0; i < s.length - subs_len + 1; ++i) {
-        if (slice_starts_with_by_case(slice_drop(s, i), subs, false)) {
+        if (slice_starts_with_by_case(slice_drop(s, i), subs, ignore_case)) {
             return i;
         }
     }
@@ -147,15 +147,15 @@ ssize_t slice_rindex_of(const StringSlice s, const StringSlice subs) {
     return -1;
 }
 
-ssize_t slice_rindex_of_by_case(const StringSlice s, const StringSlice subs, bool case_sensitive) {
-    if (case_sensitive) return slice_rindex_of(s, subs);
+ssize_t slice_rindex_of_by_case(const StringSlice s, const StringSlice subs, bool ignore_case) {
+    if ( ignore_case == false ) return slice_rindex_of(s, subs);
 
     if (subs.length > s.length) return -1;
     if (subs.length == 0) return s.length;  // every string ends with the empty string
 
     size_t subs_len = subs.length;
     for (size_t i = s.length - subs_len + 1;  i--> 0; ) {
-        if (slice_starts_with_by_case(slice_drop(s, i), subs, false)) {
+        if (slice_starts_with_by_case(slice_drop(s, i), subs, ignore_case)) {
             return i;
         }
     }
@@ -167,7 +167,7 @@ size_t slice_print(StringSlice s) {
     return slice_fprint(s, stdout);
 }
 
-StringSlice3Tuple slice_partition(StringSlice s,StringSlice sep) {
+StringSlice3Tuple slice_partition(StringSlice s, StringSlice sep) {
     StringSlice3Tuple result = { ._1 = s, ._2 = EMPTY_STRING_SLICE, ._3 = EMPTY_STRING_SLICE};
     if (sep.length > s.length) return result;
 
@@ -192,7 +192,11 @@ size_t slice_snprint(StringSlice s, size_t n, char buf[static n + 1]) {
     return n;
 }
 
+// todo this will require a temp arena. Or a temp stack allocator.
+// thread local for string_slice.c?
+
 StringSliceArray slice_split(StringSlice s, StringSlice delimiter);
+
 
 StringSliceArray slice_split_by_str(StringSlice s, char const * delimiter);
 
@@ -292,8 +296,8 @@ bool slice_starts_with(const StringSlice s, const StringSlice prefix) {
     return true;
 }
 
-bool slice_starts_with_by_case(const StringSlice s, const StringSlice prefix, bool case_sensitive) {
-    if (case_sensitive) return slice_starts_with(s, prefix);
+bool slice_starts_with_by_case(const StringSlice s, const StringSlice prefix, bool ignore_case) {
+    if ( ignore_case == false) return slice_starts_with(s, prefix);
     for (size_t i = 0; i < prefix.length; ++i) {
         if ( toupper(s.data[i]) != toupper(prefix.data[i]) ) return false;
     }

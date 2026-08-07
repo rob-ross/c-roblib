@@ -65,7 +65,7 @@ TEST(StringSlice, slice_compare) {
     EXPECT_LT( slice_compare(slice_empty, slice_a ), 0) << "'' < a" ;
 }
 
-#if (0)
+
 TEST(StringSlice, slice_compare_by_case) {
     StringSlice slice_apple        = slice_from_cstring("apple");
     StringSlice slice_banana       = slice_from_cstring("banana");
@@ -74,10 +74,10 @@ TEST(StringSlice, slice_compare_by_case) {
     EXPECT_EQ( slice_compare_by_case(slice_apple, slice_apple, true), 0) << "apple == apple";
     EXPECT_EQ( slice_compare_by_case(slice_apple, slice_apple, false), 0) << "apple == apple";
 
-    EXPECT_NE( slice_compare_by_case(slice_banana, slice_banana_upper, true), 0)  << "banana != Banana";
-    EXPECT_EQ( slice_compare_by_case(slice_banana, slice_banana_upper, false), 0) << "banana == Banana";
+    EXPECT_EQ( slice_compare_by_case(slice_banana, slice_banana_upper, true), 0)  << "banana != Banana";
+    EXPECT_NE( slice_compare_by_case(slice_banana, slice_banana_upper, false), 0) << "banana == Banana";
 }
-#endif
+
 
 TEST(StringSlice,  slice_empty_slice) {
     StringSlice empty_slice = slice_empty_slice();
@@ -99,13 +99,13 @@ TEST(StringSlice, slice_equal ) {
 }
 
 TEST(StringSlice, slice_equal_by_case ) {
-    char const * fixture1 = "start middle end";
-    char const * fixture2 = "START MIDDLE END";
-    StringSlice slice = slice_from_cstring(fixture1);
-    EXPECT_TRUE(  slice_equal_by_case(slice, slice_from_cstring(fixture1), true));
-    EXPECT_TRUE(  slice_equal_by_case(slice, slice_from_cstring(fixture1), false));
-    EXPECT_FALSE( slice_equal_by_case(slice, slice_from_cstring(fixture2), true));
-    EXPECT_TRUE(  slice_equal_by_case(slice, slice_from_cstring(fixture2), false));
+    char const * lower_fixture = "start middle end";
+    char const * upper_fixture = "START MIDDLE END";
+    StringSlice slice = slice_from_cstring(lower_fixture);
+    EXPECT_TRUE(  slice_equal_by_case(slice, slice_from_cstring(lower_fixture), true));
+    EXPECT_TRUE(  slice_equal_by_case(slice, slice_from_cstring(lower_fixture), false));
+    EXPECT_TRUE(  slice_equal_by_case(slice, slice_from_cstring(upper_fixture), true));
+    EXPECT_FALSE( slice_equal_by_case(slice, slice_from_cstring(upper_fixture), false));
 
     EXPECT_FALSE( slice_equal_by_case(slice, slice_from_cstring("not the same fixture"), true));
     EXPECT_FALSE( slice_equal_by_case(slice, slice_from_cstring("not the same fixture"), false));
@@ -118,8 +118,8 @@ TEST(StringSlice, slice_equal_by_case ) {
 
     EXPECT_TRUE(  slice_equal_by_case(slice, slice3, true));
     EXPECT_TRUE(  slice_equal_by_case(slice, slice3, false));
-    EXPECT_FALSE( slice_equal_by_case(slice, slice4, true));
-    EXPECT_TRUE(  slice_equal_by_case(slice, slice4, false));
+    EXPECT_TRUE(  slice_equal_by_case(slice, slice4, true));
+    EXPECT_FALSE( slice_equal_by_case(slice, slice4, false));
 
     EXPECT_FALSE( slice_equal_by_case(slice, slice_from_cstring("not the same fixture"), true));
     EXPECT_FALSE( slice_equal_by_case(slice, slice_from_cstring("not the same fixture"), false));
@@ -179,97 +179,165 @@ TEST(StringSlice, slice_substring ) {
 
 TEST(StringSlice, slice_index_of ) {
     StringSlice slice = slice_from_cstring("tok start middle end tok");
+    StringSlice slice2 = slice_from_cstring("abcba");
     StringSlice empty = slice_empty_slice();
 
-    EXPECT_EQ( slice_index_of( empty, SLIT("")), 0 ) << "empty string pos in empty string is 0"; // index of empty string in empty string
-    EXPECT_EQ( slice_index_of( slice, SLIT("")),  0 ) << "index of empty string in 'start middle end'";
+    EXPECT_EQ( slice_index_of( empty,  SLIT("") ), 0 ) << "empty string index in empty string is 0";
 
-    EXPECT_EQ( slice_index_of( slice, SLIT("tok")), 0 ) << "index of 'tok' in 'tok start middle end tok' is 0";
+    EXPECT_EQ( slice_index_of( slice,  SLIT("") ), 0 )  << "index of empty string in 'tok start middle end tok' is 0";
 
+    EXPECT_EQ( slice_index_of( slice,  SLIT("not found") ), -1 ) << "substring not found returns -1";
 
-    EXPECT_EQ( slice_index_of( slice, SLIT("middle")), 10 ) << "index of 'end' in 'tok start middle end tok' is 10";
-    EXPECT_EQ( slice_index_of( slice, SLIT("not found")), -1 );
+    EXPECT_EQ( slice_index_of( slice,  SLIT("middle") ), 10 ) << "index of 'middle' in 'tok start middle end tok' is 10";
+    EXPECT_EQ( slice_index_of( slice,  SLIT("MIDDLE") ), -1 ) << "index of 'MIDDLE' in 'tok start middle end tok' is -1";
 
-    EXPECT_EQ( slice_index_of( SLIT("abcba"), SLIT("b")), 1 ) << "index of 'b' in 'abcba' is 1";
+    EXPECT_EQ( slice_index_of( slice,  SLIT("tok") ),  0 )  << "index of 'tok' in 'tok start middle end tok' is 0";
+    EXPECT_EQ( slice_index_of( slice,  SLIT("TOK") ), -1 ) << "index of 'TOK' in 'tok start middle end tok' is -1";
 
-    EXPECT_EQ( slice_index_of( slice, SLIT("end")), 17 ) << "index of 'end' in 'tok start middle end tok' is 17";
+    EXPECT_EQ( slice_index_of( slice2, SLIT("a") ),  0 ) << "index of 'a' in 'abcba' is 0";
+    EXPECT_EQ( slice_index_of( slice2, SLIT("b") ),  1 ) << "index of 'b' in 'abcba' is 1";
+    EXPECT_EQ( slice_index_of( slice2, SLIT("A") ), -1 ) << "index of 'A' in 'abcba' is -1";
+    EXPECT_EQ( slice_index_of( slice2, SLIT("B") ), -1 ) << "index of 'B' in 'abcba' is -1";
 }
 
 TEST(StringSlice, slice_index_of_by_case ) {
-    StringSlice slice = slice_from_cstring("start middle end");
-    StringSlice empty = slice_empty_slice();
-
-    EXPECT_EQ( slice_index_of_by_case( empty, SLIT(""), false), 0 ) << "empty string pos in empty string is 0"; // index of empty string in empty string
-    EXPECT_EQ( slice_index_of_by_case( slice, SLIT(""), false),  0);  // index of empty string in "start middle end"
-    EXPECT_EQ( slice_index_of_by_case( slice, SLIT("middle"), false), 6 );
-    EXPECT_EQ( slice_index_of_by_case( slice, SLIT("not found"), false), -1 );
-    EXPECT_EQ( slice_index_of_by_case( SLIT("abc"), SLIT("c"), false), 2 ) << "index of 'c' in 'abc' is 2";
-    EXPECT_EQ( slice_index_of_by_case( slice, SLIT("end"), false), 13 ) << "index of 'end' in 'start middle end' is 13";
-
-    StringSlice upper_slice = slice_from_cstring("START MIDDLE END");
-
-    EXPECT_EQ( slice_index_of_by_case( empty, SLIT(""), true), 0 ) << "empty string pos in empty string is 0"; // index of empty string in empty string
-    EXPECT_EQ( slice_index_of_by_case( upper_slice, SLIT(""), true),  0);  // index of empty string in "start middle end"
-    EXPECT_EQ( slice_index_of_by_case( upper_slice, SLIT("middle"), true), -1 );
-    EXPECT_EQ( slice_index_of_by_case( upper_slice, SLIT("MIDDLE"), true), 6 );
-
-    EXPECT_EQ( slice_index_of_by_case( upper_slice, SLIT("not found"), true), -1 );
-    EXPECT_EQ( slice_index_of_by_case( SLIT("abc"), SLIT("c"), true), 2 ) << "index of 'c' in 'abc' is 2";
-    EXPECT_EQ( slice_index_of_by_case( upper_slice, SLIT("end"), true), -1 ) << "index of 'end' in 'START MIDDLE END' is -1";
-    EXPECT_EQ( slice_index_of_by_case( upper_slice, SLIT("END"), true), 13 ) << "index of 'end' in 'start middle end' is 13";
-
-}
-
-
-
-
-TEST(StringSlice, slice_rindex_of ) {
-    StringSlice slice = slice_from_cstring("tok start middle end tok");
-    StringSlice empty = slice_empty_slice();
-
-    EXPECT_EQ( slice_rindex_of( empty, SLIT("")), 0 ) << "last empty string pos in empty string is len"; // index of empty string in empty string
-    EXPECT_EQ( slice_rindex_of( slice, SLIT("")),  24 )  << "last index of empty string in 'tok start middle end tok' is 24";
-
-    EXPECT_EQ( slice_rindex_of( slice, SLIT("tok")), 21 ) << "rindex of 'tok' in 'tok start middle end tok' is 21";
-    EXPECT_EQ( slice_rindex_of( slice, SLIT("middle")), 10 );
-    EXPECT_EQ( slice_rindex_of( slice, SLIT("not found")), -1 );
-
-    EXPECT_EQ( slice_rindex_of( SLIT("abcba"), SLIT("b")), 3 ) << "rindex of 'b' in 'abcba' is 3";
-
-    EXPECT_EQ( slice_rindex_of( slice, SLIT("end")), 17 ) << "rindex of 'end' in 'tok start middle end tok' is 13";
-}
-
-TEST(StringSlice, slice_rindex_of_by_case ) {
     StringSlice slice = slice_from_cstring("tok start middle end tok");
     StringSlice slice2 = slice_from_cstring("abcba");
     StringSlice empty = slice_empty_slice();
 
-    EXPECT_EQ( slice_rindex_of_by_case( empty, SLIT(""), true),  0 ) << "last empty string index in empty string is 0"; // index of empty string in empty string
-    EXPECT_EQ( slice_rindex_of_by_case( empty, SLIT(""), false), 0 ) << "last empty string index in empty string is 0"; // index of empty string in empty string
+    EXPECT_EQ( slice_index_of_by_case( empty,  SLIT(""),          true  ),  0 ) << "empty string index in empty string is 0";
+    EXPECT_EQ( slice_index_of_by_case( empty,  SLIT(""),          false ),  0 ) << "empty string index in empty string is 0";
 
-    EXPECT_EQ( slice_rindex_of_by_case( slice, SLIT(""), true),  24 )  << "last index of empty string in 'tok start middle end tok' is 10";
-    EXPECT_EQ( slice_rindex_of_by_case( slice, SLIT(""), false), 24 )  << "last index of empty string in 'tok start middle end tok' is 24";
+    EXPECT_EQ( slice_index_of_by_case( slice,  SLIT(""),          true  ),  0 ) << "index of empty string in 'tok start middle end tok' is 0";
+    EXPECT_EQ( slice_index_of_by_case( slice,  SLIT(""),          false ),  0 ) << "index of empty string in 'tok start middle end tok' is 0";
 
-    EXPECT_EQ( slice_rindex_of_by_case( slice, SLIT("middle"), true), 10 )  << "last index of 'middle' in 'tok start middle end tok' is 10";
-    EXPECT_EQ( slice_rindex_of_by_case( slice, SLIT("middle"), false), 10 ) << "last index of 'middle' in 'tok start middle end tok' is 10";
-    EXPECT_EQ( slice_rindex_of_by_case( slice, SLIT("MIDDLE"), true), -1 )  << "last index of 'MIDDLE' in 'tok start middle end tok' is -1";
-    EXPECT_EQ( slice_rindex_of_by_case( slice, SLIT("MIDDLE"), false), 10 ) << "last index of 'MIDDLE' in 'tok start middle end tok' is 10";
+    EXPECT_EQ( slice_index_of_by_case( slice,  SLIT("not found"), true  ), -1 ) << "substring not found returns -1";
+    EXPECT_EQ( slice_index_of_by_case( slice,  SLIT("not found"), false ), -1 ) << "substring not found returns -1";
 
-    EXPECT_EQ( slice_rindex_of_by_case( slice, SLIT("tok"), true), 21 )   << "last index of 'tok' in 'tok start middle end tok' is 21";
-    EXPECT_EQ( slice_rindex_of_by_case( slice, SLIT("tok"), false), 21 )  << "last index of 'tok' in 'tok start middle end tok' is 21";
-    EXPECT_EQ( slice_rindex_of_by_case( slice, SLIT("TOK"), true), -1 )   << "last index of 'TOK' in 'tok start middle end tok' is -1";
-    EXPECT_EQ( slice_rindex_of_by_case( slice, SLIT("TOK"), false), 21 )  << "last index of 'TOK' in 'tok start middle end tok' is 21";
+    EXPECT_EQ( slice_index_of_by_case( slice,  SLIT("middle"),    true  ), 10 ) << "index of 'middle' in 'tok start middle end tok' is 10";
+    EXPECT_EQ( slice_index_of_by_case( slice,  SLIT("middle"),    false ), 10 ) << "index of 'middle' in 'tok start middle end tok' is 10";
+    EXPECT_EQ( slice_index_of_by_case( slice,  SLIT("MIDDLE"),    true  ), 10 ) << "index of 'MIDDLE' in 'tok start middle end tok' is 10";
+    EXPECT_EQ( slice_index_of_by_case( slice,  SLIT("MIDDLE"),    false ), -1 ) << "index of 'MIDDLE' in 'tok start middle end tok' is -1";
 
-    EXPECT_EQ( slice_rindex_of_by_case(slice2, SLIT("a"), true),  4 ) << "rindex of 'a' in 'abcba' is 4";
-    EXPECT_EQ( slice_rindex_of_by_case(slice2, SLIT("a"), false), 4 ) << "rindex of 'a' in 'abcba' is 4";
-    EXPECT_EQ( slice_rindex_of_by_case(slice2, SLIT("b"), true),  3 ) << "rindex of 'b' in 'abcba' is 3";
-    EXPECT_EQ( slice_rindex_of_by_case(slice2, SLIT("b"), false), 3 ) << "rindex of 'b' in 'abcba' is 3";
-    EXPECT_EQ( slice_rindex_of_by_case(slice2, SLIT("A"), true), -1 ) << "rindex of 'A' in 'abcba' is -1";
-    EXPECT_EQ( slice_rindex_of_by_case(slice2, SLIT("A"), false), 4 ) << "rindex of 'A' in 'abcba' is 4";
-    EXPECT_EQ( slice_rindex_of_by_case(slice2, SLIT("B"), true), -1 ) << "rindex of 'B' in 'abcba' is -1";
-    EXPECT_EQ( slice_rindex_of_by_case(slice2, SLIT("B"), false), 3 ) << "rindex of 'B' in 'abcba' is 3";
+    EXPECT_EQ( slice_index_of_by_case( slice,  SLIT("tok"),       true  ),  0 ) << "index of 'tok' in 'tok start middle end tok' is 0";
+    EXPECT_EQ( slice_index_of_by_case( slice,  SLIT("tok"),       false ),  0 ) << "index of 'tok' in 'tok start middle end tok' is 0";
+    EXPECT_EQ( slice_index_of_by_case( slice,  SLIT("TOK"),       true  ),  0 ) << "index of 'TOK' in 'tok start middle end tok' is 0";
+    EXPECT_EQ( slice_index_of_by_case( slice,  SLIT("TOK"),       false ), -1 ) << "index of 'TOK' in 'tok start middle end tok' is -1";
+
+    EXPECT_EQ( slice_index_of_by_case( slice2, SLIT("a"),         true  ),  0 ) << "index of 'a' in 'abcba' is 0";
+    EXPECT_EQ( slice_index_of_by_case( slice2, SLIT("a"),         false ),  0 ) << "index of 'a' in 'abcba' is 0";
+    EXPECT_EQ( slice_index_of_by_case( slice2, SLIT("b"),         true  ),  1 ) << "index of 'b' in 'abcba' is 1";
+    EXPECT_EQ( slice_index_of_by_case( slice2, SLIT("b"),         false ),  1 ) << "index of 'b' in 'abcba' is 1";
+    EXPECT_EQ( slice_index_of_by_case( slice2, SLIT("A"),         true  ),  0 )  << "index of 'A' in 'abcba' is 0";
+    EXPECT_EQ( slice_index_of_by_case( slice2, SLIT("A"),         false ), -1 ) << "index of 'A' in 'abcba' is -1";
+    EXPECT_EQ( slice_index_of_by_case( slice2, SLIT("B"),         true  ),  1 ) << "index of 'B' in 'abcba' is 1";
+    EXPECT_EQ( slice_index_of_by_case( slice2, SLIT("B"),         false ), -1 ) << "index of 'B' in 'abcba' is -1";
 }
 
+TEST(StringSlice, slice_rindex_of ) {
+    StringSlice slice = slice_from_cstring( "tok start middle end tok" );
+    StringSlice slice2 = slice_from_cstring( "abcba" );
+    StringSlice empty = slice_empty_slice();
+
+    EXPECT_EQ( slice_rindex_of( empty, SLIT("")         ),  0 ) << "last empty string index in empty string is 0"; // index of empty string in empty string
+    EXPECT_EQ( slice_rindex_of( slice, SLIT("")         ), 24 ) << "last index of empty string in 'tok start middle end tok' is 24";
+    EXPECT_EQ( slice_rindex_of( slice, SLIT("not found")), -1 ) << "substring not found returns -1";
+    EXPECT_EQ( slice_rindex_of( slice, SLIT("middle")   ), 10 ) << "last index of 'middle' in 'tok start middle end tok' is 10";
+    EXPECT_EQ( slice_rindex_of( slice, SLIT("MIDDLE")   ), -1 ) << "last index of 'MIDDLE' in 'tok start middle end tok' is -1";
+    EXPECT_EQ( slice_rindex_of( slice, SLIT("tok")      ), 21 ) << "last index of 'tok' in 'tok start middle end tok' is 21";
+    EXPECT_EQ( slice_rindex_of( slice, SLIT("TOK")      ), -1 ) << "last index of 'TOK' in 'tok start middle end tok' is -1";
+    EXPECT_EQ( slice_rindex_of(slice2, SLIT("a")        ),  4 ) << "rindex of 'a' in 'abcba' is 4";
+    EXPECT_EQ( slice_rindex_of(slice2, SLIT("b")        ),  3 ) << "rindex of 'b' in 'abcba' is 3";
+    EXPECT_EQ( slice_rindex_of(slice2, SLIT("A")        ), -1 ) << "rindex of 'A' in 'abcba' is -1";
+    EXPECT_EQ( slice_rindex_of(slice2, SLIT("B")        ), -1 ) << "rindex of 'B' in 'abcba' is -1";
+}
+
+TEST(StringSlice, slice_rindex_of_by_case ) {
+    StringSlice slice = slice_from_cstring( "tok start middle end tok" );
+    StringSlice slice2 = slice_from_cstring( "abcba" );
+    StringSlice empty = slice_empty_slice();
+
+    EXPECT_EQ( slice_rindex_of_by_case( empty, SLIT(""),          true  ),  0 ) << "last empty string index in empty string is 0"; // index of empty string in empty string
+    EXPECT_EQ( slice_rindex_of_by_case( empty, SLIT(""),          false ),  0 ) << "last empty string index in empty string is 0"; // index of empty string in empty string
+
+    EXPECT_EQ( slice_rindex_of_by_case( slice, SLIT(""),          true  ), 24 ) << "last index of empty string in 'tok start middle end tok' is 24";
+    EXPECT_EQ( slice_rindex_of_by_case( slice, SLIT(""),          false ), 24 ) << "last index of empty string in 'tok start middle end tok' is 24";
+
+    EXPECT_EQ( slice_rindex_of_by_case( slice, SLIT("not found"), true  ), -1 ) << "substring not found returns -1";
+    EXPECT_EQ( slice_rindex_of_by_case( slice, SLIT("not found"), false ), -1 ) << "substring not found returns -1";
+
+    EXPECT_EQ( slice_rindex_of_by_case( slice, SLIT("middle"),    true  ), 10 ) << "last index of 'middle' in 'tok start middle end tok' is 10";
+    EXPECT_EQ( slice_rindex_of_by_case( slice, SLIT("middle"),    false ), 10 ) << "last index of 'middle' in 'tok start middle end tok' is 10";
+    EXPECT_EQ( slice_rindex_of_by_case( slice, SLIT("MIDDLE"),    true  ), 10 ) << "last index of 'MIDDLE' in 'tok start middle end tok' is 10";
+    EXPECT_EQ( slice_rindex_of_by_case( slice, SLIT("MIDDLE"),    false ), -1 ) << "last index of 'MIDDLE' in 'tok start middle end tok' is -1";
+
+    EXPECT_EQ( slice_rindex_of_by_case( slice, SLIT("tok"),       true  ), 21 ) << "last index of 'tok' in 'tok start middle end tok' is 21";
+    EXPECT_EQ( slice_rindex_of_by_case( slice, SLIT("tok"),       false ), 21 ) << "last index of 'tok' in 'tok start middle end tok' is 21";
+    EXPECT_EQ( slice_rindex_of_by_case( slice, SLIT("TOK"),       true  ), 21 ) << "last index of 'TOK' in 'tok start middle end tok' is 21";
+    EXPECT_EQ( slice_rindex_of_by_case( slice, SLIT("TOK"),       false ), -1 ) << "last index of 'TOK' in 'tok start middle end tok' is -1";
+
+    EXPECT_EQ( slice_rindex_of_by_case(slice2, SLIT("a"),         true  ),  4 ) << "rindex of 'a' in 'abcba' is 4";
+    EXPECT_EQ( slice_rindex_of_by_case(slice2, SLIT("a"),         false ),  4 ) << "rindex of 'a' in 'abcba' is 4";
+    EXPECT_EQ( slice_rindex_of_by_case(slice2, SLIT("b"),         true  ),  3 ) << "rindex of 'b' in 'abcba' is 3";
+    EXPECT_EQ( slice_rindex_of_by_case(slice2, SLIT("b"),         false ),  3 ) << "rindex of 'b' in 'abcba' is 3";
+    EXPECT_EQ( slice_rindex_of_by_case(slice2, SLIT("A"),         true  ),  4 ) << "rindex of 'A' in 'abcba' is 4";
+    EXPECT_EQ( slice_rindex_of_by_case(slice2, SLIT("A"),         false ), -1 ) << "rindex of 'A' in 'abcba' is -1";
+    EXPECT_EQ( slice_rindex_of_by_case(slice2, SLIT("B"),         true  ),  3 ) << "rindex of 'B' in 'abcba' is 3";
+    EXPECT_EQ( slice_rindex_of_by_case(slice2, SLIT("B"),         false ), -1 ) << "rindex of 'B' in 'abcba' is -1";
+}
+
+TEST(StringSlice, slice_partition) {
+    StringSlice slice = SLIT("one, 2, three,4,five");
+
+    StringSlice3Tuple s3 = slice_partition(slice, SLIT(","));
+    EXPECT_TRUE(slice_equal( s3._1, SLIT("one") )) << "first is 'one'";
+    EXPECT_TRUE(slice_equal( s3._2, SLIT(",") )) << "second is ','";
+    EXPECT_TRUE(slice_equal( s3._3, SLIT(" 2, three,4,five") )) << "third is ' 2, three,4,five'";
+
+    s3 = slice_partition(s3._3, SLIT(","));
+    EXPECT_TRUE(slice_equal( s3._1, SLIT(" 2") )) << "first is ' 2'";
+    EXPECT_TRUE(slice_equal( s3._2, SLIT(",") )) << "second is ','";
+    EXPECT_TRUE(slice_equal( s3._3, SLIT(" three,4,five") )) << "third is ' three,4,five'";
+
+    StringSlice empty = slice_empty_slice();
+    StringSlice3Tuple s3_empty = slice_partition(empty, SLIT(""));
+    // degenerate case
+    EXPECT_TRUE(slice_equal( s3_empty._1, SLIT("") )) << "first is ''";
+    EXPECT_TRUE(slice_equal( s3_empty._2, SLIT("") )) << "second is ''";
+    EXPECT_TRUE(slice_equal( s3_empty._3, SLIT("") )) << "third is ''";
+
+    StringSlice3Tuple s3_2;
+    StringSlice slice3 = SLIT("Monty Python's Flying Circus");
+
+    // non-empty slice string, separator is empty string
+    s3_2 = slice_partition(slice3, SLIT(""));
+    EXPECT_TRUE(slice_equal( s3_2._1, SLIT("") )) << "first is '" << SLICE_BUF(s3_2._1, 64) << "', expected ''";
+    EXPECT_TRUE(slice_equal( s3_2._2, SLIT("") )) << "second is '" << SLICE_BUF(s3_2._2, 64) << "', expected ''";
+    EXPECT_TRUE(slice_equal( s3_2._3, SLIT("Monty Python's Flying Circus") )) << "third is '" << SLICE_BUF(s3_2._3, 64) << "', expected 'Monty Python's Flying Circus'";
+
+    // non-empty slice string, separator is a space
+    s3_2 = slice_partition(slice3, SLIT(" "));
+    EXPECT_TRUE(slice_equal( s3_2._1, SLIT("Monty") )) << "first is '" << SLICE_BUF(s3_2._1, 64) << "', expected 'Monty'";
+    EXPECT_TRUE(slice_equal( s3_2._2, SLIT(" ") )) << "second is '" << SLICE_BUF(s3_2._2, 64) << "', expected ' '";
+    EXPECT_TRUE(slice_equal( s3_2._3, SLIT("Python's Flying Circus") )) << "third is '" << SLICE_BUF(s3_2._3, 64) << "', expected 'Python's Flying Circus'";
+
+    // separator not found
+    s3_2 = slice_partition(slice3, SLIT("-"));
+    EXPECT_TRUE(slice_equal( s3_2._1, SLIT("Monty Python's Flying Circus") )) << "first is '" << SLICE_BUF(s3_2._1, 64) << "', expected 'Monty Python's Flying Circus'";
+    EXPECT_TRUE(slice_equal( s3_2._2, SLIT("") )) << "second is '" << SLICE_BUF(s3_2._2, 64) << "', expected ''";
+    EXPECT_TRUE(slice_equal( s3_2._3, SLIT("") )) << "third is '" << SLICE_BUF(s3_2._3, 64) << "', expected ''";
+}
+
+// todo (rob) implement
+TEST(StringSlice, slice_split) { }
+// todo (rob) implement
+TEST(StringSlice, slice_split_by_str){}
+// todo (rob) implement
+TEST(StringSlice, slice_split_to_out_buffer){}
+// todo (rob) implement
+TEST(StringSlice, slice_chop_by_delimiter){}
+// todo (rob) implement
+TEST(StringSlice, slice_chop_by_delimiter_str){}
 
 
 TEST(StringSlice, slice_starts_with) {
@@ -284,20 +352,16 @@ TEST(StringSlice, slice_starts_with) {
     EXPECT_EQ(slice_starts_with(empty_slice, slice_from_cstring("not empty")), false) << "empty slice doesn't start with characters";
     // non-empty slice starts with empty slice?
     EXPECT_EQ(slice_starts_with(slice, slice_from_cstring("")), true) << "'start middle end' starts with empty slice" ;
-
-
-    // note, at the moment, every slice begins with the empty string/slice.
 }
 
 TEST(StringSlice, slice_starts_with_by_case ) {
     StringSlice slice = slice_from_cstring("start middle end");
     StringSlice upper_slice = slice_from_cstring("START MIDDLE END");
 
-
     EXPECT_EQ(slice_starts_with_by_case(slice, slice_from_cstring("start"), true), true);
     EXPECT_EQ(slice_starts_with_by_case(slice, slice_from_cstring("start"), false), true);
-    EXPECT_EQ(slice_starts_with_by_case(slice, slice_from_cstring("START"), true), false);
-    EXPECT_EQ(slice_starts_with_by_case(slice, slice_from_cstring("START"), false), true);
+    EXPECT_EQ(slice_starts_with_by_case(slice, slice_from_cstring("START"), true), true);
+    EXPECT_EQ(slice_starts_with_by_case(slice, slice_from_cstring("START"), false), false);
 
     StringSlice empty_slice = slice_empty_slice();
 
@@ -314,18 +378,25 @@ TEST(StringSlice, slice_starts_with_by_case ) {
 
 TEST(StringSlice, slice_ends_with) {
     StringSlice slice = slice_from_cstring("start middle end");
+
+    StringSlice empty_slice = slice_empty_slice();
+
+    EXPECT_EQ( slice_ends_with(empty_slice, empty_slice),      true) << "empty slice ends with empty string";
+    EXPECT_EQ( slice_ends_with(slice, slice_from_cstring("")), true) << "non-empty slice ends with empty slice";
+    EXPECT_EQ( slice_ends_with(empty_slice, slice_from_cstring("not empty")), false) << "empty slice doesn't end with 'not empty'";
+
     EXPECT_EQ(slice_ends_with(slice, slice_from_cstring("start")), false);
     EXPECT_EQ(slice_ends_with(slice, slice_from_cstring("end")), true);
+}
+
+TEST(StringSlice, slice_ends_with_by_case) {
+    StringSlice slice = slice_from_cstring("start middle end");
+    StringSlice empty_slice = slice_empty_slice();
 
     EXPECT_EQ(slice_ends_with_by_case(slice, slice_from_cstring("end"), true), true);
     EXPECT_EQ(slice_ends_with_by_case(slice, slice_from_cstring("end"), false), true);
-    EXPECT_EQ(slice_ends_with_by_case(slice, slice_from_cstring("END"), true), false);
-    EXPECT_EQ(slice_ends_with_by_case(slice, slice_from_cstring("END"), false), true);
-
-    // empty slice
-    StringSlice empty_slice = slice_empty_slice();
-    EXPECT_EQ(slice_ends_with(empty_slice, empty_slice), true) << "empty slice ends with empty string";
-    EXPECT_EQ(slice_ends_with(empty_slice, slice_from_cstring("not empty")), false) << "empty slice doesn't end with characters";
+    EXPECT_EQ(slice_ends_with_by_case(slice, slice_from_cstring("END"), true), true);
+    EXPECT_EQ(slice_ends_with_by_case(slice, slice_from_cstring("END"), false), false);
 
     EXPECT_EQ(slice_ends_with_by_case(empty_slice, slice_from_cstring(""), true), true);
     EXPECT_EQ(slice_ends_with_by_case(empty_slice, slice_from_cstring(""), false), true);
@@ -333,11 +404,19 @@ TEST(StringSlice, slice_ends_with) {
     EXPECT_EQ(slice_ends_with_by_case(empty_slice, slice_from_cstring("foo"), true), false);
     EXPECT_EQ(slice_ends_with_by_case(empty_slice, slice_from_cstring("foo"), false), false);
 
-    // non-empty slice ends with empty slice?
-    EXPECT_EQ(slice_ends_with(slice, slice_from_cstring("")), true);
     EXPECT_EQ(slice_ends_with_by_case(slice, slice_from_cstring(""), true), true);
     EXPECT_EQ(slice_ends_with_by_case(slice, slice_from_cstring(""), false), true);
-
-    // note, at the moment, every slice ends with the empty string/slice.
-
 }
+
+
+// todo (rob) implement
+TEST(StringSlice, slice_trim){}
+// todo (rob) implement
+TEST(StringSlice, slice_trim_left){}
+// todo (rob) implement
+TEST(StringSlice, slice_trim_right){}
+
+// todo can we test 'slice_fprint' and 'slice_print'?
+
+// todo (rob) implement
+TEST(StringSlice, slice_snprint){}
