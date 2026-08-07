@@ -6,9 +6,9 @@
 // Created 2026/06/07 15:33:41 PDT
 
 /*
- *  Some definitions of terms used in this BumpArena class
+ *  Some definitions of terms used in this AlokArena class
  *  Page: an OS memory page, normally 4096 bytes. This is the smallest unit we can request from the OS.
- *      The API doesn't concern itself with Pages. When arena_bump_create() is called, it is passed the block size
+ *      The API doesn't concern itself with Pages. When alok_arena_create() is called, it is passed the block size
  *
  */
 
@@ -42,7 +42,16 @@ typedef unsigned char byte;
 typedef struct block_header_t {
     struct block_header_t * next_block;  // Links to the next memory block
     size_t block_size;                   // Tracks size of this block for mmap
+    // size available for allocations; omits BlockHeader size, other headers like AllocatorHeader, etc.
+    size_t usable_size;
 } BlockHeader;
+
+// Used to record a position in a AlokArena so that it can be popped/rolled-back to this mark.
+typedef struct stack_marker_t {
+    const BlockHeader * const mark_block; // the block in which the marker was created
+    const size_t        mark_offset;      // the block offset at the time the marker was created
+    bool                is_stale;         // set to true after rolling back to this mark
+} StackMarker;
 
 // -----------------------------------------------------------------
 //      AllocatorHeader
@@ -69,29 +78,28 @@ typedef struct block_header_err_result_s {
     BlockHeader * result;
 } BlockHeaderErrResult;
 
+typedef struct alok_arena_s {
+    AllocatorHeader * const alloc_header;
+} AlokArena;
 
-typedef struct stack_arena_s {
-    AllocatorHeader * payload_data;
-    AllocatorHeader * meta_data;
-} StackArena;
 
 typedef struct free_node_s {
     struct free_node_s *next;
 } FreeNode;
 
-typedef struct pool_arena_s {
+typedef struct alok_pool_s {
     BlockHeader  * head_block; // Pointer to the first block
     void  *pool_memory;       // beginning of the pool's usable memory
     size_t slot_size;          // size in bytes of each slot in the usable memory
     size_t num_slots;
     size_t slot_alignment;
     FreeNode *free_list;       // first free node, will be returned in next alloc call
-} PoolArena;
+} AlokPool;
 
 // AI AGENT: PRESERVE ALL COMMENTS
 // AI AGENT: `nullptr` is legal syntax in C23
 
-static size_t pvt_arena_get_pagesize() {
+static size_t pvt_alok_get_pagesize() {
 #if !defined(_WIN32)
     return (size_t) getpagesize();
 #else
@@ -101,7 +109,7 @@ static size_t pvt_arena_get_pagesize() {
 #endif
 }
 
-static void pvt_dealloc(BlockHeader *block) {
+static void pvt_alok_dealloc(BlockHeader *block) {
     if (!block) return;
 #if !defined(_WIN32)
     munmap(block, block->block_size);
@@ -112,14 +120,14 @@ static void pvt_dealloc(BlockHeader *block) {
 
 
 // Helper function to request a new raw block from macOS via mmap
-static BlockHeaderErrResult arena_new_os_block( const size_t block_size ) {
+static BlockHeaderErrResult pvt_alok_new_os_block( const size_t block_size ) {
     static size_t os_page_size = 0;
 
     if (os_page_size == 0) { // Cache the page size on the first call
         //todo this value could be loaded once in an arena_init() global method and we wouldn't have to check
         // every time this function is called. Then again, this method is called infrequently compared to
         // allocation methods so it may be fine here.
-        os_page_size = pvt_arena_get_pagesize();
+        os_page_size = pvt_alok_get_pagesize();
     }
 
     // Ensure block_size is perfectly aligned to the OS page size:
@@ -159,6 +167,7 @@ static BlockHeaderErrResult arena_new_os_block( const size_t block_size ) {
     BlockHeader * header = (BlockHeader*)raw_mem;
     header->next_block = nullptr;
     header->block_size = page_aligned_block_size;
+    header->usable_size = header->block_size - sizeof(BlockHeader);
 
     //todo temp debug
     static int num_blocks_created = 0; // todo temp debug
@@ -170,7 +179,7 @@ static BlockHeaderErrResult arena_new_os_block( const size_t block_size ) {
 }
 
 // Return the size of the argument aligned to system alignment size (16 bytes on macOS)
-static size_t arena_aligned_size(const size_t size) {
+static size_t pvt_alok_aligned_size(const size_t size) {
     // 1. Get the system's maximum required scalar alignment (usually 16): _Alignof(max_align_t)
     // 2. Round the requested size to the nearest multiple of 'alignment'
     //      Formula: ( size + ( alignment - 1) ) & ~( alignment - 1 )
@@ -181,17 +190,19 @@ static size_t arena_aligned_size(const size_t size) {
 }
 
 // align the `value` argument to the requested alignment size
-static size_t arena_align_up(const size_t value, const size_t alignment) {
+static size_t pvt_alok_align_up(const size_t value, const size_t alignment) {
     return ( value + alignment - 1 ) & ~ ( alignment - 1 ) ;
 }
 
 // todo (rob) not tested.
-static void arena_zero(BumpArena const * arena) {
-    BlockHeader * current = arena->head_block;
+static void pvt_alok_arena_zero(AlokArena const * arena, const size_t first_block_metadata_size) {
+    AllocatorHeader *header = arena->alloc_header;
+    BlockHeader * current = header->head_block;
     while (current != nullptr) {
-        if (current == arena->head_block) {
-            // The first block stores the BumpArena struct itself. We don't want to zero it out!!
-            memset(((byte*)current + sizeof(BlockHeader) + sizeof(BumpArena)), 0, current->block_size - sizeof(BlockHeader) - sizeof(BumpArena));
+        if (current == header->head_block) {
+            // The first block stores the AlokArena and AllocatorHeader structs. We don't want to zero them out!!
+            const size_t overhead = sizeof(BlockHeader) + sizeof(AlokArena) + sizeof(AllocatorHeader);
+            memset(((byte*)current + first_block_metadata_size), 0, current->block_size - first_block_metadata_size);
         } else {
             memset(((byte*)current + sizeof(BlockHeader)), 0, current->block_size - sizeof(BlockHeader));
         }
@@ -201,41 +212,38 @@ static void arena_zero(BumpArena const * arena) {
 
 //// ------------------------------------------------------------
 ////
-////    MONOTONIC (BUMP)  ALLOCATOR
+////    MONOTONIC (BUMP/ARENA)  ALLOCATOR
 ////
 //// ------------------------------------------------------------
 
-void * _arena_bump_alloc(BumpArena * arena, const size_t size, [[nullable]] BumpArenaErrResult * aer, size_t align_size);
+constexpr size_t BUMP_HEAD_BLOCK_METADATA_SIZE = sizeof(BlockHeader) + sizeof(AlokArena) + sizeof(AllocatorHeader);
+void * _alok_arena_alloc(AlokArena * arena, const size_t size, [[nullable]] ArenaErrResult * aer, size_t align_size);
 size_t round_up_to_power_of_two(size_t x);
 
 // precondition: the align_size size is a power of two
-static void * pvt_arena_bump_alloc_impl(
-                            BumpArena * arena,
+static void * pvt_alok_arena_alloc_impl(
+                            AlokArena * arena,
                             const size_t size,
-                            [[nullable]] BumpArenaErrResult * aer,
+                            [[nullable]] ArenaErrResult * aer,
                             size_t align_size ) {
 
-    if ( ! align_size) {
-        align_size = arena->default_alignment;
-    } else {
-        align_size = round_up_to_power_of_two(align_size);
-    }
+    AllocatorHeader *header = arena->alloc_header;
 
-    const size_t aligned_offset    = arena_align_up( arena->offset, align_size);
-    const size_t alignment_padding = aligned_offset - arena->offset;
+    const size_t aligned_offset    = pvt_alok_align_up( header->offset, align_size);
+    const size_t alignment_padding = aligned_offset - header->offset;
 
     // Check if it fits in the current block
-    BlockHeader * current_header = (BlockHeader*)arena->current_block;
+    BlockHeader * current_header = (BlockHeader*)header->current_block;
 
-    if ( aligned_offset + size > current_header->block_size - sizeof(BlockHeader)) {
+    if ( aligned_offset + size > current_header->usable_size) {
         // Current block is full
         if (current_header->next_block != nullptr) {
             // This is a reset arena with existing blocks to reuse.
             // Pivot to the next existing block.
-            arena->current_block = (byte*)current_header->next_block;
-            arena->offset = sizeof(BlockHeader);
+            header->current_block = (byte*)current_header->next_block;
+            header->offset = sizeof(BlockHeader);
         } else {
-            if ( !arena->is_resizeable) {
+            if ( !header->is_resizeable) {
                 // out of memory
                 if (aer) {
                     aer->err = true;
@@ -251,13 +259,13 @@ static void * pvt_arena_bump_alloc_impl(
             //                  Allocate New Block
             // -----------------------------------------------------------------
             // Ensure that the requested size isn't larger than the standard block capacity
-            size_t target_block_size = arena->default_block_size;
+            size_t target_block_size = header->default_block_size;
             if ( size + sizeof(BlockHeader) > target_block_size  ) {
                 // requested allocation size too massive for standard block size, create special block for this request
                 target_block_size = size  +  sizeof(BlockHeader);
             }
             const size_t needed_capacity = target_block_size;
-            BlockHeaderErrResult bher = arena_new_os_block(needed_capacity);  // this page-aligns our request for us
+            BlockHeaderErrResult bher = pvt_alok_new_os_block(needed_capacity);  // this page-aligns our request for us
             if ( bher.err ) {
                 if (aer) {
                     aer->err_fields = bher.err_fields;
@@ -269,41 +277,43 @@ static void * pvt_arena_bump_alloc_impl(
             current_header->next_block = new_block;
 
             // Pivot the arena to use the brand-new OS block
-            arena->current_block = (byte*)new_block;
-            arena->offset = sizeof(BlockHeader);
+            header->current_block = (byte*)new_block;
+            header->offset = sizeof(BlockHeader);
         }
     }
 
-    arena->offset += alignment_padding;
+    header->offset += alignment_padding;
 
     // Allocate from the top of the current active block
-    void * ptr = &arena->current_block[ arena->offset ];
+    void * ptr = &header->current_block[ header->offset ];
 
     // Bump the offset forward by the allocation size
-    arena->offset +=  size;
+    header->offset +=  size;
 
     return ptr;
 }
 
 
-BumpArenaErrResult (_arena_bump_create)( size_t arena_capacity, bool no_grow, size_t default_alignment ){
-    // Account for the block header size and BumpArena size
-    const size_t needed_capacity = arena_capacity + sizeof(BlockHeader) + sizeof(AllocatorHeader);
+ArenaErrResult (_alok_arena_create)( size_t arena_capacity, bool no_grow, size_t default_alignment ){
+    // Account for the block header size, AlokArena struct, and AllocatorHeader struct
+    const size_t needed_capacity = arena_capacity + BUMP_HEAD_BLOCK_METADATA_SIZE;
 
-    BlockHeaderErrResult bher = arena_new_os_block(needed_capacity);
+    BlockHeaderErrResult bher = pvt_alok_new_os_block(needed_capacity);
 
     if ( bher.err ) {
-        return (BumpArenaErrResult){ .err_fields = bher.err_fields };
+        return (ArenaErrResult){ .err_fields = bher.err_fields };
     }
 
     BlockHeader * new_block_header = bher.result;
+    new_block_header->usable_size = new_block_header->block_size - BUMP_HEAD_BLOCK_METADATA_SIZE;
+
     if (! default_alignment) {
         default_alignment = DEFAULT_ALIGNMENT;
     } else {
         default_alignment = round_up_to_power_of_two(default_alignment);
     }
 
-    AllocatorHeader bump_header = {
+    AllocatorHeader temp_bump_header = {
         .current_block = (byte*)new_block_header,
         .default_block_size = new_block_header->block_size,
         .default_alignment = default_alignment,
@@ -312,140 +322,76 @@ BumpArenaErrResult (_arena_bump_create)( size_t arena_capacity, bool no_grow, si
         .is_resizeable = no_grow
     };
 
+    AlokArena temp_bump_arena = { .alloc_header = &temp_bump_header};
 
-    // BumpArena arena_prototype = {};
-    // arena_prototype.default_block_size = new_block_header->block_size; // this has been page-aligned by arena_new_os_block();
-    // arena_prototype.head_block = new_block_header;
-    // arena_prototype.current_block = (byte*)new_block_header;
-    // // The usable buffer area starts immediately *after* the BlockHeader struct
-    // arena_prototype.offset = sizeof(BlockHeader);
-    //
-    // // the very first allocation is for the BumpArena struct itself
-    // BumpArena *new_arena = _arena_bump_alloc(&arena_prototype, sizeof(BumpArena), nullptr, _Alignof(BumpArena));
-    // *new_arena = arena_prototype;
+    // The very first allocation is for the AlokArena struct itself
+    AlokArena *new_bump_arena = _alok_arena_alloc(&temp_bump_arena, sizeof(AlokArena), nullptr, _Alignof(AlokArena));
 
+    // The next allocation is for the AllocatorHeader struct itself
+    AllocatorHeader *new_alloc_header = _alok_arena_alloc(&temp_bump_arena, sizeof(AllocatorHeader), nullptr, _Alignof(AllocatorHeader));
+    *new_alloc_header = temp_bump_header;  // value copy
 
-    // the very first allocation is for the AllocatorHeader struct itself
-    AllocatorHeader *new_arena = _arena_bump_alloc(&bump_header, sizeof(AllocatorHeader), nullptr, _Alignof(AllocatorHeader));
-    *new_arena = bump_header;
+    // Initialize the AlokArena's const pointer to the permanent AllocatorHeader
+    *(AllocatorHeader**)&new_bump_arena->alloc_header = new_alloc_header;
 
-    return (BumpArenaErrResult){ .err = false, .result =  new_arena };
+    return (ArenaErrResult){ .err = false, .result =  new_bump_arena };
 }
 
-void arena_bump_reset(BumpArena * arena, bool zero_mem) {
-    if (!arena || !arena->head_block) {
+void alok_arena_reset(AlokArena * arena, bool zero_mem) {
+    if (!arena || !arena->alloc_header || !arena->alloc_header->head_block) {
         return;
     }
-    if (zero_mem) arena_zero(arena);
+    AllocatorHeader *header = arena->alloc_header;
+
+    if (zero_mem) pvt_alok_arena_zero(arena, BUMP_HEAD_BLOCK_METADATA_SIZE);
     // Reset the current buffer pointer to the start of the first block
-    arena->current_block = (byte*)arena->head_block;
-    // Reset the offset to usable start of the first block
-    arena->offset = sizeof(BlockHeader) + sizeof(BumpArena);
+    header->current_block = (byte*)header->head_block;
+    // Reset the offset to usable start of the first block (after the headers)
+    header->offset = BUMP_HEAD_BLOCK_METADATA_SIZE;
 }
 
-void arena_bump_destroy( BumpArena * arena) {
-    if (!arena) return;
-    BlockHeader * current = arena->head_block;
+void alok_arena_destroy( AlokArena * arena) {
+    if (!arena || !arena->alloc_header ) return;
+    AllocatorHeader *header = arena->alloc_header;
+
+    BlockHeader * current = header->head_block;
     while (current != nullptr) {
         BlockHeader * next = current->next_block;
-        pvt_dealloc(current);
+        pvt_alok_dealloc(current);
         current = next;
     }
 }
 
 // Returns pointer to allocated chunk in the arena, or nullptr if arena is out of memory.
-void * _arena_bump_alloc(BumpArena * arena, const size_t size, [[nullable]] BumpArenaErrResult * aer, size_t align_size) {
-    return pvt_arena_bump_alloc_impl(arena, size, aer, align_size);
-}
-
-//// ------------------------------------------------------------
-////
-////        STACK ALLOCATOR
-////
-//// ------------------------------------------------------------
-
-//todo (rob) test this!!
-// todo (rob) optional parameter to specify the default alignment
-// note: because the pointer block is in a different memory region, we are always going to have to read from two
-// areas of memory. So I suspect this impacts cache performance.maybe we really do want to keep the meta-data about
-// the size of the last allocation inline with the payload dat.
-StackArenaErrResult arena_stack_create( const size_t capacity) {
-    // In addition to the requested capacity, The first block requires:
-    //   a BlockHeader, a StackArena, and an AllocatorHeader for the payload block.
-    // For the meta_data block, we need to calculate 25% of the capacity arg, then
-    //   a BlockHeader, and the AllocatorHeader
-    // If there are multiple blocks, every block after the first starts with just a BlockHeader
-    // We're adding the StackArena to the payload block because it will have max alignment and is more
-    // future-proof, if we add members to that struct. The metadata block will be aligned to 8 bytes for efficient
-    // memory use so we can't add ad hoc types.
-
-    const size_t needed_payload_capacity = capacity + sizeof(BlockHeader) + sizeof(StackArena) + sizeof(AllocatorHeader);
-    BlockHeaderErrResult bher = arena_new_os_block(needed_payload_capacity);
-    if ( bher.err ) {
-        return (StackArenaErrResult){ .err_fields = bher.err_fields };
+void * _alok_arena_alloc(AlokArena * arena, const size_t size, [[nullable]] ArenaErrResult * aer, size_t align_size) {
+    AllocatorHeader *header = arena->alloc_header;
+    if ( ! align_size) {
+        align_size = header->default_alignment;
+    } else {
+        align_size = round_up_to_power_of_two(align_size);
     }
-
-    BlockHeader * new_block_header = bher.result;
-    AllocatorHeader payload_allocator_header = {
-        .default_block_size = new_block_header->block_size,
-        .head_block = new_block_header,
-        .current_block = (byte*)new_block_header,
-        .offset = sizeof(BlockHeader)
-    };
-    // the very first allocation is for the StackArena struct itself
-    StackArena *new_stack_allocator = _arena_bump_alloc(&payload_allocator_header, sizeof(StackArena), nullptr, _Alignof(StackArena));
-
-    // the next allocation is for this block's allocator header
-    AllocatorHeader *new_payload_allocator_header = _arena_bump_alloc(&payload_allocator_header, sizeof(AllocatorHeader), nullptr, _Alignof(AllocatorHeader));
-    *new_payload_allocator_header = payload_allocator_header;
-
-    new_stack_allocator->payload_data = new_payload_allocator_header;
-
-    // now we create the second block for the allocation pointers
-    size_t needed_metadata_capacity = (size_t)( new_block_header->block_size * 0.25L ) + sizeof(BlockHeader) + sizeof(AllocatorHeader);
-    bher = arena_new_os_block(needed_metadata_capacity);
-    if ( bher.err ) {
-        // todo (rob) deallocate the payload block
-        return (StackArenaErrResult){ .err_fields = bher.err_fields };
-    }
-
-    new_block_header = bher.result;
-    AllocatorHeader metadata_allocator_header = {
-        .default_block_size = new_block_header->block_size,
-        .head_block = new_block_header,
-        .current_block = (byte*)new_block_header,
-        .offset = sizeof(BlockHeader)
-    };
-    // the very first allocation is for the AllocatorHeader struct itself
-    AllocatorHeader *new_metadata_allocator_header = _arena_bump_alloc(&metadata_allocator_header, sizeof(AllocatorHeader), nullptr, _Alignof(AllocatorHeader));
-    *new_metadata_allocator_header = metadata_allocator_header;
-
-    new_stack_allocator->meta_data = new_metadata_allocator_header;
-
-
-    return (StackArenaErrResult){ .err = false , .result =  new_stack_allocator };
+    void * mem = pvt_alok_arena_alloc_impl(arena, size, aer, align_size);
+    return mem;
 }
 
-void arena_stack_reset(StackArena * stack_alloc);
-void arena_stack_destroy(StackArena *stack_alloc) {
-    if (!stack_alloc) return;
+StackMarker * alok_arena_marker(AlokArena * arena) {
+    AllocatorHeader *header = arena->alloc_header;
+    StackMarker temp_marker = { .mark_block = (BlockHeader*)header->current_block, .mark_offset = header->offset};
+    StackMarker * marker =  pvt_alok_arena_alloc_impl(arena, sizeof(StackMarker), nullptr, _Alignof(StackMarker));
+    memcpy(marker, &temp_marker, sizeof(StackMarker));
 
+    return marker;
 }
 
-void * arena_stack_alloc(StackArena * stack_alloc, const size_t size, [[nullable]] BumpArenaErrResult * aer) {
-    // we allocate the payload data first, then we allocate the memory for the payload pointer.
-    void* payload_mem = _arena_bump_alloc(stack_alloc->payload_data, size, aer, DEFAULT_ALIGNMENT);
-    // todo error checking
-    // use 8-byte alignment for the pointer allocation
-    void ** pointer_mem = pvt_arena_bump_alloc_impl(stack_alloc->meta_data, sizeof(void*), aer, POINTER_ALIGNMENT);
-    // todo error checking
-    *pointer_mem = payload_mem;
-    return payload_mem;
+void alok_arena_pop_to_marker(AlokArena * arena, StackMarker * marker) {
+    if (marker->is_stale) return;
+    AllocatorHeader *header = arena->alloc_header;
+    header->current_block = (byte*)marker->mark_block;
+    header->offset  = marker->mark_offset;
+
+    marker->is_stale = true;
 }
 
-void * arena_stack_pop(StackArena * stack_alloc);
-void * arena_stack_mark(StackArena * stack_alloc);
-void * arena_stack_pop_mark(StackArena * stack_alloc, void* mark);
 
 
 //// ------------------------------------------------------------
@@ -457,24 +403,24 @@ void * arena_stack_pop_mark(StackArena * stack_alloc, void* mark);
 
 
 // `object_size` should be passed as sizeof(YourObjectType) and `object_alignment` as _Alignof(YourObjectType)
-PoolArenaErrResult arena_pool_create( const size_t num_objects, const size_t object_size, const size_t object_alignment ){
-    // Account for the block header size and PoolArena size
-    const size_t aligned_block_header_size = arena_align_up(sizeof(BlockHeader), _Alignof(BlockHeader));
-    const size_t aligned_pool_header_size  = arena_align_up(sizeof(PoolArena),   _Alignof(PoolArena));
-    const size_t aligned_object_size       = arena_align_up(object_size,                  object_alignment);
+PoolErrResult arena_pool_create( const size_t num_objects, const size_t object_size, const size_t object_alignment ){
+    // Account for the block header size and AlokPool size
+    const size_t aligned_block_header_size = pvt_alok_align_up(sizeof(BlockHeader), _Alignof(BlockHeader));
+    const size_t aligned_pool_header_size  = pvt_alok_align_up(sizeof(AlokPool),   _Alignof(AlokPool));
+    const size_t aligned_object_size       = pvt_alok_align_up(object_size,                  object_alignment);
 
     size_t needed_capacity = (num_objects * aligned_object_size) + aligned_block_header_size + aligned_pool_header_size;
 
-    BlockHeaderErrResult bher = arena_new_os_block(needed_capacity);
+    BlockHeaderErrResult bher = pvt_alok_new_os_block(needed_capacity);
 
     if ( bher.err ) {
-        return (PoolArenaErrResult){ .err_fields = bher.err_fields };
+        return (PoolErrResult){ .err_fields = bher.err_fields };
     }
 
     BlockHeader * new_block_header = bher.result;
 
     byte * pool_ptr      = (byte*)new_block_header + aligned_block_header_size;
-    PoolArena *pool      = (PoolArena*)(pool_ptr);
+    AlokPool *pool      = (AlokPool*)(pool_ptr);
     pool->head_block     = new_block_header;
     pool->pool_memory    = (byte*)new_block_header + aligned_block_header_size + aligned_pool_header_size;
     pool->slot_size      = aligned_object_size;
@@ -493,20 +439,20 @@ PoolArenaErrResult arena_pool_create( const size_t num_objects, const size_t obj
         pool->free_list = node;
     }
 
-    return (PoolArenaErrResult){ .err = false, .result =  pool };
+    return (PoolErrResult){ .err = false, .result =  pool };
 }
 
-void pool_free(PoolArena *pool, void *object) {
+void pool_free(AlokPool *pool, void *object) {
     FreeNode *node = (FreeNode*)object;
     node->next = pool->free_list;
     pool->free_list = node;
 }
 
-void pool_destroy(PoolArena *pool) {
-    pvt_dealloc(pool->head_block);
+void pool_destroy(AlokPool *pool) {
+    pvt_alok_dealloc(pool->head_block);
 }
 
-void * arena_pool_alloc(PoolArena * pool, [[nullable]] PoolArenaErrResult * aer) {
+void * arena_pool_alloc(AlokPool * pool, [[nullable]] PoolErrResult * aer) {
     if (! pool->free_list ) {
         if (aer) {
             aer->err = true;

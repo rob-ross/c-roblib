@@ -21,7 +21,7 @@
 *       Allocation size: the size of an individual, normally small, memory allocation.
  *          E.g., void * raw_ptr = malloc(10); // requesting 10 bytes, "allocating 10 bytes."
  *
- *      BumpArena: The large pool of memory (e.g., one or more 100 MB blocks) requested from the OS to be carved up.
+ *      AlokArena: The large pool of memory (e.g., one or more 100 MB blocks) requested from the OS to be carved up.
  *
  *      High-Water Mark: The peak amount of total memory an allocator has claimed from the OS during execution.
  *
@@ -30,7 +30,7 @@
  *      next available byte of unallocated memory and increments this pointer based on the requested allocation size.
  *      It will pad the request to align it to 16 byte boundaries (via _Alignof(max_align_t)). It will grow the arena
  *      dynamically if a memory request is larger than the arena capacity. The entire arena is freed with the call to
- *      arena_bump_destroy().
+ *      alok_arena_destroy().
  *
  *
  *
@@ -54,25 +54,23 @@ extern "C" {
 #define _Alignof alignof
 #endif
 
-// opaque type
-typedef struct allocator_header_s BumpArena;
+// opaque types
+typedef struct alok_arena_s AlokArena;
+typedef struct alok_pool_s  AlokPool;
+
+typedef struct stack_marker_t StackMarker;
 
 typedef struct arena_err_result_s {
     ERR_FIELDS_UNION;
-    BumpArena * result;
-} BumpArenaErrResult;
+    AlokArena * result;
+} ArenaErrResult;
 
-typedef struct stack_arena_s StackArena;
-typedef struct stack_arena_err_result_s {
-    ERR_FIELDS_UNION;
-    StackArena * result;
-} StackArenaErrResult;
 
-typedef struct pool_arena_s PoolArena;
-typedef struct pool_arena_err_result_s {
+
+typedef struct pool_err_result_s {
     ERR_FIELDS_UNION;
-    PoolArena * result;
-} PoolArenaErrResult;
+    AlokPool * result;
+} PoolErrResult;
 
 constexpr size_t MAX_ALIGNMENT     = _Alignof(max_align_t);
 constexpr size_t POINTER_ALIGNMENT = _Alignof(void*);
@@ -102,33 +100,33 @@ constexpr size_t DEFAULT_ALIGNMENT = MAX_ALIGNMENT;
  * @returns BumpErrResult. If `.err` is true, an error occurred. Otherwise, `.result` contains a pointer to the
  * new allocator.
  */
-#define arena_bump_create(_1, ...) \
-    _arena_bump_create_SELECT_(\
-        __VA_ARGS__ __VA_OPT__(,) _arena_bump_create_3, _arena_bump_create_2, _arena_bump_create_1)\
+#define alok_arena_create(_1, ...) \
+    _alok_arena_create_SELECT_(\
+        __VA_ARGS__ __VA_OPT__(,) _alok_arena_create_3, _alok_arena_create_2, _alok_arena_create_1)\
                 (_1 __VA_OPT__(,) __VA_ARGS__)
-#define _arena_bump_create_1(_1)            (_arena_bump_create)(_1, false, DEFAULT_ALIGNMENT)
-#define _arena_bump_create_2(_1, _2)        (_arena_bump_create)(_1, _2,    DEFAULT_ALIGNMENT)
-#define _arena_bump_create_3(_1, _2, _3)    (_arena_bump_create)(_1, _2,    _3)
-#define _arena_bump_create_SELECT_(_1, _2, NAME, ...) NAME
+#define _alok_arena_create_1(_1)            (_alok_arena_create)(_1, false, DEFAULT_ALIGNMENT)
+#define _alok_arena_create_2(_1, _2)        (_alok_arena_create)(_1, _2,    DEFAULT_ALIGNMENT)
+#define _alok_arena_create_3(_1, _2, _3)    (_alok_arena_create)(_1, _2,    _3)
+#define _alok_arena_create_SELECT_(_1, _2, NAME, ...) NAME
 
-BumpArenaErrResult _arena_bump_create( size_t arena_capacity, bool no_grow, size_t default_alignment );
+ArenaErrResult _alok_arena_create( size_t arena_capacity, bool no_grow, size_t default_alignment );
 // macro notes: in the SELECT_ parameter list, the numbers are for the OPTIONAL arguments. _1 is for no_grow,
 // _2 is for default_alignment.
 
 
-void arena_bump_reset( BumpArena * arena, bool zero_mem);
-void arena_bump_destroy( BumpArena * arena);
+void alok_arena_reset( AlokArena * arena, bool zero_mem);
+void alok_arena_destroy( AlokArena * arena);
 
 
 /**
  * @brief Allocates memory from the arena.
  *
- * This function can be called with 2 - 4 arguments. The `BumpArenaErrResult` and `align_size` parameters are optional.
+ * This function can be called with 2 - 4 arguments. The `ArenaErrResult` and `align_size` parameters are optional.
  * If passed and an error occurs, it will contain the error information.
  * If no error occurs, a pointer to the newly allocated memory is returned,
  * and aer->err (if not null) will be set to false.
  * Otherwise, a nullptr is returned, and aer->err (if not null) will be set to true.
- * If `align_size` is omitted, the default size set in `arena_bump_create` is used. This defaults to DEFAULT_ALIGNMENT
+ * If `align_size` is omitted, the default size set in `alok_arena_create` is used. This defaults to DEFAULT_ALIGNMENT
  * if not explicitly set. Otherwise, the argument value is used to align the memory location at which
  * the allocation is made.
  * - `arena_alloc( arena, size_t size)`
@@ -136,30 +134,24 @@ void arena_bump_destroy( BumpArena * arena);
  * - `arena_alloc( arena, size_t size, [[nullable]] ArenaErrResult * aer, size_t align_size)`
  * @returns void * to the newly allocated memory
  */
-#define arena_bump_alloc(_1, _2, ...) \
-    _arena_bump_alloc_SELECT_(\
-        __VA_ARGS__ __VA_OPT__(,) _arena_bump_alloc_4, _arena_bump_alloc_3, _arena_bump_alloc_2)\
+#define alok_arena_alloc(_1, _2, ...) \
+    _alok_arena_alloc_SELECT_(\
+        __VA_ARGS__ __VA_OPT__(,) _alok_arena_alloc_4, _alok_arena_alloc_3, _alok_arena_alloc_2)\
             (_1, _2 __VA_OPT__(,) __VA_ARGS__)
 
 // --- Internal Use Only ---
 
-#define _arena_bump_alloc_2(_1, _2)        (_arena_bump_alloc)(_1, _2, nullptr, 0)
-#define _arena_bump_alloc_3(_1, _2, _3)    (_arena_bump_alloc)(_1, _2, _3,      0)
-#define _arena_bump_alloc_4(_1, _2, _3, _4)(_arena_bump_alloc)(_1, _2, _3,      _4)
-#define _arena_bump_alloc_SELECT_(_1, _2, NAME, ...) NAME
-void * _arena_bump_alloc(BumpArena * arena,  size_t size, [[nullable]] BumpArenaErrResult * aer, size_t alignment); // NOLINT(*-reserved-identifier)
+#define _alok_arena_alloc_2(_1, _2)        (_alok_arena_alloc)(_1, _2, nullptr, 0)
+#define _alok_arena_alloc_3(_1, _2, _3)    (_alok_arena_alloc)(_1, _2, _3,      0)
+#define _alok_arena_alloc_4(_1, _2, _3, _4)(_alok_arena_alloc)(_1, _2, _3,     _4)
+#define _alok_arena_alloc_SELECT_(_1, _2, NAME, ...) NAME
+void * _alok_arena_alloc(AlokArena * arena,  size_t size, [[nullable]] ArenaErrResult * aer, size_t alignment); // NOLINT(*-reserved-identifier)
 
 
+StackMarker * alok_arena_marker(AlokArena * arena);
+void alok_arena_pop_to_marker(AlokArena * arena, StackMarker * marker);
 
 
-
-//// ------------------------------------------------------------
-////
-////        STACK ALLOCATOR
-////
-//// ------------------------------------------------------------
-
-StackArenaErrResult arena_stack_create( size_t capacity) ;
 
 
 

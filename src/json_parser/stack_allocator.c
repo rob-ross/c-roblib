@@ -16,9 +16,9 @@
  *  pvt_arena_get_pagesize
  *  arena_new_os_block
  *  arena_aligned_size
- *  BumpArena - maybe some members, maybe we'll need to add more
+ *  AlokArena - maybe some members, maybe we'll need to add more
  *  we'll want to be able to specify if the allocator can grow when it's out of memory, or if it's fixed size.
- *  and let's update arena_bump_create with the same ability as well.
+ *  and let's update alok_arena_create with the same ability as well.
  *
  *  similar methods of arena but must be implemented in the stack_allocator
  *  stack_allocator_create();
@@ -70,10 +70,10 @@
     // User asks for 1 mb block, we also allocate 256K for the pointers.
     // We can copy the model from arena where there's a block header that acts as a linked list of blocks if we need
     // to allocate more blocks. The existing BlockHeader struct should still work for this.
-    // Our StackArena struct would build on BumpArena:
-    // we need the exact same data for our meta stack as the BumpArena and payload stack.
+    // Our StackArena struct would build on AlokArena:
+    // we need the exact same data for our meta stack as the AlokArena and payload stack.
 
-    // Like with arena_allocator, we store the BumpArena struct on the first block after the BlockHeader
+    // Like with arena_allocator, we store the AlokArena struct on the first block after the BlockHeader
 
 
 

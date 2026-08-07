@@ -16,9 +16,9 @@
 ////
 //// ------------------------------------------------------------
 
-CharRingBuffer * crb_new_CharRingBuffer(size_t capacity, BumpArena *arena) {
+CharRingBuffer * crb_new_CharRingBuffer(size_t capacity, AlokArena *arena) {
     CharRingBuffer cb = { .capacity = capacity };
-    void * ptr = arena_bump_alloc(arena, sizeof(CharRingBuffer) + capacity);
+    void * ptr = alok_arena_alloc(arena, sizeof(CharRingBuffer) + capacity);
     memcpy(ptr, &cb, sizeof(CharRingBuffer));
     return (CharRingBuffer*)ptr;
 }

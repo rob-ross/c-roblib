@@ -6,7 +6,7 @@
 /**
  *  Simple lookup table for the json_parser to use when parsing objects.
  *  Uses a fixed size array of KVElements. Lookups are O(N) (table scan),
- *  inserts and deletes are O(1). Uses an BumpArena for memory allocation.
+ *  inserts and deletes are O(1). Uses an AlokArena for memory allocation.
  */
 
 #pragma once
@@ -45,9 +45,9 @@ typedef struct {
 } SimpleMap;
 
 
-void lkup_map_init(SimpleMap *map, enum lkup_key_type key_type,  int initial_capacity, BumpArena * arena);
-void lkup_map_set_for_string_key(SimpleMap *map, const char *key, void *value, BumpArena * arena);
-void lkup_map_set_for_long_key(SimpleMap *map, long key, void *value, BumpArena * arena);
+void lkup_map_init(SimpleMap *map, enum lkup_key_type key_type,  int initial_capacity, AlokArena * arena);
+void lkup_map_set_for_string_key(SimpleMap *map, const char *key, void *value, AlokArena * arena);
+void lkup_map_set_for_long_key(SimpleMap *map, long key, void *value, AlokArena * arena);
 void* lkup_map_get_for_string_key(SimpleMap *map, const char *key);
 void* lkup_map_get_for_long_key(SimpleMap *map, long key);
 void lkup_map_remove_string_key(SimpleMap *map, const char *key);
