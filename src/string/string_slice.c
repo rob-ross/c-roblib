@@ -319,24 +319,30 @@ StringSlice slice_take(StringSlice s, size_t n) {
 }
 
 StringSlice slice_trim(StringSlice s) {
-    char const * start = s.data;
-    while (isspace( (unsigned char) *start)) start++;
-    char const * end = s.data + s.length - 1;
-    while (isspace( (unsigned char) *end)) end--;
-    StringSlice result = (StringSlice){ .data = start, .length = end - start + 1 };
+    size_t index = 0;
+    size_t start = 0;
+    size_t end   = s.length - 1;
+    while ( index < s.length && isspace( (unsigned char) s.data[index] )) index++;
+    start = index;
+
+    index = s.length;
+    while ( index--> start && isspace( (unsigned char) s.data[index] )){};
+    end = index;
+
+    StringSlice result = (StringSlice){ .data = s.data + start, .length = end - start + 1 };
     return result;
 }
 
 StringSlice slice_trim_left(StringSlice s) {
-    char const * new_start = s.data;
-    while (isspace( (unsigned char) *new_start)) new_start++;
-    StringSlice result = (StringSlice){ .data = new_start, .length = s.length - ( new_start - s.data )  };
+    size_t index = 0;
+    while ( index < s.length && isspace( (unsigned char) s.data[index] )) index++;
+    StringSlice result = (StringSlice){ .data = s.data + index, .length = s.length - index   };
     return result;
 }
 StringSlice slice_trim_right(StringSlice s) {
-    char const * end = s.data + s.length - 1;
-    while (isspace( (unsigned char) *end)) end--;
-    StringSlice result = (StringSlice){ .data = s.data, .length = end - s.data + 1 };
+    size_t index = s.length;
+    while ( index--> 0 && isspace( (unsigned char) s.data[index] )){};
+    StringSlice result = (StringSlice){ .data = s.data, .length = index + 1   };
     return result;
 }
 
@@ -347,43 +353,7 @@ StringSlice slice_trim_right(StringSlice s) {
 ////
 //// ------------------------------------------------------------
 
-void test_equal(void) {
-    StringSlice a = slice_from_cstring("ARCH_BTW");
-    StringSlice b = slice_from_cstring("ARCH_BTW");
-    StringSlice c = slice_from_cstring("BTW");
 
-    printf("is a equal to b? %d", slice_equal(a,b));
-    putchar('\n');
-    printf("is a equal to c? %d", slice_equal(a,c));
-    putchar('\n');
-    printf("does it start with ARCH? %d", slice_starts_with(a,slice_from_cstring("ARCH")));
-    putchar('\n');
-    printf("does it start with BTW? %d", slice_starts_with(a,c));
-    putchar('\n');
-}
-
-void test_take_drop(void) {
-    StringSlice a = slice_from_cstring("LEGACY_DISTRO=Arch");
-    StringSlice key = slice_take(a, 13);
-    StringSlice val = slice_drop(a, 14);
-    printf("key = [");
-    slice_print(key);
-    printf("]\n");
-    printf("val = [");
-    slice_print(val);
-    printf("]\n");
-    printf("original = [");
-    slice_print(a);
-    printf("]\n");
-}
-
-void test_trim(void) {
-    StringSlice s = slice_from_cstring("     5 Leading spaces. 5 Trailing too!     ");
-    s = slice_trim(s);
-    printf("[");
-    slice_print(s);
-    printf("]\n");
-}
 
 void test_split(void) {
     StringSlice s = slice_from_cstring("arch,gentoo,fedora");
@@ -394,30 +364,6 @@ void test_split(void) {
         putchar('\n');
 
     }
-}
-
-void test_trim_left(void) {
-    StringSlice s = slice_from_cstring("     5 Leading spaces. 5 Trailing too!     ");
-    StringSlice trimmed  = slice_trim_left(s);
-    printf("[");
-    slice_print(trimmed);
-    printf("]\n");
-}
-
-void test_trim_right(void) {
-    StringSlice s = slice_from_cstring("     5 Leading spaces. 5 Trailing too!     ");
-    StringSlice trimmed  = slice_trim_right(s);
-    printf("[");
-    slice_print(trimmed);
-    printf("]\n");
-}
-
-
-void test_rindex_of(void) {
-    StringSlice s = slice_from_cstring("The brown quick fox jumped over the lazy brown derg.");
-    StringSlice subs = slice_from_cstring("brown");  // index 41
-    ssize_t index = slice_rindex_of(s, subs);
-    printf("index of subs = %zd\n", index);
 }
 
 void slice_print_partition(StringSlice3Tuple s3t) {
@@ -462,13 +408,8 @@ void terst_substring(void) {
 #ifdef STRING_SLICE_MAIN
 int main(int argc, char *argv[]) {
 #if (0)
-    test_equal();
     test_take_drop();
-    test_trim();
     test_split();
-    test_trim_left();
-    test_trim_right();
-    test_rindex_of();
     test_slice_partition();
     terst_substring();
 #endif

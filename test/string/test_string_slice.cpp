@@ -409,12 +409,46 @@ TEST(StringSlice, slice_ends_with_by_case) {
 }
 
 
-// todo (rob) implement
-TEST(StringSlice, slice_trim){}
-// todo (rob) implement
-TEST(StringSlice, slice_trim_left){}
-// todo (rob) implement
-TEST(StringSlice, slice_trim_right){}
+TEST(StringSlice, slice_trim) {
+    StringSlice slice = slice_from_cstring("     5 Leading spaces. 5 Trailing too!     ");
+    StringSlice empty = slice_empty_slice();
+
+    EXPECT_TRUE( slice_equal( slice_trim(empty),     empty));
+    EXPECT_TRUE( slice_equal( slice_trim(SLIT(" ")), empty));
+    EXPECT_TRUE( slice_equal( slice_trim(SLIT("  ")), empty));
+
+    EXPECT_TRUE( slice_equal( slice_trim(SLIT("NOSPACES")),        SLIT("NOSPACES")));
+    EXPECT_TRUE( slice_equal( slice_trim(SLIT("  spaces left")),   SLIT("spaces left")));
+    EXPECT_TRUE( slice_equal( slice_trim(SLIT("spaces right   ")), SLIT("spaces right")));
+    EXPECT_TRUE( slice_equal( slice_trim(slice), SLIT("5 Leading spaces. 5 Trailing too!")));
+}
+TEST(StringSlice, slice_trim_left) {
+    StringSlice slice = slice_from_cstring("     5 Leading spaces. 5 Trailing too!     ");
+    StringSlice empty = slice_empty_slice();
+
+    EXPECT_TRUE( slice_equal( slice_trim_left(empty),     empty)) << "actual: '" << SLICE_BUF(slice_trim_left(empty), 64) << "', expected: ''";
+    EXPECT_TRUE( slice_equal( slice_trim_left(SLIT(" ")), empty)) << "actual: '" << SLICE_BUF(slice_trim_left(SLIT(" ")), 64) << "', expected: ''";
+    EXPECT_TRUE( slice_equal( slice_trim_left(SLIT("  ")), empty)) << "actual: '" << SLICE_BUF(slice_trim_left(SLIT("  ")), 64) << "', expected: ''";
+
+    EXPECT_TRUE( slice_equal( slice_trim_left(SLIT("NOSPACES")),        SLIT("NOSPACES"))) << "actual: '" << SLICE_BUF(slice_trim_left(empty), 64) << "', expected: 'NOSPACES'";
+    EXPECT_TRUE( slice_equal( slice_trim_left(SLIT("  spaces left")),   SLIT("spaces left")));
+    EXPECT_TRUE( slice_equal( slice_trim_left(SLIT("spaces right   ")), SLIT("spaces right   ")));
+    EXPECT_TRUE( slice_equal( slice_trim_left(slice), SLIT("5 Leading spaces. 5 Trailing too!     ")));
+}
+
+TEST(StringSlice, slice_trim_right) {
+    StringSlice slice = slice_from_cstring("     5 Leading spaces. 5 Trailing too!     ");
+    StringSlice empty = slice_empty_slice();
+
+    EXPECT_TRUE( slice_equal( slice_trim_right(empty),     empty)) << "actual: '" << SLICE_BUF(slice_trim_right(empty), 64) << "', expected: ''";
+    EXPECT_TRUE( slice_equal( slice_trim_right(SLIT(" ")), empty));
+    EXPECT_TRUE( slice_equal( slice_trim_right(SLIT("  ")), empty));
+
+    EXPECT_TRUE( slice_equal( slice_trim_right(SLIT("NOSPACES")),        SLIT("NOSPACES"))) << "actual: '" << SLICE_BUF(slice_trim_right(SLIT("NOSPACES")), 64) << "', expected: 'NOSPACES'";
+    EXPECT_TRUE( slice_equal( slice_trim_right(SLIT("  spaces left")),   SLIT("  spaces left"))) << "actual: '"<< SLICE_BUF(slice_trim_right(SLIT("  spaces left")), 64) << "', expected: '  spaces left'";
+    EXPECT_TRUE( slice_equal( slice_trim_right(SLIT("spaces right   ")), SLIT("spaces right")))  << "actual: '"<< SLICE_BUF(slice_trim_right(SLIT("spaces right   ")), 64) << "', expected: 'spaces right'";
+    EXPECT_TRUE( slice_equal( slice_trim_right(slice), SLIT("     5 Leading spaces. 5 Trailing too!"))) << "actual: '"<< SLICE_BUF(slice_trim_right(slice), 64) << "', expected: '     5 Leading spaces. 5 Trailing too!'";
+}
 
 // todo can we test 'slice_fprint' and 'slice_print'?
 
