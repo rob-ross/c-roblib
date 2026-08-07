@@ -10,8 +10,9 @@
 
 #include "roblib/string_slice.h"
 
-// SLIT: slice literal
+// SLIT: slice literal convenience macro
 #define SLIT(S) slice_from_cstring((S))
+#define NL putchar('\n');
 
 TEST(StringSlice,  slice_from_cstring) {
     char const * cstring="This is a C string";
@@ -334,10 +335,128 @@ TEST(StringSlice, slice_split) { }
 TEST(StringSlice, slice_split_by_str){}
 // todo (rob) implement
 TEST(StringSlice, slice_split_to_out_buffer){}
-// todo (rob) implement
-TEST(StringSlice, slice_chop_by_delimiter){}
-// todo (rob) implement
-TEST(StringSlice, slice_chop_by_delimiter_str){}
+
+TEST(StringSlice, slice_chop_by_delimiter) {
+    StringSlice fixture;
+    StringSlice slice1;
+    StringSlice chopped_slice;
+
+    // non-empty delimiter for empty string
+    fixture = slice_empty_slice();
+    slice1 = fixture;
+    chopped_slice = slice_chop_by_delimiter( &slice1, SLIT("-"));
+    EXPECT_TRUE(slice_equal(chopped_slice, SLIT("") )) << "returns ''";
+    EXPECT_TRUE(slice_equal(slice1, SLIT("") )) << "returns ''";
+    // SLICE_EVAL(chopped_slice); NL  SLICE_EVAL(slice1); NL
+
+    // empty delimiter for empty string
+    slice1 = fixture;
+    chopped_slice = slice_chop_by_delimiter( &slice1, SLIT(""));
+    EXPECT_TRUE(slice_equal(chopped_slice, SLIT("") )) << "returns ''";
+    EXPECT_TRUE(slice_equal(slice1, SLIT("") )) << "returns ''";
+    // SLICE_EVAL(chopped_slice); NL  SLICE_EVAL(slice1); NL
+
+    fixture = SLIT("one, 2, three,4,five");
+    slice1 = fixture;
+    chopped_slice = slice_chop_by_delimiter( &slice1, SLIT(","));
+    EXPECT_TRUE(slice_equal(chopped_slice, SLIT("one") )) << "returns 'one'";
+    EXPECT_TRUE(slice_equal(slice1, SLIT(" 2, three,4,five") )) << "returns ' 2, three,4,five'";
+    // SLICE_EVAL(chopped_slice); NL  SLICE_EVAL(slice1); NL
+
+    fixture = SLIT("a,b,c,d");
+    slice1 = fixture;
+    chopped_slice = slice_chop_by_delimiter( &slice1, SLIT(","));
+    EXPECT_TRUE(slice_equal(chopped_slice, SLIT("a") )) << "returns 'a'";
+    EXPECT_TRUE(slice_equal(slice1, SLIT("b,c,d") )) << "returns 'b,c,d'";
+    // SLICE_EVAL(chopped_slice); NL  SLICE_EVAL(slice1); NL
+
+
+    fixture = SLIT(" a, b, c, d ");
+    slice1 = fixture;
+    chopped_slice = slice_chop_by_delimiter( &slice1, SLIT(","));
+    EXPECT_TRUE(slice_equal(chopped_slice, SLIT(" a") )) << "returns ' a'";
+    EXPECT_TRUE(slice_equal(slice1, SLIT(" b, c, d ") )) << "returns ' b, c, d '";
+    // SLICE_EVAL(chopped_slice); NL  SLICE_EVAL(slice1); NL
+
+    // test that delimiter is not found in string
+    fixture = SLIT(" a, b, c, d ");
+    slice1 = fixture;
+    chopped_slice = slice_chop_by_delimiter( &slice1, SLIT("-"));
+    EXPECT_TRUE(slice_equal(chopped_slice, SLIT(" a, b, c, d ") )) << "returns ' a, b, c, d '";
+    EXPECT_TRUE(slice_equal(slice1, SLIT("") )) << "returns ''";
+    // SLICE_EVAL(chopped_slice); NL  SLICE_EVAL(slice1); NL
+
+    // delimiter at start of slice
+    fixture = SLIT(", a, b, c, d ");
+    slice1 = fixture;
+    chopped_slice = slice_chop_by_delimiter( &slice1, SLIT(","));
+    EXPECT_TRUE(slice_equal(chopped_slice, SLIT("") )) << "returns ''";
+    EXPECT_TRUE(slice_equal(slice1, SLIT(" a, b, c, d ") )) << "returns ' a, b, c, d '";
+    // SLICE_EVAL(chopped_slice); NL  SLICE_EVAL(slice1); NL
+
+
+    // multi-char delimiter
+    fixture = SLIT("oneSEPtwoSEPthree");
+    slice1 = fixture;
+    chopped_slice = slice_chop_by_delimiter( &slice1, SLIT("SEP"));
+    EXPECT_TRUE(slice_equal(chopped_slice, SLIT("one") )) << "returns 'one'";
+    EXPECT_TRUE(slice_equal(slice1, SLIT("twoSEPthree") )) << "returns 'twoSEPthree'";
+    // SLICE_EVAL(chopped_slice); NL  SLICE_EVAL(slice1); NL
+
+    // delimiter at start
+    fixture = SLIT("SEPoneSEPtwoSEPthree");
+    slice1 = fixture;
+    chopped_slice = slice_chop_by_delimiter( &slice1, SLIT("SEP"));
+    EXPECT_TRUE(slice_equal(chopped_slice, SLIT("") )) << "returns ''";
+    EXPECT_TRUE(slice_equal(slice1, SLIT("oneSEPtwoSEPthree") )) << "returns 'oneSEPtwoSEPthree'";
+    // SLICE_EVAL(chopped_slice); NL  SLICE_EVAL(slice1); NL
+
+    //separator longer than the string
+    fixture = SLIT("ab");
+    slice1 = fixture;
+    chopped_slice = slice_chop_by_delimiter( &slice1, SLIT("SEP"));
+    EXPECT_TRUE(slice_equal(chopped_slice, SLIT("ab") )) << "returns 'ab'";
+    EXPECT_TRUE(slice_equal(slice1, SLIT("ab") )) << "returns 'ab'";
+    // SLICE_EVAL(chopped_slice); NL  SLICE_EVAL(slice1); NL
+
+    // only separator in string
+    fixture = SLIT("SEP");
+    slice1 = fixture;
+    chopped_slice = slice_chop_by_delimiter( &slice1, SLIT("SEP"));
+    EXPECT_TRUE(slice_equal(chopped_slice, SLIT("") )) << "returns ''";
+    EXPECT_TRUE(slice_equal(slice1, SLIT("") )) << "returns ''";
+    // SLICE_EVAL(chopped_slice); NL  SLICE_EVAL(slice1); NL
+
+}
+
+TEST(StringSlice, slice_chop_by_delimiter_str) {
+    StringSlice fixture;
+    StringSlice slice1;
+    StringSlice chopped_slice;
+
+    // we pass a C-string delimiter to slice_chop_by_delimiter_str
+    fixture = SLIT("a,b,c");
+    slice1 = fixture;
+    chopped_slice = slice_chop_by_delimiter_str( &slice1, ",");
+    EXPECT_TRUE(slice_equal(chopped_slice, SLIT("a") )) << "returns 'a'";
+    EXPECT_TRUE(slice_equal(slice1, SLIT("b,c") )) << "returns 'b,c'";
+    // SLICE_EVAL(chopped_slice); NL  SLICE_EVAL(slice1); NL
+}
+
+TEST(StringSlice, slice_chop_by_delimiter_char) {
+    StringSlice fixture;
+    StringSlice slice1;
+    StringSlice chopped_slice;
+
+    // we pass a C-string delimiter to slice_chop_by_delimiter_str
+    fixture = SLIT("a,b,c");
+    slice1 = fixture;
+    chopped_slice = slice_chop_by_delimiter_char( &slice1, ',');
+    EXPECT_TRUE(slice_equal(chopped_slice, SLIT("a") )) << "returns 'a'";
+    EXPECT_TRUE(slice_equal(slice1, SLIT("b,c") )) << "returns 'b,c'";
+    // SLICE_EVAL(chopped_slice); NL  SLICE_EVAL(slice1); NL
+
+}
 
 
 TEST(StringSlice, slice_starts_with) {

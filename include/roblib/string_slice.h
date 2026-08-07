@@ -30,12 +30,21 @@
 extern "C" {
 #endif
 
-// Helper that creates local function call scope buffer for `slice_as_cstring` to write into
+// Helper that creates a temp buffer for `slice_as_cstring` to write into. The buffer only exists for the duration of
+// the enclosing scope in which it is used.
 #define SLICE_BUF(S, BUFSZ) slice_as_cstring( (S), BUFSZ - 1, (char [BUFSZ]){ } )
 // Helper for formatting a StringSlice when printing
 #define SV_FMT "%.*s"
 // Helper for specifying length and char array of StringSlice for printing
 #define SV_FIELDS(S) (int)(S).length, (S).data
+
+// example:
+// SliceString slice = slice_from_cstring("one");
+// SLICE_EVAL(slice);
+//
+// output : slice = { .length=3, .data='one' }
+#define SLICE_EVAL(S) printf("%s = { .length=%zu, .data='" SV_FMT "' }", #S, (S).length, SV_FIELDS(S) )
+
 
 typedef struct string_slice_s {
     char const * data;
@@ -109,6 +118,10 @@ ssize_t             slice_rindex_of_by_case( StringSlice s,  StringSlice subs, b
 // todo what does Python do in the case that the sep is the empty string? If both are empty string?
 StringSlice3Tuple   slice_partition(StringSlice s, StringSlice sep);
 
+// If the string starts with the prefix string, return a slice with the prefix removed.
+// Otherwise, return the original StringSlice:
+StringSlice slice_remove_prefix(StringSlice s, StringSlice prefix);
+StringSlice slice_remove_suffix(StringSlice s, StringSlice suffix);
 
 // split can be implemented several ways. In Python, you can split on a str, a sequence of chars, not just
 // a single char. Python returns the results of a split in a list with all the split parts as
@@ -130,7 +143,10 @@ size_t slice_split_to_out_buffer(
 
 
 StringSlice slice_chop_by_delimiter(StringSlice *s, StringSlice delimiter);
+// convenience function that wraps the argument delimiter in a StringSlice and calls `slice_chop_by_delimiter()`
 StringSlice slice_chop_by_delimiter_str(StringSlice *s, char const * delimiter);
+// convenience function that wraps the argument delimiter as a one-char StringSlice and calls `slice_chop_by_delimiter()`
+StringSlice slice_chop_by_delimiter_char(StringSlice *s, char delimiter_char);
 
 bool                slice_starts_with( StringSlice s, StringSlice prefix);
 bool                slice_starts_with_by_case( StringSlice s,  StringSlice prefix, bool ignore_case);
@@ -152,6 +168,7 @@ size_t              slice_fprint(StringSlice s, FILE* stream );
 // print value of slice to stdout
 // Returns the number of chars written
 size_t              slice_print(StringSlice s);
+size_t              slice_print_partition(StringSlice3Tuple s3t);
 // Writes the first `n` characters of the slice into the provided buffer, followed by the null terminator.
 //
 // If the StringSlice has fewer characters than `n`, only s.length characters are written.

@@ -167,6 +167,15 @@ size_t slice_print(StringSlice s) {
     return slice_fprint(s, stdout);
 }
 
+//todo (rob) refactor to call a version that takes a stream, and return the bytes written
+size_t slice_print_partition(StringSlice3Tuple s3t) {
+    printf("(string_slice_3_tuple_s){ ._1 = '"); slice_print(s3t._1);
+    printf("', ._2 = '"); slice_print(s3t._2);
+    printf("', ._3 = '"); slice_print(s3t._3);
+    printf("' }");
+    return 0; // todo temp
+}
+
 StringSlice3Tuple slice_partition(StringSlice s, StringSlice sep) {
     StringSlice3Tuple result = { ._1 = s, ._2 = EMPTY_STRING_SLICE, ._3 = EMPTY_STRING_SLICE};
     if (sep.length > s.length) return result;
@@ -255,27 +264,41 @@ size_t slice_split_to_out_buffer(
 // `s` is modified to contain the remainder of the string following the first delimiter, not including the
 // delimiter string.
 StringSlice slice_chop_by_delimiter(StringSlice *s, StringSlice delimiter) {
-    if (delimiter.length == 0) return *s;
-    size_t max_i = s->length - delimiter.length;
+    // note: delimiter may be a temporary buffer created in `slice_chop_by_delimiter_char` as a convenience.
+    // if in the future this function needs to return or store the delimiter, it may have a dangling pointer.
+    // in this case we either need to make a copy of the delimiter data via strdup(), or
+    // remove the function `slice_chop_by_delimiter_char`
+
+    if (delimiter.length == 0 || s->length == 0 || delimiter.length > s->length ) return *s;
+    // special case, s only contains the separator. return empty strings
+    if (delimiter.length == s->length && slice_equal(*s, delimiter)) {
+        *s = slice_empty_slice();
+        return *s;
+    }
+    const size_t max_i = s->length - delimiter.length;
     size_t i = 0;
     for ( i = 0; i < max_i; ++i) {
         if (slice_starts_with(slice_drop(*s, i), delimiter)) {
             // matched delimiter
-            break;
+            StringSlice result = slice_take(*s, i);
+            *s = slice_drop(*s, i + delimiter.length );
+            return result;
         }
     }
-    StringSlice result = slice_take(*s, i);
-    if ( i < s->length ) {
-        *s = slice_drop(*s, i + delimiter.length + 1);
-    } else {
-        *s = slice_drop (*s, i+ delimiter.length);
-    }
+    // todo (rob) we return the original slice if no delimiter was found. What about the argument slice?
+    // do we leave it alone or set it to the empty string? For now I return the original string
+    // and modify the argument to set it to the empty slice.
+    StringSlice result = *s;
+    *s = slice_empty_slice();
     return result;
 }
 
 // Convenience method that converts a single `delimiter_char` to a StringSlice then calls
 // slice_chop_by_delimiter()
 StringSlice slice_chop_by_delimiter_char(StringSlice *s, char const delimiter_char) {
+    // note that the temp string only exists during evaluation of this function.
+    // if `slice_chop_by_delimiter` retains or returns this delimiter, that StringSlice's .data member
+    // is a dangling pointer
     StringSlice result = slice_chop_by_delimiter(s,
         slice_from_cstring(  (char const[2]){delimiter_char, 0} ));
     return result;
@@ -366,56 +389,27 @@ void test_split(void) {
     }
 }
 
-void slice_print_partition(StringSlice3Tuple s3t) {
-    printf("(string_slice_3_tuple_s){ ._1 = '"); slice_print(s3t._1);
-    printf("', ._2 = '"); slice_print(s3t._2);
-    printf("', ._3 = '"); slice_print(s3t._3);
-    printf("' }");
-}
 
-void test_slice_partition(void) {
-    StringSlice s = slice_from_cstring("Jaloopy|mookie");
-    printf("for slice: "); slice_print(s); printf(", sep=|");  putchar('\n');
-    StringSlice3Tuple partition = slice_partition(s, slice_from_cstring("|"));
-    slice_print_partition(partition);
 
-    printf("\nfor slice: "); slice_print(s); printf(", sep=???");  putchar('\n');
-    StringSlice3Tuple partition2 = slice_partition(s, slice_from_cstring("???"));
-    slice_print_partition(partition2);
 
-    printf("\nfor slice: "); slice_print(s); printf(", sep=y|m ");  putchar('\n');
-    StringSlice3Tuple partition3 = slice_partition(s, slice_from_cstring("y|m"));
-    slice_print_partition(partition3);
-
-}
-#define SLICE_BUF(S, BUFSZ) slice_as_cstring( (S), BUFSZ - 1, (char [BUFSZ]){ } )
-#define SV_FMT "%.*s"
-#define SV_FIELDS(S) (int)(S).length, (S).data
-
-void terst_substring(void) {
+void examples_of_printing_slice(void) {
     StringSlice s = slice_from_cstring("This is a string Joey.");
     StringSlice substr = slice_substring(s, 10, 15); // "string"
     printf("substring(10,15) is '"); slice_print(substr); printf("'\n");
 
+    // requires a temporary buffer created with function parameter scope.
     printf("printing via slice_as_cstring: `%s`\n", slice_as_cstring(substr, 1000, (char [1000]){ } ));
     printf("printing via slice_as_cstring: `%s`\n", SLICE_BUF(substr, 1024) );
-    printf("printing with SV_FMT: |"SV_FMT"\n", SV_FIELDS(substr));
-
     // note: the SV_FIELDS macro doesn't require a buffer or a copy, so it seems to be the best method of printing.
-
+    printf("printing with SV_FMT: |"SV_FMT"\n", SV_FIELDS(substr));
 }
 // #define STRING_SLICE_MAIN
 #ifdef STRING_SLICE_MAIN
 int main(int argc, char *argv[]) {
 #if (0)
-    test_take_drop();
     test_split();
-    test_slice_partition();
-    terst_substring();
+
 #endif
-
-    printf("sizeof(long double) = %zu\n", sizeof(long double));
-
 
 }
 #endif
