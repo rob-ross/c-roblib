@@ -73,7 +73,7 @@ bool slice_ends_with_by_case(const StringSlice s, const StringSlice suffix, bool
 }
 
 // todo (rob) FUTURE SIMD here?
-bool slice_equal(StringSlice s1, StringSlice s2) {
+bool slice_equal(const StringSlice s1, const StringSlice s2) {
     if ( s1.length != s2.length ) return false;
     if (s1.data == s2.data) return true; // same count, and data identity
     for (size_t i = 0; i < s1.length; ++i) {
@@ -83,7 +83,7 @@ bool slice_equal(StringSlice s1, StringSlice s2) {
 }
 
 // todo (rob) FUTURE SIMD here?
-bool slice_equal_by_case(StringSlice s1, StringSlice s2, bool ignore_case) {
+bool slice_equal_by_case(const StringSlice s1, const StringSlice s2, bool ignore_case) {
     if ( ignore_case == false ) return slice_equal(s1, s2);
     if ( s1.length != s2.length ) return false;
     if (s1.data == s2.data) return true; // same count, and data identity
