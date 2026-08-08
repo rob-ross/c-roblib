@@ -63,7 +63,8 @@ typedef struct string_slice_array_s {
     StringSlice elements[]; // FMA
 } StringSliceArray;
 
-const StringSlice EMPTY_STRING_SLICE = { .data = "", .length = 0};
+extern const StringSlice EMPTY_STRING_SLICE;
+
 
 StringSlice         slice_from_cstring( char const * cstring );
 // Writes at most `max_chars` of the StringSlice `s` into `buf`, plus the null terminator.

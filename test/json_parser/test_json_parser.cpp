@@ -8,6 +8,10 @@
 
 #include "roblib/json_parser.h"
 
+// SLIT: slice literal convenience macro
+#define SLIT(S) slice_from_cstring((S))
+#define NL putchar('\n');
+
 void JsonParserEnvironment::SetUp() {
     jsonp_init();
     // Using {} (List Initialization) to ensure the C struct is completely
@@ -197,7 +201,7 @@ TEST_P(JsonParserStrings, TestStrings) {
     ASSERT_NE(jval, nullptr) << "Failed to parse: " << input_json;
     EXPECT_EQ(jval->type, JSON_STRING);
     if (jval->type == JSON_STRING) {
-        EXPECT_STREQ(jval->u.string, expected_output.c_str());
+        EXPECT_TRUE(slice_equal(jval->u.string, SLIT(expected_output.c_str())));
     }
 }
 
@@ -219,7 +223,7 @@ TEST_P(JsonParserStringEscapes, TestStringEscapes) {
     ASSERT_NE(jval, nullptr) << "Failed to parse: " << input_json << " " << err->message;
     EXPECT_EQ(jval->type, JSON_STRING);
     if (jval->type == JSON_STRING) {
-        EXPECT_STREQ(jval->u.string, expected_output.c_str()) ;
+        EXPECT_TRUE(slice_equal(jval->u.string, SLIT(expected_output.c_str()))) ;
     }
 }
 
@@ -265,7 +269,7 @@ TEST_P(JsonParserUnicodeStrings, TestStrings) {
     ASSERT_NE(jval, nullptr) << "Failed to parse: " << input_json;
     EXPECT_EQ(jval->type, JSON_STRING);
     if (jval->type == JSON_STRING) {
-        EXPECT_STREQ(jval->u.string, expected_output.c_str());
+        EXPECT_TRUE(slice_equal(jval->u.string, SLIT(expected_output.c_str())));
     }
 }
 

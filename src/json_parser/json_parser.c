@@ -45,6 +45,7 @@
 
 constexpr char NUL = '\0';
 constexpr size_t LOOK_AHEAD_BUF_SIZE = 40;
+char const * const    JSON_WHITESPACE_CHARS_DEFAULT = " \t\n\r";
 
 
 // -----------------------------------------------------------------
@@ -631,11 +632,11 @@ static JsonObjectEntryNode * pvt_add_json_object_entry_node(JsonObjectEntryNode 
     return new_node;
 }
 
-
+// todo can we pass `key` as a StringSlice?
 JsonObjectEntry * jsonp_entry_for_key(const JsonValue *json_obj, char const * key) {
     for (uint32_t i = 0; i < json_obj->u.object.count; ++i) {
-        char const * entry_key = json_obj->u.object.entries[i]->key;
-        if (strcmp(entry_key, key) == 0 ) {
+        StringSlice entry_key = json_obj->u.object.entries[i]->key;
+        if (slice_equal(entry_key, slice_from_cstring(key)) == 0 ) {
             return json_obj->u.object.entries[i];
         }
     }
@@ -684,7 +685,7 @@ static JsonObjectEntry * pvt_parse_one_entry(JsonContext *context, JsonParseErro
     if (pvt_current_char(context) == NUL) {
         // snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "unexpected EOF, expected object value");
 
-        int written =  snprintf(error->message, ERROR_MSG_BUFFER_SIZE,"expected object value for key '%s', got ", key->u.string);
+        int written =  snprintf(error->message, ERROR_MSG_BUFFER_SIZE,"expected object value for key '%s', got ", SLICE_BUF(key->u.string, 128));
         if (written > 0) {
             pvt_format_error_message_char(ERROR_MSG_BUFFER_SIZE - written,
                 error->message + written, pvt_current_char(context) );
@@ -1543,7 +1544,7 @@ static JsonValue * pvt_parse_string(JsonContext *context, JsonParseError *error,
             memcpy(str_value, sb.buffer, len);
             str_value[len] = NUL;
 
-            value->u.string = str_value;
+            value->u.string = (StringSlice){ .length = len, .data = str_value };
 
             pvt_advance(context, 1); // consume the terminating quote
             sb_destroy(&sb);
@@ -1884,11 +1885,15 @@ static JsonValue *  pvt_parse_literal_impl(  JsonContext *context,
     return literal;
 }
 
+constexpr StringSlice NULL_SLICE  = (StringSlice){ .length = 4, .data = "null"};
+
+
+
 
 // todo (rob) these JsonValues need to be const
 constexpr size_t JSON_KEYWORD_NULL_LEN = 4;
 constexpr char   JSON_KEYWORD_NULL[JSON_KEYWORD_NULL_LEN + 1] = "null";
-static JsonValue JSON_NULL_VALUE = { .type = JSON_NULL, .u.string = JSON_KEYWORD_NULL};
+static JsonValue JSON_NULL_VALUE = { .type = JSON_NULL, .u.string = NULL_SLICE};
 
 constexpr size_t JSON_KEYWORD_TRUE_LEN = 4;
 constexpr char   JSON_KEYWORD_TRUE[JSON_KEYWORD_TRUE_LEN + 1] = "true";
@@ -2571,19 +2576,6 @@ Error (jsonp_init)(jp_bitset_t config_flags, uint32_t max_depth, char const * wh
     return (Error){};
 }
 
-// Error jsonp_init_2(jp_bitset_t config_flags, uint32_t max_depth) {
-//     return jsonp_init_3(config_flags, max_depth, JSON_WHITESPACE_CHARS_DEFAULT);
-// }
-
-// Error jsonp_init_1(jp_bitset_t config_flags) {
-//     return jsonp_init_3( config_flags, JSON_DEPTH_MAX_DEFAULT, JSON_WHITESPACE_CHARS_DEFAULT);
-// }
-
-
-// Error jsonp_init() {
-//     return jsonp_init_3(JSON_CONFIG_FLAGS_DEFAULT, JSON_DEPTH_MAX_DEFAULT, JSON_WHITESPACE_CHARS_DEFAULT);
-// }
-
 
 // -----------------------------------------------------------------
 //      DESTROY
@@ -2614,10 +2606,10 @@ static void pvt_json_object_str(JsonValue *object) {
     }
     // First entry
     printf("{ ");
-    printf("'%s' : ",object->u.object.entries[0]->key);
+    printf("'%s' : ", SLICE_BUF(object->u.object.entries[0]->key, 128));
     jsonp_print_json_value(object->u.object.entries[0]->value);
     for (size_t i = 1; i < object->u.object.count; ++i) {
-        printf(", '%s' : ",object->u.object.entries[i]->key);
+        printf(", '%s' : ", SLICE_BUF(object->u.object.entries[i]->key, 128));
         jsonp_print_json_value(object->u.object.entries[i]->value);
     }
     printf(" }");
@@ -2653,17 +2645,17 @@ void jsonp_print_json_value(JsonValue *value) {
         case JSON_LONG:
             printf("%ld", value->u.n_long);
             break;
-        case JSON_LONG_LONG:
-            printf("%lld", value->u.n_long_long);
-            break;
+        // case JSON_LONG_LONG:
+        //     printf("%lld", value->u.n_long_long);
+        //     break;
         case JSON_DOUBLE:
             printf("%g", value->u.n_double);
             break;
-        case JSON_LONG_DOUBLE:
-            printf("%Lg", value->u.n_long_double);
-            break;
+        // case JSON_LONG_DOUBLE:
+        //     printf("%Lg", value->u.n_long_double);
+        //     break;
         case JSON_STRING:
-            printf("'%s'", value->u.string);
+            printf("'%s'", SLICE_BUF(value->u.string, 128));
             break;
         case JSON_ARRAY:
             json_array_str(value);
@@ -2671,6 +2663,7 @@ void jsonp_print_json_value(JsonValue *value) {
         case JSON_OBJECT:
             pvt_json_object_str(value);
             break;
+        default: break;
     }
 }
 

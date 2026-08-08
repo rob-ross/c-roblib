@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <ctype.h>
 
+const StringSlice EMPTY_STRING_SLICE = { .length = 0, .data = ""  };
 
 char * slice_as_cstring(StringSlice s, size_t max_chars, char buf[static max_chars + 1 ]) {
     slice_snprint(s, max_chars, buf);

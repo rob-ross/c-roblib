@@ -40,13 +40,14 @@ The literal names MUST be lowercase.  No other literal names are allowed.
 
 #include "allocator.h"
 #include "error_result.h"
+#include "string_slice.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 
-typedef enum json_type{
+typedef enum json_type_e : char{
     JSON_NULL,
     JSON_BOOLEAN,
 
@@ -54,29 +55,20 @@ typedef enum json_type{
     JSON_NUMBER,  // generic JSON number type. Implemented as a double.
     JSON_LONG,
     JSON_DOUBLE,
-    JSON_LONG_LONG,
-    JSON_LONG_DOUBLE,  // for future use. long double == double on my machine :(
+    JSON_LONG_LONG,    // for future use. long == long long on my machine. :(
+    JSON_LONG_DOUBLE,  // for future use.
 
     JSON_STRING,
     JSON_ARRAY,
     JSON_OBJECT
-} json_type;
+} JsonType;
 
 typedef struct json_value_s JsonValue;
 typedef struct json_object_entry_s JsonObjectEntry;
 
 struct json_value_s {
-    json_type type;
     union {
-        int boolean;
-        union {
-            long        n_long;
-            double      n_double;
-            double      n_number;
-            long long   n_long_long;
-            long double n_long_double;
-        };
-        const char *string;
+        StringSlice string;
         struct {
             JsonValue **elements;
             size_t count;
@@ -85,11 +77,20 @@ struct json_value_s {
             JsonObjectEntry **entries;
             size_t count;
         } object;
+        union {
+            long        n_long;
+            double      n_double;
+            double      n_number;
+            // long long   n_long_long;
+            // long double n_long_double;
+        };
+        bool boolean;
     } u;
+    JsonType type;
 };
 
 struct json_object_entry_s {
-    char const *key;
+    StringSlice key;
     JsonValue *value;
 };
 
@@ -235,7 +236,8 @@ typedef struct json_context_s JsonContext; // opaque type
 
 constexpr jp_bitset_t JSON_CONFIG_FLAGS_DEFAULT     = 0;
 constexpr uint32_t    JSON_DEPTH_MAX_DEFAULT        = 64;
-char const * const    JSON_WHITESPACE_CHARS_DEFAULT = " \t\n\r";
+
+extern char const * const    JSON_WHITESPACE_CHARS_DEFAULT;
 
 
 // -----------------------------------------------------------------
@@ -440,6 +442,14 @@ void jsonp_print_parse_error(JsonParseError *err);
 
 
 void jsonp_value_repr(JsonValue *value);
+
+// -----------------------------------------------------------------
+//      JSON Pretty Printer
+// -----------------------------------------------------------------
+
+void jsonp_format_scalar(JsonValue jval);
+
+
 
 #ifdef __cplusplus
 }

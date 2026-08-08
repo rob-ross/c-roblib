@@ -74,6 +74,7 @@ set(LIB_SOURCES
         src/json_parser/stack_allocator.c
         src/string/string_slice.c
         src/platform_specific.c
+        src/json_parser/json_pretty_printer.c
 )
 
 # Find the libcurl package
