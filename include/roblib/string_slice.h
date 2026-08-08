@@ -153,6 +153,9 @@ bool                slice_starts_with_by_case( StringSlice s,  StringSlice prefi
 bool                slice_ends_with( StringSlice s, StringSlice suffix);
 bool                slice_ends_with_by_case( StringSlice s,  StringSlice suffix, bool ignore_case);
 
+// we could add a slice_contains(StringSlice s, StringSlice subst);
+// but, slice_index_of already performs this function. If it returns -1, the slice does not contain the substr.
+
 StringSlice         slice_trim(StringSlice s);
 StringSlice         slice_trim_left(StringSlice s);
 StringSlice         slice_trim_right(StringSlice s);
