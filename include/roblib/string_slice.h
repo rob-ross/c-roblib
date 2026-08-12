@@ -99,6 +99,8 @@ int                 slice_compare_by_case(StringSlice s1, StringSlice s2, bool i
 StringSlice         slice_empty_slice();
 bool                slice_equal(StringSlice s1, StringSlice s2);
 bool                slice_equal_by_case(StringSlice s1, StringSlice s2, bool ignore_case);
+bool                slice_equal_arrays( const StringSliceArray * sa1, const StringSliceArray * sa2);
+bool                slice_equal_arrays_by_case( const StringSliceArray * sa1, const StringSliceArray * sa2, bool ignore_case);
 
 
 // todo (rob) note, take and drop are just special cases of slice_substring(). Perhaps we could use macros to

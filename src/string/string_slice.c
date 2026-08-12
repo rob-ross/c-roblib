@@ -136,6 +136,28 @@ bool slice_equal_by_case(const StringSlice s1, const StringSlice s2, bool ignore
     return true;
 }
 
+bool slice_equal_arrays( const StringSliceArray * sa1, const StringSliceArray * sa2) {
+    if ( sa1->size != sa2->size ) return false;
+    if (sa1->elements == sa2->elements) return true; // same count, and element identity
+    const size_t array_size = sa1->size;
+    for (size_t i = 0; i < array_size; ++i) {
+        if ( !slice_equal(sa1->elements[i], sa2->elements[i])) return false;
+    }
+    return true;
+}
+
+bool slice_equal_arrays_by_case( const StringSliceArray * sa1, const StringSliceArray * sa2, bool ignore_case) {
+    if ( ignore_case == false ) return slice_equal_arrays(sa1, sa2);
+
+    if ( sa1->size != sa2->size ) return false;
+    if (sa1->elements == sa2->elements) return true; // same count, and element identity
+    const size_t array_size = sa1->size;
+    for (size_t i = 0; i < array_size; ++i) {
+        if ( !slice_equal_by_case(sa1->elements[i], sa2->elements[i], ignore_case )) return false;
+    }
+    return true;
+}
+
 StringSlice slice_from_cstring( char const * cstring ) {
     if (!cstring) return EMPTY_STRING_SLICE;
     StringSlice result =  (StringSlice){ .data = cstring, .length = strlen(cstring) };

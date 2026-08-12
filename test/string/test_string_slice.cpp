@@ -296,28 +296,42 @@ TEST(StringSlice, slice_split) {
     AlokArena * arena = aer.result;
 
     StringSlice slice = SLIT(fixture);
+    StringSliceArray *expected_1 = (StringSliceArray*)alok_arena_alloc(arena, sizeof(StringSliceArray) + 5 * sizeof(StringSlice));
+    StringSlice expected_elements[] = {
+        SLIT("one"),  SLIT(" 2"),  SLIT(" three"),  SLIT("4"),  SLIT("five")
+    };
+    expected_1->size = 5;
+    memcpy(expected_1->elements, expected_elements, sizeof(StringSlice) * expected_1->size);
+
     StringSliceArray *slice_array = slice_split(arena, slice, SLIT(","));
-    slice_print_slice_array(slice_array);putchar('\n');
+    EXPECT_TRUE(slice_equal_arrays(expected_1, slice_array));
+
     // empty string, empty delimiter
     slice_array = slice_split(arena, SLIT(""), SLIT(""));
-    slice_print_slice_array(slice_array);putchar('\n');
+    EXPECT_EQ(slice_array->size, 0);
 
     // empty string, non-empty delimiter
     slice_array = slice_split(arena, SLIT(""), SLIT(","));
-    slice_print_slice_array(slice_array);putchar('\n');
+    EXPECT_EQ(slice_array->size, 0);
 
     // non-empty string, empty delimiter
     slice_array = slice_split(arena, SLIT(fixture), SLIT(""));
-    slice_print_slice_array(slice_array);putchar('\n');
+    EXPECT_EQ(slice_array->size, 1);
+    EXPECT_TRUE( slice_equal(slice_array->elements[0], SLIT("one, 2, three,4,five")) );
 
     // non-empty string, non-empty but missing delimiter
     slice_array = slice_split(arena, SLIT(fixture), SLIT("|"));
-    slice_print_slice_array(slice_array);putchar('\n');
+    EXPECT_EQ(slice_array->size, 1);
+    EXPECT_TRUE( slice_equal(slice_array->elements[0], SLIT("one, 2, three,4,five")) );
 
     // non-empty string, non-empty delimiter appearing once
     slice_array = slice_split(arena, SLIT(fixture), SLIT("three"));
-    slice_print_slice_array(slice_array);putchar('\n');
+    EXPECT_EQ(slice_array->size, 2);
+    EXPECT_TRUE( slice_equal(slice_array->elements[0], SLIT("one, 2, ")) );
+    EXPECT_TRUE( slice_equal(slice_array->elements[1], SLIT(",4,five")) );
 
+
+    alok_arena_destroy(arena);
 
 }
 // todo (rob) implement
