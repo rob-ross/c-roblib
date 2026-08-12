@@ -52,12 +52,6 @@ typedef struct string_slice_s {
 
 } StringSlice;
 
-typedef struct string_slice_3_tuple_s {
-    StringSlice _1;
-    StringSlice _2;
-    StringSlice _3;
-} StringSlice3Tuple;
-
 typedef struct string_slice_array_s {
     size_t size;
     StringSlice elements[]; // FMA
@@ -79,6 +73,10 @@ extern const StringSlice EMPTY_STRING_SLICE;
 
 
 StringSlice         slice_from_cstring( char const * cstring );
+StringSlice slice_from_char( char c_char );
+// todo (rob) slice_char_as_cstring probably belongs in string_utils as a general string method
+char const * slice_char_as_cstring(char c);
+
 // Writes at most `max_chars` of the StringSlice `s` into `buf`, plus the null terminator.
 // buf must be large enough to accommodate max_chars + null terminator.
 // Returns the argument `buf`
@@ -123,13 +121,6 @@ ssize_t             slice_index_of_by_case( StringSlice s, StringSlice subs, boo
 ssize_t             slice_rindex_of( StringSlice s, StringSlice subs);
 ssize_t             slice_rindex_of_by_case( StringSlice s,  StringSlice subs, bool ignore_case);
 
-//Split the string at the first occurrence of `sep`, and return a 3-tuple containing:
-// 1. the part before the separator,
-// 2. the separator itself, and
-// 3. the part after the separator.
-// If the separator is not found, return a 3-tuple containing the string itself, followed by two empty strings.
-// todo what does Python do in the case that the sep is the empty string? If both are empty string?
-StringSlice3Tuple   slice_partition(StringSlice s, StringSlice sep);
 
 // If the string starts with the prefix string, return a slice with the prefix removed.
 // Otherwise, return the original StringSlice:
@@ -185,7 +176,6 @@ size_t              slice_fprint(StringSlice s, FILE* stream );
 // print value of slice to stdout
 // Returns the number of chars written
 size_t              slice_print(StringSlice s);
-size_t              slice_print_partition(StringSlice3Tuple s3t);
 // Writes the first `n` characters of the slice into the provided buffer, followed by the null terminator.
 //
 // If the StringSlice has fewer characters than `n`, only s.length characters are written.

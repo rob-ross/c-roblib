@@ -289,48 +289,6 @@ TEST(StringSlice, slice_rindex_of_by_case ) {
     EXPECT_EQ( slice_rindex_of_by_case(slice2, SLIT("B"),         false ), -1 ) << "rindex of 'B' in 'abcba' is -1";
 }
 
-TEST(StringSlice, slice_partition) {
-    StringSlice slice = SLIT("one, 2, three,4,five");
-
-    StringSlice3Tuple s3 = slice_partition(slice, SLIT(","));
-    EXPECT_TRUE(slice_equal( s3._1, SLIT("one") )) << "first is 'one'";
-    EXPECT_TRUE(slice_equal( s3._2, SLIT(",") )) << "second is ','";
-    EXPECT_TRUE(slice_equal( s3._3, SLIT(" 2, three,4,five") )) << "third is ' 2, three,4,five'";
-
-    s3 = slice_partition(s3._3, SLIT(","));
-    EXPECT_TRUE(slice_equal( s3._1, SLIT(" 2") )) << "first is ' 2'";
-    EXPECT_TRUE(slice_equal( s3._2, SLIT(",") )) << "second is ','";
-    EXPECT_TRUE(slice_equal( s3._3, SLIT(" three,4,five") )) << "third is ' three,4,five'";
-
-    StringSlice empty = slice_empty_slice();
-    StringSlice3Tuple s3_empty = slice_partition(empty, SLIT(""));
-    // degenerate case
-    EXPECT_TRUE(slice_equal( s3_empty._1, SLIT("") )) << "first is ''";
-    EXPECT_TRUE(slice_equal( s3_empty._2, SLIT("") )) << "second is ''";
-    EXPECT_TRUE(slice_equal( s3_empty._3, SLIT("") )) << "third is ''";
-
-    StringSlice3Tuple s3_2;
-    StringSlice slice3 = SLIT("Monty Python's Flying Circus");
-
-    // non-empty slice string, separator is empty string
-    s3_2 = slice_partition(slice3, SLIT(""));
-    EXPECT_TRUE(slice_equal( s3_2._1, SLIT("") )) << "first is '" << SLICE_BUF(s3_2._1, 64) << "', expected ''";
-    EXPECT_TRUE(slice_equal( s3_2._2, SLIT("") )) << "second is '" << SLICE_BUF(s3_2._2, 64) << "', expected ''";
-    EXPECT_TRUE(slice_equal( s3_2._3, SLIT("Monty Python's Flying Circus") )) << "third is '" << SLICE_BUF(s3_2._3, 64) << "', expected 'Monty Python's Flying Circus'";
-
-    // non-empty slice string, separator is a space
-    s3_2 = slice_partition(slice3, SLIT(" "));
-    EXPECT_TRUE(slice_equal( s3_2._1, SLIT("Monty") )) << "first is '" << SLICE_BUF(s3_2._1, 64) << "', expected 'Monty'";
-    EXPECT_TRUE(slice_equal( s3_2._2, SLIT(" ") )) << "second is '" << SLICE_BUF(s3_2._2, 64) << "', expected ' '";
-    EXPECT_TRUE(slice_equal( s3_2._3, SLIT("Python's Flying Circus") )) << "third is '" << SLICE_BUF(s3_2._3, 64) << "', expected 'Python's Flying Circus'";
-
-    // separator not found
-    s3_2 = slice_partition(slice3, SLIT("-"));
-    EXPECT_TRUE(slice_equal( s3_2._1, SLIT("Monty Python's Flying Circus") )) << "first is '" << SLICE_BUF(s3_2._1, 64) << "', expected 'Monty Python's Flying Circus'";
-    EXPECT_TRUE(slice_equal( s3_2._2, SLIT("") )) << "second is '" << SLICE_BUF(s3_2._2, 64) << "', expected ''";
-    EXPECT_TRUE(slice_equal( s3_2._3, SLIT("") )) << "third is '" << SLICE_BUF(s3_2._3, 64) << "', expected ''";
-}
-
 // todo (rob) implement
 TEST(StringSlice, slice_split) {
     char const * fixture = "one, 2, three,4,five";

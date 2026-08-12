@@ -225,35 +225,10 @@ size_t slice_print(StringSlice s) {
     return slice_fprint(s, stdout);
 }
 
-//todo (rob) refactor to call a version that takes a stream, and return the bytes written
-size_t slice_print_partition(StringSlice3Tuple s3t) {
-    printf("(string_slice_3_tuple_s){ ._1 = '"); slice_print(s3t._1);
-    printf("', ._2 = '"); slice_print(s3t._2);
-    printf("', ._3 = '"); slice_print(s3t._3);
-    printf("' }");
-    return 0; // todo temp
-}
+
 
 size_t slice_print_slice_array(StringSliceArray *slices) {
     return slice_fprint_slice_array(slices, stdout);
-}
-
-StringSlice3Tuple slice_partition(StringSlice s, StringSlice sep) {
-    StringSlice3Tuple result = { ._1 = s, ._2 = EMPTY_STRING_SLICE, ._3 = EMPTY_STRING_SLICE};
-    if (sep.length > s.length) return result;
-
-    size_t max_i = s.length - sep.length;
-    for (size_t i = 0; i < max_i; ++i) {
-        if (slice_starts_with(slice_drop(s, i), sep)) {
-            result = (StringSlice3Tuple){
-                ._1 = slice_take(s, i),
-                ._2 = slice_take(slice_drop(s, i), sep.length),
-                ._3 = slice_drop(s, i + sep.length )
-            };
-            return result;
-        }
-    }
-    return result;
 }
 
 size_t slice_snprint(StringSlice s, size_t n, char buf[static n + 1]) {
