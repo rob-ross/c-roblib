@@ -363,7 +363,9 @@ TEST(StringSlice, slice_split) {
 
 }
 // todo (rob) implement
-TEST(StringSlice, slice_split_by_str){}
+TEST(StringSlice, slice_split_by_str) {
+
+}
 // todo (rob) implement
 TEST(StringSlice, slice_split_to_out_buffer){}
 
@@ -447,7 +449,7 @@ TEST(StringSlice, slice_chop_by_delimiter) {
     slice1 = fixture;
     chopped_slice = slice_chop_by_delimiter( &slice1, SLIT("SEP"));
     EXPECT_TRUE(slice_equal(chopped_slice, SLIT("ab") )) << "returns 'ab'";
-    EXPECT_TRUE(slice_equal(slice1, SLIT("ab") )) << "returns 'ab'";
+    EXPECT_TRUE(slice_equal(slice1, SLIT("") )) << "returns empty slice";
     // SLICE_EVAL(chopped_slice); NL  SLICE_EVAL(slice1); NL
 
     // only separator in string
