@@ -48,7 +48,7 @@ extern "C" {
 
 typedef struct string_slice_s {
     char const * data;
-    size_t length;
+    size_t length;  // in bytes
 
 } StringSlice;
 
@@ -62,6 +62,18 @@ typedef struct string_slice_array_s {
     size_t size;
     StringSlice elements[]; // FMA
 } StringSliceArray;
+
+typedef struct string_slice_node_s{
+    struct string_slice_node_s *next;
+    StringSlice slice;
+} StringSliceNode;
+
+typedef struct string_slice_ll_s{
+    StringSliceNode *first;
+    StringSliceNode *last;
+    size_t node_count;
+    size_t total_size;  // in bytes
+} StringSliceLL;
 
 extern const StringSlice EMPTY_STRING_SLICE;
 
@@ -131,9 +143,10 @@ StringSlice slice_remove_suffix(StringSlice s, StringSlice suffix);
 // the string in half by the first delimiter and returns to you the first string, and modifies
 // the argument slice to represent the remainder of the string after the first split.
 
+typedef struct alok_arena_s AlokArena;
 
-StringSliceArray slice_split(StringSlice s, StringSlice delimiter);
-StringSliceArray slice_split_by_str(StringSlice s, char const * delimiter);
+StringSliceArray * slice_split( AlokArena * arena, StringSlice s, StringSlice delimiter);
+StringSliceArray * slice_split_by_str(AlokArena * arena, StringSlice s, char const * delimiter);
 
 size_t slice_split_to_out_buffer(
             StringSlice s,
@@ -181,6 +194,8 @@ size_t              slice_print_partition(StringSlice3Tuple s3t);
 // Returns the number of characters written to `buf`, not counting the null terminator
 size_t              slice_snprint(StringSlice s, size_t n, char * buf);
 
+size_t slice_fprint_slice_array(StringSliceArray *slices, FILE* stream);
+size_t slice_print_slice_array(StringSliceArray *slices);
 
 
 #ifdef __cplusplus

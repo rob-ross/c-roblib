@@ -13,6 +13,35 @@
 #include <stdint.h>
 
 
+// Concrete implementation for FILE streams (stdout, stderr, files)
+void file_writer_impl(Writer *self, const char *data_source, size_t len) {
+    fwrite(data_source, 1, len, (FILE *)self->writer_context);
+}
+
+Writer get_file_writer(FILE *f) {
+    return (Writer){.write = file_writer_impl, .writer_context = f};
+}
+
+// Concrete implementation for memory buffers
+typedef struct {
+    char *buf;
+    size_t capacity;
+    size_t used;
+} BufferCtx;
+
+// todo (rob) data_source should be an abstract Reader class for reading  like Writer is for writing.
+
+void buffer_writer_impl(Writer *self, const char *data_source, size_t len) {
+    BufferCtx *ctx = self->writer_context;
+    size_t space_left = (ctx->used < ctx->capacity) ? (ctx->capacity - ctx->used) : 0;
+    size_t to_copy = (len < space_left) ? len : space_left;
+    if (to_copy > 0) {
+        memcpy(ctx->buf + ctx->used, data_source, to_copy);
+        ctx->used += to_copy;
+    }
+}
+
+
 // todo (rob) we need an ignore list for things like .DS_Store, flags for handling hidden files/directories, links, etc.
 static void walk_directory_impl(const char *path, uint16_t depth ) {
     DIR *dir = opendir(path);

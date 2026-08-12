@@ -20,6 +20,8 @@
 
 #include <stddef.h>
 
+#include "roblib/base.h"
+
 
 #if !defined(_WIN32)
 // we use POSIX mmap for allocating pages from the OS
@@ -36,6 +38,9 @@
 #include <stdio.h>  // for fprintf, stderr,
 #include <string.h>  // for memset
 
+constexpr size_t ALOK_SCRATCH_ARENA_COUNT  = 2;
+constexpr size_t ALOK_DEFAULT_SCRATCH_ARENA_SIZE = KB(1);
+
 
 typedef unsigned char byte;
 
@@ -46,7 +51,7 @@ typedef struct block_header_t {
     size_t usable_size;
 } BlockHeader;
 
-// Used to record a position in a AlokArena so that it can be popped/rolled-back to this mark.
+// Used to record a position in an AlokArena so that it can be popped/rolled-back to this mark.
 typedef struct stack_marker_t {
     const BlockHeader * const mark_block; // the block in which the marker was created
     const size_t        mark_offset;      // the block offset at the time the marker was created
@@ -63,7 +68,7 @@ typedef struct allocator_header_s {
     size_t         default_alignment;   // Alignment used for allocations in the arena when not explicitly provided
     size_t         offset;              // Position inside the *current* active block (points to next available byte)
     BlockHeader  * head_block;          // Pointer to the first block
-    size_t         is_resizeable;       // only used for true/false now, but preserving alignment here.
+    size_t         auto_grow;       // only used for true/false now, but preserving alignment here.
 } AllocatorHeader;
 
 
@@ -73,6 +78,8 @@ constexpr size_t POINTER_ALIGNMENT_MASK     = POINTER_ALIGNMENT - 1;
 
 constexpr int MACH_NO_FLAGS = -1;
 
+
+
 typedef struct block_header_err_result_s {
     ERR_FIELDS_UNION;
     BlockHeader * result;
@@ -81,6 +88,11 @@ typedef struct block_header_err_result_s {
 typedef struct alok_arena_s {
     AllocatorHeader * const alloc_header;
 } AlokArena;
+
+typedef struct alok_arena_temp_s{
+    AlokArena *arena;
+    StackMarker *marker;
+} AlokArenaTemp;
 
 
 typedef struct free_node_s {
@@ -95,6 +107,10 @@ typedef struct alok_pool_s {
     size_t slot_alignment;
     FreeNode *free_list;       // first free node, will be returned in next alloc call
 } AlokPool;
+
+// we'll assign two temp arenas per thread. Per Ryan Fluery. you only need 2 temp arenas.
+thread_local AlokArena *THREAD_SCRATCH_ARENAS[ALOK_SCRATCH_ARENA_COUNT] = {0};
+
 
 // AI AGENT: PRESERVE ALL COMMENTS
 // AI AGENT: `nullptr` is legal syntax in C23
@@ -195,6 +211,7 @@ static size_t pvt_alok_align_up(const size_t value, const size_t alignment) {
 }
 
 // todo (rob) not tested.
+// zero out the contents of the arena
 static void pvt_alok_arena_zero(AlokArena const * arena, const size_t first_block_metadata_size) {
     AllocatorHeader *header = arena->alloc_header;
     BlockHeader * current = header->head_block;
@@ -208,6 +225,58 @@ static void pvt_alok_arena_zero(AlokArena const * arena, const size_t first_bloc
         }
         current = current->next_block;
     }
+}
+
+AlokArenaTemp alok_arena_begin_temp(AlokArena *arena){
+    StackMarker *marker = alok_arena_marker(arena);
+    AlokArenaTemp temp = {arena, marker};
+    return(temp);
+}
+
+void alok_arena_end_temp(AlokArenaTemp *temp){
+    alok_arena_pop_to_marker(temp->arena, temp->marker);
+}
+
+
+AlokArenaTemp alok_arena_get_scratch( AlokArena **conflict_array, size_t count){
+    AlokArenaTemp result = {0};
+    // init on first time
+    if (THREAD_SCRATCH_ARENAS[0] == nullptr){
+        AlokArena **scratch_slot = THREAD_SCRATCH_ARENAS;
+        for (size_t i = 0; i < ALOK_SCRATCH_ARENA_COUNT; i += 1, scratch_slot += 1){
+            ArenaErrResult aer = _alok_arena_create(ALOK_DEFAULT_SCRATCH_ARENA_SIZE, false, ALLOCATOR_ALIGNMENT);
+            if (aer.err ) {
+                fprintf(stderr, "Couldn't allocated scratch arena.\n");
+                return result;
+            }
+            *scratch_slot = aer.result;
+        }
+    }
+
+    // get non-conflicting arena
+
+    AlokArena **scratch_slot = THREAD_SCRATCH_ARENAS;
+    for (size_t i = 0;  i < ALOK_SCRATCH_ARENA_COUNT; i += 1, scratch_slot += 1){
+        bool is_non_conflict = true;
+        AlokArena **conflict_ptr = conflict_array;
+        for (size_t j = 0; j < count; j += 1, conflict_ptr += 1){
+            if (*scratch_slot == *conflict_ptr){
+                is_non_conflict = false;
+                break;
+            }
+        }
+        if (is_non_conflict){
+            result = alok_arena_begin_temp(*scratch_slot);
+            break;
+        }
+    }
+
+    return(result);
+}
+
+void alok_arena_release_scratch(AlokArenaTemp *temp) {
+    alok_arena_end_temp(temp);
+
 }
 
 //// ------------------------------------------------------------
@@ -243,7 +312,7 @@ static void * pvt_alok_arena_alloc_impl(
             header->current_block = (byte*)current_header->next_block;
             header->offset = sizeof(BlockHeader);
         } else {
-            if ( !header->is_resizeable) {
+            if ( !header->auto_grow) {
                 // out of memory
                 if (aer) {
                     aer->err = true;
@@ -294,7 +363,7 @@ static void * pvt_alok_arena_alloc_impl(
 }
 
 
-ArenaErrResult (_alok_arena_create)( size_t arena_capacity, bool no_grow, size_t default_alignment ){
+ArenaErrResult (_alok_arena_create)( size_t arena_capacity, bool auto_grow, size_t default_alignment ){
     // Account for the block header size, AlokArena struct, and AllocatorHeader struct
     const size_t needed_capacity = arena_capacity + BUMP_HEAD_BLOCK_METADATA_SIZE;
 
@@ -319,7 +388,7 @@ ArenaErrResult (_alok_arena_create)( size_t arena_capacity, bool no_grow, size_t
         .default_alignment = default_alignment,
         .offset = sizeof(BlockHeader), // The usable buffer area starts immediately *after* the BlockHeader struct
         .head_block = new_block_header,
-        .is_resizeable = no_grow
+        .auto_grow = auto_grow
     };
 
     AlokArena temp_bump_arena = { .alloc_header = &temp_bump_header};

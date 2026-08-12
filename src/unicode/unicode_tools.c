@@ -10,20 +10,20 @@
 #include <stdint.h>
 
 // Concrete implementation for FILE streams (stdout, stderr, files)
-void file_writer_impl(Writer *self, const char *data, size_t len) {
-    fwrite(data, 1, len, (FILE *)self->ctx);
+void file_writer_impl(Writer *self, const char *data_source, size_t len) {
+    fwrite(data_source, 1, len, (FILE *)self->writer_context);
 }
 
 Writer writer_to_file(FILE *f) {
-    return (Writer){.write = file_writer_impl, .ctx = f};
+    return (Writer){.write = file_writer_impl, .writer_context = f};
 }
 // Concrete implementation for memory buffers
-void buffer_writer_impl(Writer *self, const char *data, size_t len) {
-    BufferCtx *ctx = self->ctx;
+void buffer_writer_impl(Writer *self, const char *data_source, size_t len) {
+    BufferCtx *ctx = self->writer_context;
     size_t space_left = (ctx->used < ctx->capacity) ? (ctx->capacity - ctx->used) : 0;
     size_t to_copy = (len < space_left) ? len : space_left;
     if (to_copy > 0) {
-        memcpy(ctx->buf + ctx->used, data, to_copy);
+        memcpy(ctx->buf + ctx->used, data_source, to_copy);
         ctx->used += to_copy;
     }
 }

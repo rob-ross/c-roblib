@@ -71,7 +71,6 @@ set(LIB_SOURCES
         ${LIB_SRC_DIR}/unicode/unicode_tools.c
         ${LIB_SRC_DIR}/file_io/file_utils.c
         ${LIB_SRC_DIR}/set/bitset.c
-        src/json_parser/stack_allocator.c
         src/string/string_slice.c
         src/platform_specific.c
         src/json_parser/json_pretty_printer.c

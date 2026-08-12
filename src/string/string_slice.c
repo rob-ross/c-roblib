@@ -6,11 +6,14 @@
 
 //
 
-#include "../../include/roblib/string_slice.h"
+#include "roblib/string_slice.h"
 
 #include <string.h>
 #include <stdio.h>
 #include <ctype.h>
+
+#include "roblib/allocator.h"
+#include "roblib/base.h"
 
 const StringSlice EMPTY_STRING_SLICE = { .length = 0, .data = ""  };
 
@@ -106,6 +109,18 @@ size_t slice_fprint(StringSlice s, FILE* stream ) {
     return fwrite( s.data, sizeof(unsigned char), s.length, stream );
 }
 
+size_t slice_fprint_slice_array(StringSliceArray *slices, FILE* stream) {
+    size_t bytes_written = 0;
+    bytes_written += fprintf(stream, "(StringSliceArray)[%zu]{ ", slices->size);
+    for (size_t i = 0; i < slices->size; ++i) {
+        putchar('\'');
+        bytes_written += slice_fprint(slices->elements[i], stream);
+        bytes_written += fprintf(stream, "', ");
+    }
+    bytes_written += fprintf(stream, "}");
+    return bytes_written;
+}
+
 ssize_t slice_index_of(const StringSlice s, const StringSlice subs) {
     if (subs.length > s.length) return -1;
     if (subs.length == 0) return 0;  // every string starts with the empty string
@@ -177,6 +192,10 @@ size_t slice_print_partition(StringSlice3Tuple s3t) {
     return 0; // todo temp
 }
 
+size_t slice_print_slice_array(StringSliceArray *slices) {
+    return slice_fprint_slice_array(slices, stdout);
+}
+
 StringSlice3Tuple slice_partition(StringSlice s, StringSlice sep) {
     StringSlice3Tuple result = { ._1 = s, ._2 = EMPTY_STRING_SLICE, ._3 = EMPTY_STRING_SLICE};
     if (sep.length > s.length) return result;
@@ -202,13 +221,39 @@ size_t slice_snprint(StringSlice s, size_t n, char buf[static n + 1]) {
     return n;
 }
 
-// todo this will require a temp arena. Or a temp stack allocator.
-// thread local for string_slice.c?
 
-StringSliceArray slice_split(StringSlice s, StringSlice delimiter);
+StringSliceArray * slice_split( AlokArena * arena, StringSlice s, StringSlice delimiter) {
+    size_t list_count = 0;
+    AlokArenaTemp arena_temp = alok_arena_get_scratch(&(AlokArena*){arena}, 1);
+    StringSliceLL sll = {};
+
+    while (s.length > 0 ) {
+        StringSlice result =  slice_chop_by_delimiter(&s, delimiter);
+        StringSliceNode *node = alok_arena_alloc(arena_temp.arena, sizeof(StringSliceNode), nullptr, alignof(StringSliceNode));
+        node->next = nullptr;
+        node->slice = result;
+        SLLQueuePush(sll.first, sll.last, node );
+        list_count++;
+    }
+    // creating return struct in the caller's arena
+    StringSliceArray * array_mem = alok_arena_alloc(arena,
+        sizeof(StringSliceArray) + list_count * sizeof(StringSlice), nullptr, alignof(StringSlice));
+
+    array_mem->size = list_count;
+    StringSliceNode *node = sll.first;
+    for (size_t i = 0 ; i < list_count; ++i, node = node->next) {
+        array_mem->elements[i] = node->slice;
+    }
+
+    alok_arena_release_scratch(&arena_temp);  // clean up temp memory used
+
+    return array_mem;
+}
 
 
-StringSliceArray slice_split_by_str(StringSlice s, char const * delimiter);
+StringSliceArray * slice_split_by_str( AlokArena * arena, StringSlice s, char const * delimiter) {
+    return slice_split(arena, s, slice_from_cstring(delimiter));
+}
 
 size_t slice_split_to_out_buffer(
             StringSlice s,
@@ -270,7 +315,11 @@ StringSlice slice_chop_by_delimiter(StringSlice *s, StringSlice delimiter) {
     // in this case we either need to make a copy of the delimiter data via strdup(), or
     // remove the function `slice_chop_by_delimiter_char`
 
-    if (delimiter.length == 0 || s->length == 0 || delimiter.length > s->length ) return *s;
+    if (delimiter.length == 0 || s->length == 0 || delimiter.length > s->length ) {
+        StringSlice result = *s;
+        *s = slice_empty_slice();
+        return result;
+    }
     // special case, s only contains the separator. return empty strings
     if (delimiter.length == s->length && slice_equal(*s, delimiter)) {
         *s = slice_empty_slice();

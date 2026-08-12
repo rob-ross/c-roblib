@@ -60,6 +60,11 @@ typedef struct alok_pool_s  AlokPool;
 
 typedef struct stack_marker_t StackMarker;
 
+typedef struct alok_arena_temp_s{
+    AlokArena *arena;
+    StackMarker *marker;
+} AlokArenaTemp;
+
 typedef struct arena_err_result_s {
     ERR_FIELDS_UNION;
     AlokArena * result;
@@ -85,18 +90,18 @@ constexpr size_t DEFAULT_ALIGNMENT = MAX_ALIGNMENT;
 
 
 /**
- *  * @brief Creates a new bump allocator. Caller must call `arena_bump_destroy` when finished with it.
+ *  * @brief Creates a new arena(bump) linear allocator. Caller must call `alok_arena_destroy` when finished with it.
  *
  *  This function can be called with 1-3 arguments:
- *      `arena_capacity`, `no_grow`, and `default_alignment`.
+ *      `arena_capacity`, `auto_grow`, and `default_alignment`.
  *
  * @param arena_capacity : The initial size in bytes of the arena. This value will be page-aligned to the system page
- * size. If the `no_grow` argument is `true`, this is a hard limit, and when reached further allocations will fail
+ * size. If the `auto_grow` argument is `false`, this is a hard limit, and when reached further allocations will fail
  * with EMEM.
- * @param no-grow : (Optional). Default is false. When false, if the capacity is exceeded, a new block will be
+ * @param auto_grow : (Optional). Default is true. When true, if the capacity is exceeded, a new block will be
  * allocated equal in size to the original capacity. The allocator will grow in size without limit.
  * @param default_alignment : (Optional) Default value is DEFAULT_ALIGNMENT, aka MAX_ALIGNMENT. All calls to
- * `arena_bump_alloc()` without providing an `alignment` argument will use this default value to align allocations.
+ * `alok_arena_alloc()` without providing an `alignment` argument will use this default value to align allocations.
  * @returns BumpErrResult. If `.err` is true, an error occurred. Otherwise, `.result` contains a pointer to the
  * new allocator.
  */
@@ -104,12 +109,12 @@ constexpr size_t DEFAULT_ALIGNMENT = MAX_ALIGNMENT;
     _alok_arena_create_SELECT_(\
         __VA_ARGS__ __VA_OPT__(,) _alok_arena_create_3, _alok_arena_create_2, _alok_arena_create_1)\
                 (_1 __VA_OPT__(,) __VA_ARGS__)
-#define _alok_arena_create_1(_1)            (_alok_arena_create)(_1, false, DEFAULT_ALIGNMENT)
+#define _alok_arena_create_1(_1)            (_alok_arena_create)(_1, true, DEFAULT_ALIGNMENT)
 #define _alok_arena_create_2(_1, _2)        (_alok_arena_create)(_1, _2,    DEFAULT_ALIGNMENT)
 #define _alok_arena_create_3(_1, _2, _3)    (_alok_arena_create)(_1, _2,    _3)
 #define _alok_arena_create_SELECT_(_1, _2, NAME, ...) NAME
 
-ArenaErrResult _alok_arena_create( size_t arena_capacity, bool no_grow, size_t default_alignment );
+ArenaErrResult _alok_arena_create( size_t arena_capacity, bool auto_grow, size_t default_alignment );
 // macro notes: in the SELECT_ parameter list, the numbers are for the OPTIONAL arguments. _1 is for no_grow,
 // _2 is for default_alignment.
 
@@ -151,8 +156,10 @@ void * _alok_arena_alloc(AlokArena * arena,  size_t size, [[nullable]] ArenaErrR
 StackMarker * alok_arena_marker(AlokArena * arena);
 void alok_arena_pop_to_marker(AlokArena * arena, StackMarker * marker);
 
-
-
+AlokArenaTemp alok_arena_get_scratch(AlokArena **conflict_array, size_t count);
+void alok_arena_release_scratch(AlokArenaTemp *temp);
+AlokArenaTemp alok_arena_begin_temp(AlokArena *arena);
+void alok_arena_end_temp(AlokArenaTemp *temp);
 
 
 #ifdef __cplusplus

@@ -61,7 +61,7 @@ static constexpr uint8_t BOM_UTF32_LE[] = { 0xFF, 0xFE, 0x00, 0x00 };
 
 
 // -----------------------------------------------------------------
-//      READER FUNCTIONS
+//      INPUT DYNAMIC FUNCTIONS
 // -----------------------------------------------------------------
 
 typedef long (*read_fn)( void *context, size_t max_bytes );
@@ -107,13 +107,6 @@ typedef struct json_context_s {
 } JsonContext;
 
 
-typedef struct
-{
-    int socket_fd;
-} SocketSource;
-
-size_t socket_read(...);
-size_t http_read(...);
 
 // -----------------------------------------------------------------
 //      File

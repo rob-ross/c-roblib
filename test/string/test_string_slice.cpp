@@ -7,6 +7,8 @@
 // simple ad-hoc gtest test cases for string_slice.c
 
 #include "gtest/gtest.h"
+#include "roblib/allocator.h"
+#include "roblib/base.h"
 
 #include "roblib/string_slice.h"
 
@@ -330,7 +332,36 @@ TEST(StringSlice, slice_partition) {
 }
 
 // todo (rob) implement
-TEST(StringSlice, slice_split) { }
+TEST(StringSlice, slice_split) {
+    char const * fixture = "one, 2, three,4,five";
+    ArenaErrResult aer = alok_arena_create(MB(1), false);
+    AlokArena * arena = aer.result;
+
+    StringSlice slice = SLIT(fixture);
+    StringSliceArray *slice_array = slice_split(arena, slice, SLIT(","));
+    slice_print_slice_array(slice_array);putchar('\n');
+    // empty string, empty delimiter
+    slice_array = slice_split(arena, SLIT(""), SLIT(""));
+    slice_print_slice_array(slice_array);putchar('\n');
+
+    // empty string, non-empty delimiter
+    slice_array = slice_split(arena, SLIT(""), SLIT(","));
+    slice_print_slice_array(slice_array);putchar('\n');
+
+    // non-empty string, empty delimiter
+    slice_array = slice_split(arena, SLIT(fixture), SLIT(""));
+    slice_print_slice_array(slice_array);putchar('\n');
+
+    // non-empty string, non-empty but missing delimiter
+    slice_array = slice_split(arena, SLIT(fixture), SLIT("|"));
+    slice_print_slice_array(slice_array);putchar('\n');
+
+    // non-empty string, non-empty delimiter appearing once
+    slice_array = slice_split(arena, SLIT(fixture), SLIT("three"));
+    slice_print_slice_array(slice_array);putchar('\n');
+
+
+}
 // todo (rob) implement
 TEST(StringSlice, slice_split_by_str){}
 // todo (rob) implement
