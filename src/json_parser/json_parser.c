@@ -3226,6 +3226,9 @@ void parse_json_file(char const *filename) {
     }
     else {
         jsonp_print_json_value(jval);
+        printf("\nPretty Printer:\n");
+
+        jsonp_print_json(jval);
         printf("\n");
     }
 
@@ -3362,11 +3365,18 @@ void test_one_json_file(void) {
 
 
     // parse_json_file("../test/json_parser/JSONTestSuite/fail/n_string_1_surrogate_then_escape_u1.json");
-    simple_parse("[1,2 3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]");
-    parse_json_file("../test/json_parser/json_files/n_long_array_1.json");
-    parse_json_stream("../test/json_parser/json_files/n_long_array_1.json");
+    // simple_parse("[1,2 3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]");
+    // parse_json_file("../test/json_parser/json_files/n_long_array_1.json");
+    // parse_json_stream("../test/json_parser/json_files/n_long_array_1.json");
 
     // parse_json_file("../test/json_parser/json_files/todos.json");
+
+    parse_json_file("../test/json_parser/json_files/RFC8259_example_13.1.json");
+    putchar('\n');
+    parse_json_file("../test/json_parser/json_files/RFC8259_example_13.2.json");
+
+
+
 
 }
 

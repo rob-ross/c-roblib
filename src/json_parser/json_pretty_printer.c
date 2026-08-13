@@ -7,6 +7,7 @@
 //
 
 #include "roblib/json_parser.h"
+#include "roblib/roblib_types.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -20,6 +21,26 @@
 // Other operating systems supporting C23
 #include <uchar.h>
 #endif
+
+typedef struct jsonp_format_flags_s {
+    u8 indent; // number of spaces to indent each nested level
+    bool single_line; // true if should format json text as single line, if false, pretty print multiple lines
+} JsonFormatFlags;
+
+constexpr JsonFormatFlags JSON_FORMAT_FLAGS_DEFAULT = { .indent = 2, .single_line = true};
+
+static constexpr size_t MAX_NESTING_DEPTH = 256;
+static constexpr char SPACE = ' ';
+static constexpr char NUL = '\0';
+static constexpr char NEWLINE = '\n';
+
+static char SPACERS[MAX_NESTING_DEPTH][MAX_NESTING_DEPTH] = {};
+
+// -----------------------------------------------------------------
+//      Function Prototypes
+// -----------------------------------------------------------------
+
+static void jsonp_print_json_impl( const JsonValue *jval, const JsonFormatFlags *flags,  unsigned nesting_level);
 
 
 static void double_to_str(char *buf, size_t buf_size, double val) {
@@ -42,7 +63,7 @@ void long_double_to_str(char *buf, size_t buf_size, long double val) {
     }
 }
 
-void print_json_string(JsonValue jval) {
+void jsonp_format_string( const JsonValue *jval) {
     // todo (rob) we have to escape certain characters, like backslash and double quote, and control characters
     /* characters that MUST be escaped:
      * quotation mark, reverse solidus, and the control characters (U+0000 through U+001F).
@@ -51,7 +72,7 @@ void print_json_string(JsonValue jval) {
         (0: null , ie \0, a: bell are not part of JSON escapes).
         besides these, we need to escape them as \u00XX.
      */
-    StringSlice slice = jval.u.string;
+    StringSlice slice = jval->u.string;
     size_t len = slice.length;
     char const * str = slice.data;
     putchar('"');  // opening quotes
@@ -75,54 +96,192 @@ void print_json_string(JsonValue jval) {
     putchar('"');  // closing quotes
 }
 
-void jsonp_pretty_print_object(JsonValue jval) {
-    assert (jval.type == JSON_ARRAY);
+void jsonp_pretty_print_object( const JsonValue *jval,  const JsonFormatFlags *flags,  unsigned nesting_level ) {
+    assert (jval->type == JSON_OBJECT);
+    char const *indent_str = SPACERS[nesting_level * flags->indent ];
 
+    if (jval->u.object.count == 0 ) {
+        printf("%s{ }", indent_str);
+        return;
+    }
+    if ( flags->single_line ) {
+        printf(" { ");
+    } else {
+        printf("%s{\n", indent_str);
+    }
+    nesting_level++;
+    indent_str = SPACERS[nesting_level * flags->indent ];
+    // First entry
+    // key
+    if ( flags->single_line ) {
+        printf("\"%s\" : ", SLICE_BUF(jval->u.object.entries[0]->key, 128));
+    } else {
+        printf("%s\"%s\" : ", indent_str, SLICE_BUF(jval->u.object.entries[0]->key, 128));
+        JsonType next_type = jval->u.object.entries[0]->value->type;
+        if ( next_type == JSON_OBJECT || next_type == JSON_ARRAY) {
+            printf("\n");
+        }
+    }
+    // value
+    jsonp_print_json_impl(jval->u.object.entries[0]->value, flags, nesting_level );
+    for (size_t i = 1; i < jval->u.object.count; ++i) {
+        // key
+        if ( flags->single_line ) {
+            printf(", \"%s\" : ", SLICE_BUF(jval->u.object.entries[i]->key, 128));
+        } else {
+            printf(",\n%s\"%s\" : ", indent_str, SLICE_BUF(jval->u.object.entries[i]->key, 128));
+        }
+        // value
+        JsonType next_type = jval->u.object.entries[i]->value->type;
+        if ( !flags->single_line && (next_type == JSON_OBJECT || next_type == JSON_ARRAY ) ) {
+            printf("\n");
+        }
+        jsonp_print_json_impl(jval->u.object.entries[i]->value, flags, nesting_level );
+    }
+    nesting_level--;
+    indent_str = SPACERS[nesting_level * flags->indent ];
+    if ( flags->single_line ) {
+        printf(" }");
+    } else {
+        printf("\n%s}", indent_str);
+    }
 }
-void jsonp_pretty_print_array(JsonValue jval) {
-    assert (jval.type == JSON_ARRAY);
 
+void jsonp_pretty_print_array_prev( const JsonValue *jval, const JsonFormatFlags *flags,  unsigned nesting_level ) {
+    assert (jval->type == JSON_ARRAY);
+    if (jval->u.array.count == 0 ) {
+        printf("[ ]");
+        return;
+    }
+    printf("[ ");
+    jsonp_print_json_impl(jval->u.array.elements[0], flags, nesting_level );
+    for (size_t i = 1; i < jval->u.array.count; ++i) {
+        printf(", ");
+        jsonp_print_json_impl(jval->u.array.elements[i], flags, nesting_level );
+    }
+    printf(" ]");
 }
 
-void jsonp_format_scalar(JsonValue jval) {
-    assert (jval.type != JSON_ARRAY &&  jval.type != JSON_OBJECT);
 
-    switch (jval.type) {
+void jsonp_pretty_print_array( const JsonValue *jval, const JsonFormatFlags *flags,  unsigned nesting_level ) {
+    assert (jval->type == JSON_ARRAY);
+    char const *indent_str = SPACERS[nesting_level * flags->indent];
+    if (jval->u.array.count == 0 ) {
+        printf("%s[ ]", indent_str);
+        return;
+    }
+    if ( flags->single_line ) {
+        printf(" [ ");
+    } else {
+        printf("%s[\n", indent_str);
+    }
+    nesting_level++;
+    indent_str = SPACERS[nesting_level * flags->indent ];
+    // First element
+    JsonType next_type = jval->u.array.elements[0]->type;
+    if ( next_type != JSON_OBJECT && next_type != JSON_ARRAY) {
+        printf("%s", indent_str);
+    }
+    jsonp_print_json_impl(jval->u.array.elements[0], flags, nesting_level  );
+    for (size_t i = 1; i < jval->u.array.count; ++i) {
+        if ( flags->single_line ) {
+            printf(", ");
+        } else {
+            printf(",\n");
+        }
+        next_type = jval->u.array.elements[0]->type;
+        if ( next_type != JSON_OBJECT && next_type != JSON_ARRAY) {
+            printf("%s", indent_str);
+        }
+        jsonp_print_json_impl(jval->u.array.elements[i], flags, nesting_level  );
+    }
+    nesting_level--;
+    indent_str = SPACERS[nesting_level * flags->indent ];
+    if ( flags->single_line ) {
+        printf(" ]");
+    } else {
+        printf("\n%s]", indent_str);
+    }
+}
+
+
+void jsonp_format_scalar( const JsonValue *jval, const JsonFormatFlags *flags,  unsigned nesting_level ) {
+    assert (jval->type != JSON_ARRAY &&  jval->type != JSON_OBJECT);
+
+    switch (jval->type) {
         case JSON_NULL:
             printf("null");
             break;
         case JSON_BOOLEAN:
-            if (jval.u.boolean == true) printf("true");
+            if (jval->u.boolean == true) printf("true");
             else printf("false");
             break;
         case JSON_LONG:
-            printf("%ld", jval.u.n_long);
+            printf("%ld", jval->u.n_long);
             break;
         // case JSON_LONG_LONG:
-        //     printf("%lld",jval.u.n_long_long);
+        //     printf("%lld",jval->.u.n_long_long);
         //     break;
         case JSON_NUMBER:
         case JSON_DOUBLE: {
             char buf[64] = {};
             // todo we need to print the max number of significant digits available for the number.
-            double_to_str(buf, sizeof buf, jval.u.n_double);
+            double_to_str(buf, sizeof buf, jval->u.n_double);
             printf("%s", buf);
-            // printf("%.*e", DBL_DECIMAL_DIG - 1, jval.u.n_double);
+            // printf("%.*e", DBL_DECIMAL_DIG - 1, jval->u.n_double);
             break;
         }
         // case JSON_LONG_DOUBLE: {
         //     char buf[128] = {};
-        //     long_double_to_str(buf, sizeof buf, jval.u.n_long_double);
+        //     long_double_to_str(buf, sizeof buf, jval->u.n_long_double);
         //     printf("%s", buf);
-        //     // printf("%.*Lg", LDBL_DECIMAL_DIG, jval.u.n_long_double);
+        //     // printf("%.*Lg", LDBL_DECIMAL_DIG, jval->u.n_long_double);
         //     break;
         // }
         case JSON_STRING:
-            print_json_string(jval);
+            jsonp_format_string(jval);
             break;
         default:
-            printf("unknown value type: %d", jval.type);
+            printf("unknown value type: %d", jval->type);
             break;
     }
     char8_t foo;
+}
+
+
+
+static void jsonp_print_json_impl( const JsonValue *jval, const JsonFormatFlags *flags,  unsigned nesting_level) {
+    switch (jval->type) {
+        case JSON_OBJECT:
+            jsonp_pretty_print_object(jval, flags, nesting_level );
+            break;
+        case JSON_ARRAY:
+            jsonp_pretty_print_array(jval, flags, nesting_level );
+            break;
+        default:
+            jsonp_format_scalar(jval, flags, nesting_level );
+            break;
+    }
+}
+
+void pvt_init_spacers(void) {
+    for (size_t i = 0; i < MAX_NESTING_DEPTH; ++i) {
+        char * ptr = SPACERS[i];
+        memset(ptr, SPACE, i);
+        ptr[i] = NUL;
+    }
+    // for (size_t i = 0; i < MAX_NESTING_DEPTH; ++i) {
+    //     printf("%.3zu: [%s]\n", i, SPACERS[i]);
+    // }
+
+
+}
+
+void jsonp_print_json( const JsonValue *jval) {
+    // one-time initialization of SPACERS
+    if (SPACERS[1][0] != SPACE) {
+        pvt_init_spacers();
+    }
+
+    jsonp_print_json_impl(jval, &(JsonFormatFlags){ .single_line = false, .indent = 2 }, 1);
 }

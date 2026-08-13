@@ -441,14 +441,11 @@ const char *jsonp_parse_error_type_name(JsonParseErrType err_type);
 void jsonp_print_parse_error(JsonParseError *err);
 
 
-void jsonp_value_repr(JsonValue *value);
-
 // -----------------------------------------------------------------
 //      JSON Pretty Printer
 // -----------------------------------------------------------------
 
-void jsonp_format_scalar(JsonValue jval);
-
+void jsonp_print_json( const JsonValue *jval ) ;
 
 
 #ifdef __cplusplus
