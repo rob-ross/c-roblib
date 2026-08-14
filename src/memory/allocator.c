@@ -206,7 +206,7 @@ static size_t pvt_alok_aligned_size(const size_t size) {
 }
 
 // align the `value` argument to the requested alignment size
-static size_t pvt_alok_align_up(const size_t value, const size_t alignment) {
+size_t alok_align_up(const size_t value, const size_t alignment) {
     return ( value + alignment - 1 ) & ~ ( alignment - 1 ) ;
 }
 
@@ -304,7 +304,7 @@ static void * pvt_alok_arena_alloc_impl(
 
     AllocatorHeader *header = arena->alloc_header;
 
-    const size_t aligned_offset    = pvt_alok_align_up( header->offset, align_size);
+    const size_t aligned_offset    = alok_align_up( header->offset, align_size);
     const size_t alignment_padding = aligned_offset - header->offset;
 
     // Check if it fits in the current block
@@ -483,9 +483,9 @@ void alok_arena_pop_to_marker(AlokArena * arena, StackMarker * marker) {
 // `object_size` should be passed as sizeof(YourObjectType) and `object_alignment` as _Alignof(YourObjectType)
 PoolErrResult arena_pool_create( const size_t num_objects, const size_t object_size, const size_t object_alignment ){
     // Account for the block header size and AlokPool size
-    const size_t aligned_block_header_size = pvt_alok_align_up(sizeof(BlockHeader), _Alignof(BlockHeader));
-    const size_t aligned_pool_header_size  = pvt_alok_align_up(sizeof(AlokPool),   _Alignof(AlokPool));
-    const size_t aligned_object_size       = pvt_alok_align_up(object_size,                  object_alignment);
+    const size_t aligned_block_header_size = alok_align_up(sizeof(BlockHeader), _Alignof(BlockHeader));
+    const size_t aligned_pool_header_size  = alok_align_up(sizeof(AlokPool),   _Alignof(AlokPool));
+    const size_t aligned_object_size       = alok_align_up(object_size,                  object_alignment);
 
     size_t needed_capacity = (num_objects * aligned_object_size) + aligned_block_header_size + aligned_pool_header_size;
 
