@@ -73,7 +73,7 @@ typedef struct string_slice_ll_s{
 extern const StringSlice EMPTY_STRING_SLICE;
 
 
-StringSlice         slice_from_cstring( char const * cstring );
+StringSlice slice_from_cstring( char const * cstring );
 StringSlice slice_from_char( char c_char );
 // todo (rob) slice_char_as_cstring probably belongs in string_utils as a general string method
 char const * slice_char_as_cstring(char c);
