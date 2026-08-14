@@ -45,6 +45,7 @@
 
 constexpr char NUL = '\0';
 constexpr size_t LOOK_AHEAD_BUF_SIZE = 40;
+char const * const    JSON_WHITESPACE_CHARS_DEFAULT = " \t\n\r";
 
 
 // -----------------------------------------------------------------
@@ -60,7 +61,7 @@ static constexpr uint8_t BOM_UTF32_LE[] = { 0xFF, 0xFE, 0x00, 0x00 };
 
 
 // -----------------------------------------------------------------
-//      READER FUNCTIONS
+//      INPUT DYNAMIC FUNCTIONS
 // -----------------------------------------------------------------
 
 typedef long (*read_fn)( void *context, size_t max_bytes );
@@ -106,13 +107,6 @@ typedef struct json_context_s {
 } JsonContext;
 
 
-typedef struct
-{
-    int socket_fd;
-} SocketSource;
-
-size_t socket_read(...);
-size_t http_read(...);
 
 // -----------------------------------------------------------------
 //      File
@@ -450,8 +444,8 @@ void string_sprint_n_lookahead_chars(void *context, const uint32_t n_chars, char
 // -----------------------------------------------------------------
 //      Forward Declarations
 // -----------------------------------------------------------------
-static JsonValue * pvt_parse_value(JsonContext *context, JsonParseError *error, Arena *arena );
-static JsonValue * pvt_parse_string(JsonContext *context, JsonParseError *error, Arena *arena );
+static JsonValue * pvt_parse_value(JsonContext *context, JsonParseError *error, AlokArena *arena );
+static JsonValue * pvt_parse_string(JsonContext *context, JsonParseError *error, AlokArena *arena );
 static void pvt_init_context_whitespace_table(JsonContext *context);
 static char pvt_current_char(JsonContext const *context);
 static bool pvt_starts_with_bom(JsonContext const *context, uint32_t n_bytes, uint8_t const bom_bytes[static n_bytes]);
@@ -623,19 +617,19 @@ typedef struct json_object_entry_node_s {
     struct json_object_entry_node_s *next;
 } JsonObjectEntryNode;
 
-static JsonObjectEntryNode * pvt_add_json_object_entry_node(JsonObjectEntryNode * first_node, JsonObjectEntry *object_entry, Arena *arena ) {
+static JsonObjectEntryNode * pvt_add_json_object_entry_node(JsonObjectEntryNode * first_node, JsonObjectEntry *object_entry, AlokArena *arena ) {
     if (!object_entry) return nullptr;
-    JsonObjectEntryNode * new_node = (JsonObjectEntryNode*) arena_alloc(arena, sizeof(JsonObjectEntryNode) );
+    JsonObjectEntryNode * new_node = (JsonObjectEntryNode*) alok_arena_alloc(arena, sizeof(JsonObjectEntryNode) );
     new_node->object_entry = object_entry;
     new_node->next = first_node;
     return new_node;
 }
 
-
+// todo can we pass `key` as a StringSlice?
 JsonObjectEntry * jsonp_entry_for_key(const JsonValue *json_obj, char const * key) {
     for (uint32_t i = 0; i < json_obj->u.object.count; ++i) {
-        char const * entry_key = json_obj->u.object.entries[i]->key;
-        if (strcmp(entry_key, key) == 0 ) {
+        StringSlice entry_key = json_obj->u.object.entries[i]->key;
+        if (slice_equal(entry_key, slice_from_cstring(key)) == 0 ) {
             return json_obj->u.object.entries[i];
         }
     }
@@ -649,7 +643,7 @@ JsonObjectEntry * jsonp_entry_for_key(const JsonValue *json_obj, char const * ke
 ////
 //// ------------------------------------------------------------
 
-static JsonObjectEntry * pvt_parse_one_entry(JsonContext *context, JsonParseError *error, Arena *arena) {
+static JsonObjectEntry * pvt_parse_one_entry(JsonContext *context, JsonParseError *error, AlokArena *arena) {
     pvt_skip_whitespace(context);
     Input *input = context->input;
     // We need to assign to parse_start here since we aren't calling pvt_parse_value(),
@@ -684,7 +678,7 @@ static JsonObjectEntry * pvt_parse_one_entry(JsonContext *context, JsonParseErro
     if (pvt_current_char(context) == NUL) {
         // snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "unexpected EOF, expected object value");
 
-        int written =  snprintf(error->message, ERROR_MSG_BUFFER_SIZE,"expected object value for key '%s', got ", key->u.string);
+        int written =  snprintf(error->message, ERROR_MSG_BUFFER_SIZE,"expected object value for key '%s', got ", SLICE_BUF(key->u.string, 128));
         if (written > 0) {
             pvt_format_error_message_char(ERROR_MSG_BUFFER_SIZE - written,
                 error->message + written, pvt_current_char(context) );
@@ -699,7 +693,7 @@ static JsonObjectEntry * pvt_parse_one_entry(JsonContext *context, JsonParseErro
         // error-out immediately
         return nullptr;
     }
-    JsonObjectEntry *joe = (JsonObjectEntry*)arena_alloc(arena, sizeof(JsonObjectEntry));
+    JsonObjectEntry *joe = (JsonObjectEntry*)alok_arena_alloc(arena, sizeof(JsonObjectEntry));
     if (!joe) {
         char const *const msg = "pvt_parse_one_entry(): arena alloc failed for JsonObjectEntry *joe\n";
         fprintf(stderr, msg);
@@ -712,7 +706,7 @@ static JsonObjectEntry * pvt_parse_one_entry(JsonContext *context, JsonParseErro
     return joe;
 }
 
-static JsonValue * pvt_parse_object(JsonContext *context, JsonParseError *error, Arena *arena ) {
+static JsonValue * pvt_parse_object(JsonContext *context, JsonParseError *error, AlokArena *arena ) {
     // we recursively parse members of this object until we see end-of-object '}' char or run out of text
     // todo refactor to use stack DS and iterative algorithm instead of recursion
     context->depth_current++;
@@ -722,7 +716,7 @@ static JsonValue * pvt_parse_object(JsonContext *context, JsonParseError *error,
     }
 
     Input *input = context->input;
-    JsonValue *object =  arena_alloc(arena, sizeof(JsonValue) );
+    JsonValue *object =  alok_arena_alloc(arena, sizeof(JsonValue) );
 
     size_t num_entries = 0;
     object->type = JSON_OBJECT;
@@ -795,7 +789,7 @@ static JsonValue * pvt_parse_object(JsonContext *context, JsonParseError *error,
     }
 
     pvt_advance(context, 1);  // consume '}'
-    JsonObjectEntry **entries_array = arena_alloc(arena, sizeof(JsonObjectEntry) *  num_entries);
+    JsonObjectEntry **entries_array = alok_arena_alloc(arena, sizeof(JsonObjectEntry) *  num_entries);
     // copy linked list elements into new array in reverse order so the object entries maintain
     // the order from the JSON file.
 
@@ -818,16 +812,16 @@ typedef struct json_value_node_s {
 // add a node to the linked list headed by first_node.
 // adds nodes to the front of the linked list. If first_node is null, it will be the head node of a new linked list.
 // Returns the new first_node.
-static JsonValueNode * pvt_add_json_value_node(JsonValueNode * first_node, JsonValue *value, Arena *arena ) {
+static JsonValueNode * pvt_add_json_value_node(JsonValueNode * first_node, JsonValue *value, AlokArena *arena ) {
     if (!value) return nullptr;
-    JsonValueNode * new_node = (JsonValueNode*) arena_alloc(arena, sizeof(JsonValueNode) );
+    JsonValueNode * new_node = (JsonValueNode*) alok_arena_alloc(arena, sizeof(JsonValueNode) );
     new_node->value = value;
     new_node->next = first_node;
     return new_node;
 }
 
 
-static JsonValue * pvt_parse_array(JsonContext *context, JsonParseError *error, Arena *arena) {
+static JsonValue * pvt_parse_array(JsonContext *context, JsonParseError *error, AlokArena *arena) {
     // we recursively parse elements of this array until we see end-of-array ']' char or run out of text
     // todo refactor to use stack data structure and iterative algorithm instead of recursion
     context->depth_current++;
@@ -837,7 +831,7 @@ static JsonValue * pvt_parse_array(JsonContext *context, JsonParseError *error, 
     }
     Input *input = context->input;
 
-    JsonValue *array =  arena_alloc(arena, sizeof(JsonValue) );
+    JsonValue *array =  alok_arena_alloc(arena, sizeof(JsonValue) );
 
     size_t num_elements = 0;
     array->type = JSON_ARRAY;
@@ -920,7 +914,7 @@ static JsonValue * pvt_parse_array(JsonContext *context, JsonParseError *error, 
     }
     pvt_advance(context, 1);  // consume ']'
     pvt_skip_whitespace(context);
-    JsonValue **element_array = arena_alloc(arena, sizeof(JsonValue) *  num_elements);
+    JsonValue **element_array = alok_arena_alloc(arena, sizeof(JsonValue) *  num_elements);
     // copy linked list elements into new array in reverse order so the list maintains the order from the JSON file.
 
     for (size_t i = num_elements; i--> 0; ) {
@@ -1421,7 +1415,7 @@ static bool pvt_validate_utf8(JsonContext *context, JsonParseError *error,  Stri
 }
 
 // assumes pvt_peek_char(context) == 'u' or 'U' and the previous character was a backslash '\'
-static StringBuilder * pvt_parse_unicode_escape( JsonContext *context, JsonParseError *error, Arena *arena, StringBuilder *sb_out ) {
+static StringBuilder * pvt_parse_unicode_escape( JsonContext *context, JsonParseError *error, AlokArena *arena, StringBuilder *sb_out ) {
     Input *input = context->input;
 
     if (pvt_current_char(context) == 'U') {
@@ -1520,7 +1514,7 @@ static StringBuilder * pvt_parse_unicode_escape( JsonContext *context, JsonParse
 constexpr char QUOTE           = 0x22;  // "
 constexpr char REVERSE_SOLIDUS = 0x5c;  // \  backslash
 
-static JsonValue * pvt_parse_string(JsonContext *context, JsonParseError *error, Arena *arena ) {
+static JsonValue * pvt_parse_string(JsonContext *context, JsonParseError *error, AlokArena *arena ) {
     StringBuilder sb;
     sb_init(&sb, 16, "");
 
@@ -1533,17 +1527,17 @@ static JsonValue * pvt_parse_string(JsonContext *context, JsonParseError *error,
     while (current_byte) {
         if (current_byte == QUOTE) {
             // happy case. We found the terminating quote
-            value = arena_alloc(arena, sizeof(JsonValue) );
+            value = alok_arena_alloc(arena, sizeof(JsonValue) );
             value->type = JSON_STRING;
 
             // Ensure the result is null-terminated from the StringBuilder
             // before copying into the arena.
             size_t len = sb.length;
-            char * str_value = arena_alloc(arena, len + 1);
+            char * str_value = alok_arena_alloc(arena, len + 1);
             memcpy(str_value, sb.buffer, len);
             str_value[len] = NUL;
 
-            value->u.string = str_value;
+            value->u.string = (StringSlice){ .length = len, .data = str_value };
 
             pvt_advance(context, 1); // consume the terminating quote
             sb_destroy(&sb);
@@ -1640,7 +1634,7 @@ static void pvt_add_char_to_buffer( CharBuffer * cb, char c) {
     cb->buffer[cb->length++] = (uint8_t)c;
 }
 
-static JsonValue * pvt_parse_number(JsonContext *context, JsonParseError *error, Arena *arena ) {
+static JsonValue * pvt_parse_number(JsonContext *context, JsonParseError *error, AlokArena *arena ) {
     JsonValue *value = nullptr;
     CharBuffer cb = {}; // todo this is a fixed buffer of 1024 bytes. Max length of number we can parse.
 
@@ -1707,7 +1701,7 @@ static JsonValue * pvt_parse_number(JsonContext *context, JsonParseError *error,
         // leading zero only valid if next character is a period, e or E and not a digit
         if (  c != '.' && c != 'e' && c != 'E' ) {
             // we parsed a zero
-            value = arena_alloc(arena, sizeof(JsonValue) );
+            value = alok_arena_alloc(arena, sizeof(JsonValue) );
             value->type = JSON_LONG;
             value->u.n_long = 0;
             return value;
@@ -1727,7 +1721,7 @@ static JsonValue * pvt_parse_number(JsonContext *context, JsonParseError *error,
     cur_char = pvt_current_char(context);
     if ( cur_char != '.' && cur_char != 'e' && cur_char != 'E') {
         // we parsed an integer
-        value = arena_alloc(arena, sizeof(JsonValue) );
+        value = alok_arena_alloc(arena, sizeof(JsonValue) );
         value->type = JSON_LONG;
         errno = 0; // Reset errno before the calls
         char *str_end =  nullptr;
@@ -1823,7 +1817,7 @@ static JsonValue * pvt_parse_number(JsonContext *context, JsonParseError *error,
     // -----------------------------------------------------------------
 
     // we've now parsed a float number
-    value = arena_alloc(arena, sizeof(JsonValue) );
+    value = alok_arena_alloc(arena, sizeof(JsonValue) );
     value->type = JSON_DOUBLE;
     errno = 0; // Reset errno before the calls
     char *str_end =  nullptr;
@@ -1884,11 +1878,15 @@ static JsonValue *  pvt_parse_literal_impl(  JsonContext *context,
     return literal;
 }
 
+constexpr StringSlice NULL_SLICE  = (StringSlice){ .length = 4, .data = "null"};
+
+
+
 
 // todo (rob) these JsonValues need to be const
 constexpr size_t JSON_KEYWORD_NULL_LEN = 4;
 constexpr char   JSON_KEYWORD_NULL[JSON_KEYWORD_NULL_LEN + 1] = "null";
-static JsonValue JSON_NULL_VALUE = { .type = JSON_NULL, .u.string = JSON_KEYWORD_NULL};
+static JsonValue JSON_NULL_VALUE = { .type = JSON_NULL, .u.string = NULL_SLICE};
 
 constexpr size_t JSON_KEYWORD_TRUE_LEN = 4;
 constexpr char   JSON_KEYWORD_TRUE[JSON_KEYWORD_TRUE_LEN + 1] = "true";
@@ -1910,7 +1908,7 @@ static JsonValue *  pvt_parse_null(JsonContext *context, JsonParseError *error )
     return pvt_parse_literal_impl(context, error, &JSON_NULL_VALUE, JSON_KEYWORD_NULL );
 }
 
-static JsonValue *pvt_parse_value(JsonContext *context, JsonParseError *error, Arena *arena ) {
+static JsonValue *pvt_parse_value(JsonContext *context, JsonParseError *error, AlokArena *arena ) {
     Input *input = context->input;
 
     pvt_skip_whitespace(context);
@@ -1958,7 +1956,7 @@ static JsonValue *pvt_parse_value(JsonContext *context, JsonParseError *error, A
     return value;
 }
 
-static JsonValue * pvt_jsonp_parse_impl(JsonContext *context, JsonParseError *error, Arena *arena) {
+static JsonValue * pvt_jsonp_parse_impl(JsonContext *context, JsonParseError *error, AlokArena *arena) {
     Input * input = context->input;
 
     if (!input->input_context) {
@@ -2164,7 +2162,7 @@ static bool pvt_json_text_is_null_or_empty(const char *json_text, JsonParseError
 }
 
 
-JsonValue *jsonp_parse_string_using_context(const char *json_text, JsonParseError *error, Arena *arena, JsonContext *context ) {
+JsonValue *jsonp_parse_string_using_context(const char *json_text, JsonParseError *error, AlokArena *arena, JsonContext *context ) {
     pvt_reset_context(context);
     if (pvt_json_text_is_null_or_empty(json_text, error)) return nullptr;
 
@@ -2179,7 +2177,7 @@ JsonValue *jsonp_parse_string_using_context(const char *json_text, JsonParseErro
 }
 
 
-JsonValue * jsonp_parse_string(const char *json_text, JsonParseError *error, Arena *arena) {
+JsonValue * jsonp_parse_string(const char *json_text, JsonParseError *error, AlokArena *arena) {
     if (pvt_json_text_is_null_or_empty(json_text, error)) return nullptr;
 
     StringSourceInputContext ss = { .json_text = json_text, .length_bytes = strlen(json_text) };
@@ -2199,7 +2197,7 @@ JsonValue * jsonp_parse_string(const char *json_text, JsonParseError *error, Are
 
 
 
-JsonValue *jsonp_parse_string_ex(const char *json_text, JsonParseError *error, Arena *arena, const uint32_t buffer_size) {
+JsonValue *jsonp_parse_string_ex(const char *json_text, JsonParseError *error, AlokArena *arena, const uint32_t buffer_size) {
     if (pvt_json_text_is_null_or_empty(json_text, error)) return nullptr;
 
     StringSourceInputContext ss = { .json_text = json_text, .length_bytes = buffer_size };
@@ -2270,7 +2268,7 @@ static void pvt_debug_file_buffering(FILE *fp) {
     // printf("Glibc buffer size: %zu\n", __fbufsize(fp));
 }
 
-JsonValue * jsonp_parse_file(const char *json_filename, JsonParseError *error, Arena *arena) {
+JsonValue * jsonp_parse_file(const char *json_filename, JsonParseError *error, AlokArena *arena) {
     if (!json_filename) {
         *error = (JsonParseError){ .message = "JSON filename is a nullptr", .err_type = JSON_ERR_NULL_TEXT};
         return nullptr;
@@ -2387,7 +2385,7 @@ JsonValue * jsonp_parse_file(const char *json_filename, JsonParseError *error, A
     return value;
 }
 
-JsonValue * jsonp_parse_stream( FILE* fp, JsonParseError *error, Arena *arena) {
+JsonValue * jsonp_parse_stream( FILE* fp, JsonParseError *error, AlokArena *arena) {
     if (!fp) {
         *error = (JsonParseError){ .message = "FILE pointer is nullptr", .err_type = JSON_ERR_NULL_TEXT};
         return nullptr;
@@ -2462,7 +2460,7 @@ WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp) {
     return realsize;
 }
 
-JsonValue * jsonp_parse_url( const char* url, JsonParseError *error, Arena *arena) {
+JsonValue * jsonp_parse_url( const char* url, JsonParseError *error, AlokArena *arena) {
     // todo (rob) curl is not installed by default. So this method should be in an API extension file that clients
     // can choose to use if they want to d/l, but otherwise have no dependency on it if not.
     CURL *curl_handle;
@@ -2571,19 +2569,6 @@ Error (jsonp_init)(jp_bitset_t config_flags, uint32_t max_depth, char const * wh
     return (Error){};
 }
 
-// Error jsonp_init_2(jp_bitset_t config_flags, uint32_t max_depth) {
-//     return jsonp_init_3(config_flags, max_depth, JSON_WHITESPACE_CHARS_DEFAULT);
-// }
-
-// Error jsonp_init_1(jp_bitset_t config_flags) {
-//     return jsonp_init_3( config_flags, JSON_DEPTH_MAX_DEFAULT, JSON_WHITESPACE_CHARS_DEFAULT);
-// }
-
-
-// Error jsonp_init() {
-//     return jsonp_init_3(JSON_CONFIG_FLAGS_DEFAULT, JSON_DEPTH_MAX_DEFAULT, JSON_WHITESPACE_CHARS_DEFAULT);
-// }
-
 
 // -----------------------------------------------------------------
 //      DESTROY
@@ -2614,10 +2599,10 @@ static void pvt_json_object_str(JsonValue *object) {
     }
     // First entry
     printf("{ ");
-    printf("'%s' : ",object->u.object.entries[0]->key);
+    printf("'%s' : ", SLICE_BUF(object->u.object.entries[0]->key, 128));
     jsonp_print_json_value(object->u.object.entries[0]->value);
     for (size_t i = 1; i < object->u.object.count; ++i) {
-        printf(", '%s' : ",object->u.object.entries[i]->key);
+        printf(", '%s' : ", SLICE_BUF(object->u.object.entries[i]->key, 128));
         jsonp_print_json_value(object->u.object.entries[i]->value);
     }
     printf(" }");
@@ -2653,17 +2638,17 @@ void jsonp_print_json_value(JsonValue *value) {
         case JSON_LONG:
             printf("%ld", value->u.n_long);
             break;
-        case JSON_LONG_LONG:
-            printf("%lld", value->u.n_long_long);
-            break;
+        // case JSON_LONG_LONG:
+        //     printf("%lld", value->u.n_long_long);
+        //     break;
         case JSON_DOUBLE:
             printf("%g", value->u.n_double);
             break;
-        case JSON_LONG_DOUBLE:
-            printf("%Lg", value->u.n_long_double);
-            break;
+        // case JSON_LONG_DOUBLE:
+        //     printf("%Lg", value->u.n_long_double);
+        //     break;
         case JSON_STRING:
-            printf("'%s'", value->u.string);
+            printf("'%s'", SLICE_BUF(value->u.string, 128));
             break;
         case JSON_ARRAY:
             json_array_str(value);
@@ -2671,6 +2656,7 @@ void jsonp_print_json_value(JsonValue *value) {
         case JSON_OBJECT:
             pvt_json_object_str(value);
             break;
+        default: break;
     }
 }
 
@@ -2783,10 +2769,10 @@ void parse_test_str(char const * str) {
         jsonp_destroy();
         return;
     }
-    ArenaErrResult aer = arena_create_arena( ONE_MEBIBYTE * 100);
-    Arena *arena = aer.result;
+    ArenaErrResult aer =  alok_arena_create( ONE_MEBIBYTE * 100);
+    AlokArena *arena = aer.result;
     if ( aer.err ) {
-        printf("arena_create_arena failed with %d, %s\n", aer.reported_err, aer.msg);
+        printf("alok_arena_create failed with %d, %s\n", aer.reported_err, aer.msg);
         jsonp_destroy();
         return;
     }
@@ -2803,7 +2789,7 @@ void parse_test_str(char const * str) {
         printf("\n");
     }
 
-    arena_destroy_arena(arena);
+    alok_arena_destroy(arena);
     jsonp_destroy();
 }
 
@@ -2821,11 +2807,11 @@ void parse_test_str_custom_init(
     }
 
 
-    ArenaErrResult aer = arena_create_arena( ONE_MEBIBYTE * 100);
+    ArenaErrResult aer = alok_arena_create( ONE_MEBIBYTE * 100);
     if ( aer.err ) {
-        printf("arena_create_arena failed with %d, %s\n", aer.reported_err, aer.msg);
+        printf("alok_arena_create failed with %d, %s\n", aer.reported_err, aer.msg);
     }
-    Arena *arena = aer.result;
+    AlokArena *arena = aer.result;
 
     JsonParseError json_err = {};
     printf("\nParsing json string '%s': \n", str);
@@ -2840,7 +2826,7 @@ void parse_test_str_custom_init(
         printf("\n");
     }
 
-    arena_destroy_arena(arena);
+    alok_arena_destroy(arena);
     jsonp_destroy();
 
 }
@@ -2855,13 +2841,13 @@ void simple_parse(char const *json_text) {
         return;
     }
 
-    ArenaErrResult aer = arena_create_arena( 1024 * 124);  // initially 1MB as an example. Grows as needed.
+    ArenaErrResult aer = alok_arena_create( 1024 * 124);  // initially 1MB as an example. Grows as needed.
     if ( aer.err ) {
-        printf("arena_create_arena failed with %d, %s\n", aer.reported_err, aer.msg);
+        printf("alok_arena_create failed with %d, %s\n", aer.reported_err, aer.msg);
         jsonp_destroy();
         return;
     }
-    Arena *arena = aer.result;
+    AlokArena *arena = aer.result;
 
     JsonParseError err = {};
 
@@ -2874,7 +2860,7 @@ void simple_parse(char const *json_text) {
         putchar('\n');
     }
 
-    arena_destroy_arena(arena);
+    alok_arena_destroy(arena);
     jsonp_destroy();
 }
 
@@ -3220,13 +3206,13 @@ void parse_json_file(char const *filename) {
         jsonp_destroy();
         return;
     }
-    ArenaErrResult aer = arena_create_arena( ONE_MEBIBYTE * 100);
+    ArenaErrResult aer = alok_arena_create( ONE_MEBIBYTE * 100);
     if ( aer.err ) {
-        printf("arena_create_arena failed with %d, %s\n", aer.reported_err, aer.msg);
+        printf("alok_arena_create failed with %d, %s\n", aer.reported_err, aer.msg);
         jsonp_destroy();
         return;
     }
-    Arena *arena = aer.result;
+    AlokArena *arena = aer.result;
 
     JsonParseError err = {};
     printf("\nParsing json file '%s': \n", filename);
@@ -3239,11 +3225,43 @@ void parse_json_file(char const *filename) {
         jsonp_print_parse_error(&err);
     }
     else {
-        jsonp_print_json_value(jval);
+        jsonp_print_json_value(jval);  //baseline for comparison
+        int chars_printed = 0;
+
+
+        JsonFormatFlags flags = { .single_line = true, .indent = 2 };
+        printf("\nPretty Printer:\n");
+        printf("-----------------\n");
+        printf("\nsingle line:\n");
+
+        chars_printed = jsonp_print(jval, flags);
         printf("\n");
+        printf("\ntotal_chars_printed= %d\n", chars_printed);
+
+        printf("\nsprint to StringBuilder:\n");
+        // todo (rob) StringBuilder init should take an Arena/allocator
+        StringBuilder sb = {};
+        sb_init(&sb, 64, "");
+        jsonp_sprint(&sb, jval, flags);
+        sb_print(&sb); // print the StringBuilder.
+
+        sb_destroy(&sb);
+
+        printf("\nmulti line:\n");
+        flags.single_line = false;
+        chars_printed = jsonp_print(jval, flags);
+        printf("\n");
+        printf("\ntotal_chars_printed= %d\n", chars_printed);
+        printf("\nsprint to StringBuilder:\n");
+        sb_init(&sb, 64, "");
+        jsonp_sprint(&sb, jval, flags);
+        sb_print(&sb); // print the StringBuilder.
+
+        sb_destroy(&sb);
+
     }
 
-    arena_destroy_arena(arena);
+    alok_arena_destroy(arena);
     jsonp_destroy();
 }
 
@@ -3254,13 +3272,13 @@ void parse_json_stream(char const *filename) {
         jsonp_destroy();
         return;
     }
-    ArenaErrResult aer = arena_create_arena( ONE_MEBIBYTE * 100);
+    ArenaErrResult aer = alok_arena_create( ONE_MEBIBYTE * 100);
     if ( aer.err ) {
-        printf("arena_create_arena failed with %d, %s\n", aer.reported_err, aer.msg);
+        printf("alok_arena_create failed with %d, %s\n", aer.reported_err, aer.msg);
         jsonp_destroy();
         return;
     }
-    Arena *arena = aer.result;
+    AlokArena *arena = aer.result;
 
     // FILE* fptr = nullptr;
     JsonValue *jval = nullptr;
@@ -3278,7 +3296,7 @@ void parse_json_stream(char const *filename) {
 
         printf("\nParsing json file as stream: '%s': \n", filename);
         jval = jsonp_parse_stream(fptr, &err, arena);
-    };
+    }
 
     // FILE *fp = fopen(filename, "rb");
     // int saved_errno = errno;
@@ -3305,7 +3323,7 @@ void parse_json_stream(char const *filename) {
         printf("\n");
     }
 
-    arena_destroy_arena(arena);
+    alok_arena_destroy(arena);
     jsonp_destroy();
 }
 
@@ -3316,13 +3334,13 @@ void parse_json_url(char const *url_string) {
         jsonp_destroy();
         return;
     }
-    ArenaErrResult aer = arena_create_arena( ONE_MEBIBYTE * 100);
+    ArenaErrResult aer = alok_arena_create( ONE_MEBIBYTE * 100);
     if ( aer.err ) {
-        printf("arena_create_arena failed with %d, %s\n", aer.reported_err, aer.msg);
+        printf("alok_arena_create failed with %d, %s\n", aer.reported_err, aer.msg);
         jsonp_destroy();
         return;
     }
-    Arena *arena = aer.result;
+    AlokArena *arena = aer.result;
 
     JsonParseError err = {};
     printf("\nParsing json file from url: '%s': \n", url_string);
@@ -3339,7 +3357,7 @@ void parse_json_url(char const *url_string) {
         printf("\n");
     }
 
-    arena_destroy_arena(arena);
+    alok_arena_destroy(arena);
     jsonp_destroy();
 }
 
@@ -3376,11 +3394,18 @@ void test_one_json_file(void) {
 
 
     // parse_json_file("../test/json_parser/JSONTestSuite/fail/n_string_1_surrogate_then_escape_u1.json");
-    simple_parse("[1,2 3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]");
-    parse_json_file("../test/json_parser/json_files/n_long_array_1.json");
-    parse_json_stream("../test/json_parser/json_files/n_long_array_1.json");
+    // simple_parse("[1,2 3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]");
+    // parse_json_file("../test/json_parser/json_files/n_long_array_1.json");
+    // parse_json_stream("../test/json_parser/json_files/n_long_array_1.json");
 
     // parse_json_file("../test/json_parser/json_files/todos.json");
+
+    parse_json_file("../test/json_parser/json_files/RFC8259_example_13.1.json");
+    putchar('\n');
+    parse_json_file("../test/json_parser/json_files/RFC8259_example_13.2.json");
+
+
+
 
 }
 

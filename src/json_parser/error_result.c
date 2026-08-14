@@ -9,6 +9,9 @@
 
 #include <stdio.h>
 
+
+// todo need a method to spring the error message into a passed buffer.
+
 void err_print(Error err) {
     if (!err.err) return;
     fprintf(stderr,"Error code: %d, msg: %s", err.reported_err, err.msg);

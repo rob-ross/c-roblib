@@ -13,8 +13,8 @@
 
 
 /**
- * Initializes the map with the capacity given by the argument. Uses an Arena
- * for allocations. This map has no destructor. When the Arena is destroyed, the memory
+ * Initializes the map with the capacity given by the argument. Uses an AlokArena
+ * for allocations. This map has no destructor. When the AlokArena is destroyed, the memory
  * used by the lookup table is freed.
  *
  * @param map The struct holding the context for the map
@@ -22,11 +22,11 @@
  * @param initial_capacity The starting capacity of the map.
  * @param arena An initialized Arena
  */
-void lkup_map_init(SimpleMap *map, enum lkup_key_type key_type,  int initial_capacity, Arena * arena) {
+void lkup_map_init(SimpleMap *map, enum lkup_key_type key_type,  int initial_capacity, AlokArena * arena) {
     map->key_type = key_type;
     map->capacity = initial_capacity;
     map->length = 0;
-    map->entries = arena_alloc(arena, sizeof(KVEntry) * map->capacity);
+    map->entries = alok_arena_alloc(arena, sizeof(KVEntry) * map->capacity);
 }
 
 // Simple linear search for a key
@@ -51,10 +51,10 @@ static int lkup_map_find_index_for_long_key(SimpleMap *map, long key) {
 }
 
 
-static KVEntry * lkup_realloc(SimpleMap *map, uint32_t new_capacity, Arena * arena) {
+static KVEntry * lkup_realloc(SimpleMap *map, uint32_t new_capacity, AlokArena * arena) {
     // we can't realloc in the arena, so we just allocate new memory and
     // copy over the old data to the new allocation
-    KVEntry * new_entries = (KVEntry *)arena_alloc(arena, sizeof(KVEntry) * new_capacity);
+    KVEntry * new_entries = (KVEntry *)alok_arena_alloc(arena, sizeof(KVEntry) * new_capacity);
     if (!new_entries) {
         return nullptr;
     }
@@ -64,7 +64,7 @@ static KVEntry * lkup_realloc(SimpleMap *map, uint32_t new_capacity, Arena * are
 }
 
 // update the value at the index or add new value to map
-static int lkup_map_set(SimpleMap *map, const int index, void *value, Arena * arena) {
+static int lkup_map_set(SimpleMap *map, const int index, void *value, AlokArena * arena) {
     if (index != -1) {
         // Update existing
         map->entries[index].value = value;
@@ -87,7 +87,7 @@ static int lkup_map_set(SimpleMap *map, const int index, void *value, Arena * ar
 
 }
 
-void lkup_map_set_for_string_key(SimpleMap *map, const char *key, void *value, Arena * arena) {
+void lkup_map_set_for_string_key(SimpleMap *map, const char *key, void *value, AlokArena * arena) {
     int index = lkup_map_find_index_for_string_key(map, key);
     int result = lkup_map_set(map, index, value, arena);
 
@@ -98,7 +98,7 @@ void lkup_map_set_for_string_key(SimpleMap *map, const char *key, void *value, A
     }
 }
 
-void lkup_map_set_for_long_key(SimpleMap *map, long key, void *value, Arena * arena) {
+void lkup_map_set_for_long_key(SimpleMap *map, long key, void *value, AlokArena * arena) {
     int index = lkup_map_find_index_for_long_key(map, key);
     int result = lkup_map_set(map, index, value, arena);
 

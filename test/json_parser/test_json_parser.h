@@ -11,10 +11,10 @@
 struct json_parse_error_s;
 typedef json_parse_error_s JsonParseError;
 
-// Forward declaration because we only use Arena* (Incomplete Type is fine)
+// Forward declaration because we only use AlokArena* (Incomplete Type is fine)
 // This reduces coupling and improves compile times.
-struct arena_s;
-typedef arena_s Arena;
+struct alok_arena_s;
+typedef alok_arena_s AlokArena;
 
 using str_param = std::tuple<std::string, std::string>;
 
@@ -24,7 +24,7 @@ public:
     void TearDown() override;
 
     // The single source of truth for the arena
-    inline static Arena *arena;
+    inline static AlokArena *arena;
 };
 
 class JsonParserTest : public testing::Test {
@@ -37,5 +37,5 @@ protected:
     JsonParseError *err = nullptr;
 
     // Pointers to the global environment arena
-    Arena* arena = JsonParserEnvironment::arena;
+    AlokArena* arena = JsonParserEnvironment::arena;
 };

@@ -8,7 +8,7 @@
 #include <string.h>
 #include <stdio.h>
 
-#include "roblib/arena.h"
+#include "roblib/allocator.h"
 
 //// ------------------------------------------------------------
 ////
@@ -16,9 +16,9 @@
 ////
 //// ------------------------------------------------------------
 
-CharRingBuffer * crb_new_CharRingBuffer(size_t capacity, Arena *arena) {
+CharRingBuffer * crb_new_CharRingBuffer(size_t capacity, AlokArena *arena) {
     CharRingBuffer cb = { .capacity = capacity };
-    void * ptr = arena_alloc(arena, sizeof(CharRingBuffer) + capacity);
+    void * ptr = alok_arena_alloc(arena, sizeof(CharRingBuffer) + capacity);
     memcpy(ptr, &cb, sizeof(CharRingBuffer));
     return (CharRingBuffer*)ptr;
 }

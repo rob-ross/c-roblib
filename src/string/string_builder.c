@@ -55,9 +55,10 @@ static bool sb_ensure_capacity(StringBuilder *sb, uint32_t capacity_wanted) {
     uint32_t old_capacity = sb->capacity;
     uint32_t new_capacity = (uint32_t)(capacity_wanted * CAPACITY_FACTOR);
     char *buf = realloc(sb->buffer, new_capacity + 1);
+    if (!buf) return false;
+
     // clear new bytes
     memset(buf + old_capacity, '\0', new_capacity - old_capacity + 1);
-    if (!buf) return false;
     sb->buffer = buf;
     sb->capacity = new_capacity;
     return true;
@@ -153,4 +154,12 @@ uint32_t sb_replace_match_chars(StringBuilder *sb, char const * match_chars, cha
 
 void sb_repr( StringBuilder *sb ) {
     printf("(StringBuilder){ .capacity=%d, .length=%d, .buffer=\"%s\" }\n", sb->capacity, sb->length, sb->buffer);
+}
+
+int sb_fprint( FILE* stream, StringBuilder *sb ) {
+    return fprintf( stream, "%s", sb->buffer);
+}
+
+int sb_print( StringBuilder *sb ) {
+    return sb_fprint(stdout, sb);
 }

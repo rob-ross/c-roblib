@@ -22,7 +22,7 @@ extern "C" {
 ////
 //// ------------------------------------------------------------
 
-typedef struct arena_s Arena;
+typedef struct alok_arena_s AlokArena;
 constexpr size_t CharRingBuffer_SIZE = 40;
 
 /**
@@ -49,13 +49,13 @@ typedef enum : long {
 } CRBErrType;
 
 /**
- * Allocate a new `CharRingBuffer` in the provided Arena.
+ * Allocate a new `CharRingBuffer` in the provided AlokArena.
  * @param capacity the max length of this `CharRingBuffer`
  * @param arena the Arena allocator from which to allocate memory for the new CharRingBuffer
  * @return the new object as a CharRingBuffer *. It will be deallocated when
  * arena_destroy_arena()  is called on the Arena object.
  */
-CharRingBuffer * crb_new_CharRingBuffer(size_t capacity, Arena *arena);
+CharRingBuffer * crb_new_CharRingBuffer(size_t capacity, AlokArena *arena);
 
 void crb_add_str_to_buffer_CharRingBuffer(CharRingBuffer *crb, size_t count, char const *src_chars);
 void crb_add_char_to_buffer_CharRingBuffer(CharRingBuffer *crb,  char src_char);

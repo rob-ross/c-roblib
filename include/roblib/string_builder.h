@@ -7,6 +7,7 @@
 #define C_ROBLIB_STRING_BUILDER_H
 
 #include <stdint.h>
+#include <stdio.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -55,7 +56,7 @@ uint32_t sb_capacity( StringBuilder *sb );
  * @param sb
  * @param out_buffer
  */
-void sb_copy_to(StringBuilder *sb, uint32_t buf_len, char out_buffer[static buf_len + 1]);
+void sb_copy_to(StringBuilder *sb, uint32_t buf_size, char *out_buffer );
 
 // todo (rob) we need to make these insert methods utf-8 aware
 // StringBuilder * sb_insert_char( StringBuilder *sb, char c, uint32_t index);
@@ -76,6 +77,8 @@ uint32_t sb_length( StringBuilder *sb );
 uint32_t sb_replace_match_chars(StringBuilder *sb, char const * match_chars, char replacement_char);
 
 void sb_repr( StringBuilder *sb );
+int sb_print( StringBuilder *sb );
+int sb_fprint( FILE* stream, StringBuilder *sb );
 
 #ifdef __cplusplus
 }

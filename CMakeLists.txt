@@ -65,12 +65,15 @@ set(LIB_SOURCES
         ${LIB_SRC_DIR}/list/array_list.c
         ${LIB_SRC_DIR}/set/bitset.c
         ${LIB_SRC_DIR}/json_parser/json_parser.c
-        ${LIB_SRC_DIR}/json_parser/arena.c
+        ${LIB_SRC_DIR}/json_parser/allocator.c
         ${LIB_SRC_DIR}/json_parser/error_result.c
         ${LIB_SRC_DIR}/json_parser/lookup_table.c
         ${LIB_SRC_DIR}/unicode/unicode_tools.c
         ${LIB_SRC_DIR}/file_io/file_utils.c
         ${LIB_SRC_DIR}/set/bitset.c
+        src/string/string_slice.c
+        src/platform_specific.c
+        src/json_parser/json_pretty_printer.c
 )
 
 # Find the libcurl package
@@ -104,11 +107,15 @@ target_compile_options(json_parse PRIVATE -DJSON_PARSER_MAIN -Wno-unused-functio
 
 add_executable(json_parse2
         ${LIB_SRC_DIR}/json_parser/json_parser.c
-        ${LIB_SRC_DIR}/json_parser/arena.c
+        ${LIB_SRC_DIR}/json_parser/allocator.c
         ${LIB_SRC_DIR}/string/string_builder.c
         ${LIB_SRC_DIR}/string/char_ring_buffer.c
+        ${LIB_SRC_DIR}/string/string_slice.c
         ${LIB_SRC_DIR}/unicode/unicode_tools.c
         ${LIB_SRC_DIR}/json_parser/error_result.c
+        ${LIB_SRC_DIR}/json_parser/json_pretty_printer.c
+        ${LIB_SRC_DIR}/platform_specific.c
+
 )
 
 # Link c_roblib against libcurl

@@ -17,7 +17,7 @@
 typedef struct Writer Writer;
 struct Writer {
     void (*write)(Writer *self, const char *data, size_t len);
-    void *ctx;
+    void *writer_context;
 };
 
 
@@ -27,9 +27,9 @@ typedef struct {
     size_t used;
 } BufferCtx;
 
-void file_writer_impl(Writer *self, const char *data, size_t len);
+void file_writer_impl(Writer *self, const char *data_source, size_t len);
 Writer writer_to_file(FILE *f);
-void buffer_writer_impl(Writer *self, const char *data, size_t len);
+void buffer_writer_impl(Writer *self, const char *data_source, size_t len);
 
 
 /**

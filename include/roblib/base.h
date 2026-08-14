@@ -73,6 +73,7 @@ extern "C" {
 #define STATEMENT(S) do{ S }while(0)
 #define STRINGIFY_(S) #S
 #define STRINGIFY(S) STRINGIFY_(S)
+#define BOOLIFY(x) ((x) != 0)
 #define CAT_(A, B) A##B
 #define CAT(A, B) CAT_(A, B)
 #define CAT3(A,B,C) CAT(CAT(A,B), C)
@@ -103,6 +104,123 @@ extern "C" {
 #define IS_BOOL(x) _Generic((x), bool: 1, default: 0)
 #define IS_ARRAY(x) (!(_Generic((x), typeof(x): 0, typeof(&(x)[0]): 1, default: 0)))
 #define IS_INT_ARRAY(x) (sizeof(x) > 0 && _Generic((x), int*: 0, default: 1))  // Rough example
+
+
+#define KB(x) ((x) << 10)
+#define MB(x) ((x) << 20)
+#define GB(x) ((x) << 30)
+#define TB(x) ((U64)(x) << 40llu)
+
+#define Thousand(x) ((x)*1000)
+#define Million(x)  ((x)*1000000llu)
+#define Billion(x)  ((x)*1000000000llu)
+#define Trillion(x) ((x)*1000000000000llu)
+
+
+//// ------------------------------------------------------------
+////
+////    LINKED LISTS
+////
+//// ------------------------------------------------------------
+
+// -----------------------------------------------------------------
+//      Doubly Linked Lists
+// -----------------------------------------------------------------
+
+#define DLLPushBack_NP(FIRST,LAST,NODE,NEXT_NAME,PREV_NAME)\
+    (\
+        (FIRST)==nullptr?\
+            ( \
+                (FIRST)=(LAST)=(NODE)\
+                , \
+                (NODE)->NEXT_NAME=(NODE)->PREV_NAME=nullptr \
+            ):\
+            ( \
+                (NODE)->PREV_NAME=(LAST)\
+                    ,\
+                    (LAST)->NEXT_NAME=(NODE)\
+                    ,\
+                    (LAST)=(NODE)\
+                    ,\
+                    (NODE)->NEXT_NAME=nullptr \
+            )\
+    )
+// defaults to using 'next' and 'prev' as node member names
+#define DLLPushBack(FIRST,LAST,NODE) DLLPushBack_NP(FIRST,LAST,NODE,next,prev)
+// defaults to using 'next' and 'prev' as node member names
+#define DLLPushFront(FIRST,LAST,NODE) DLLPushBack_NP(LAST,FIRST,NODE,prev,next)
+
+#define DLLRemove_NP(FIRST,LAST,NODE,NEXT_NAME,PREV_NAME)\
+    (\
+        (FIRST)==(NODE)?\
+            (\
+                (FIRST)==(LAST)?\
+                    ( (FIRST)=(LAST)=(nullptr) ):\
+                    ( (FIRST)=(FIRST)->NEXT_NAME, (FIRST)->PREV_NAME=nullptr )\
+            )\
+            :\
+            (LAST)==(NODE)?\
+                ( (LAST)=(LAST)->PREV_NAME,(LAST)->NEXT_NAME=nullptr ):\
+                ( (NODE)->NEXT_NAME->PREV_NAME=(NODE)->PREV_NAME\
+                    ,\
+                    (NODE)->PREV_NAME->NEXT_NAME=(NODE)->NEXT_NAME )\
+    )
+
+// defaults to using 'next' and 'prev' as node member names
+#define DLLRemove(FIRST,LAST,NODE) DLLRemove_NP(FIRST,LAST,NODE,next,prev)
+
+// -----------------------------------------------------------------
+//      Singly Linked Lists
+// -----------------------------------------------------------------
+
+#define SLLQueuePush_N(FIRST,LAST,NODE,NEXT_NAME) \
+    (\
+        (\
+            (FIRST)==nullptr?\
+                (FIRST)=(LAST)=(NODE):\
+                ( (LAST)->NEXT_NAME=(NODE),(LAST)=(NODE) )\
+        )\
+        , \
+        (NODE)->NEXT_NAME=nullptr\
+    )
+// defaults to using 'next' as node member name
+#define SLLQueuePush(FIRST,LAST,NODE) SLLQueuePush_N(FIRST,LAST,NODE,next)
+#define SLLQueuePushFront_N(FIRST,LAST,NODE,NEXT_NAME)\
+    (\
+        (FIRST)==nullptr?\
+            ( (FIRST)=(LAST)=(NODE), (NODE)->NEXT_NAME=nullptr ):\
+            ( (NODE)->NEXT_NAME=(FIRST),(FIRST)=(NODE) )\
+    )
+// defaults to using 'next' as node member name
+#define SLLQueuePushFront(FIRST,LAST,NODE) SLLQueuePushFront_N(FIRST,LAST,NODE,next)
+#define SLLQueuePop_N(FIRST,LAST,NEXT_NAME)\
+    (\
+        (FIRST)==(LAST)?\
+            (FIRST)=(LAST)=nullptr:\
+            ( (FIRST)=(FIRST)->NEXT_NAME )\
+    )
+// defaults to using 'next' as node member name
+#define SLLQueuePop(FIRST,LAST) SLLQueuePop_N(FIRST,LAST,next)
+#define SLLStackPush_N(FIRST,NODE,NEXT_NAME)\
+    (\
+        (NODE)->NEXT_NAME=(FIRST), (FIRST)=(NODE)\
+    )
+// defaults to using 'next' as node member name
+#define SLLStackPush(FIRST,NODE) SLLStackPush_N(FIRST,NODE,next)
+#define SLLStackPop_N(FIRST,NEXT_NAME) \
+    (\
+        (FIRST)==nullptr?\
+            nullptr:\
+            ( (FIRST)=(FIRST)->NEXT_NAME )\
+    )
+// defaults to using 'next' as node member name
+#define SLLStackPop(FIRST) SLLStackPop_N(FIRST,next)
+
+
+// -----------------------------------------------------------------
+//      Conversion Format Specifiers  (partial)
+// -----------------------------------------------------------------
+
 
 #define CONVERSION_FMT(expr, ...) _Generic( (expr),    \
     bool                      : "%d",                  \
@@ -247,24 +365,6 @@ extern "C" {
         putchar('\n');                  \
     } while (0)
 
-/**
- * @brief Generates a unique variable name token for use within a macro.
- *
- * It creates an identifier by concatenating a prefix, a user-provided base name,
- * and the current line number. This is a common and portable technique to avoid
- * name collisions for temporary variables inside macros.
- *
- * Example: `UNIQUE_VAR(my_temp)` on line 50 would expand to `pvt_my_temp_50`.
- *
- * @param base_name The root name for the variable.
- */
-#define UNIQUE_VAR(base_name) CAT(CAT(pvt_, base_name), __LINE__)
-
-#define SWAP(a, b) STATEMENT(                               \
-    auto UNIQUE_VAR(swap_temp) = (a);                       \
-    (a) = (b);                                              \
-    (b) = UNIQUE_VAR(swap_temp);                            \
-)
 
 
 /*
@@ -300,15 +400,20 @@ extern "C" {
         };
 
     When the block following USING_FILE() exits, the file has been closed.
+
+    Note: Clang supports expression defines , e.g.:
+        #define EXPRESSION __extension__ ({ ... foo;})
+    The value of the macro evaluates to the value of the last expression in the block, `foo` in this example.
  */
 
+// Can't use `break` nor `continue` in the block
 #define USING_FILE( FP, name, mode)    \
     for ( int UNIQUE_VAR(once) = 1; UNIQUE_VAR(once); )      \
         for( FILE* FP = fopen( name, mode) ; UNIQUE_VAR(once) ; fclose(FP), FP = nullptr, UNIQUE_VAR(once)--)   \
 
 
 
-
+// Can't use `break` nor `continue` in the block
 #define USING_VA_LIST(args, last) \
     for ( int UNIQUE_VAR(once) = 1 ; UNIQUE_VAR(once) ; )            \
         for( va_list args; UNIQUE_VAR(once) ; )            \

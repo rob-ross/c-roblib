@@ -8,21 +8,27 @@
 
 #include "roblib/json_parser.h"
 
+// SLIT: slice literal convenience macro
+#define SLIT(S) slice_from_cstring((S))
+#define NL putchar('\n');
+
 void JsonParserEnvironment::SetUp() {
     jsonp_init();
     // Using {} (List Initialization) to ensure the C struct is completely
     // zero-initialized before passing it to the C API.
-    ArenaErrResult aer = arena_create_arena( 1024 * 1024);
+    ArenaErrResult aer = alok_arena_create( 1024 * 1024);
     if (aer.err ) {
-        fprintf(stderr, "Could not allocate Arena");
-        err_print(static_cast<Error>(aer.error));
+        fprintf(stderr, "Could not allocate AlokArena");
+        // ugly cast but C++ doesn't play well with my Error framework
+        Error *e = static_cast<Error *>(static_cast<void *>(&aer));
+        err_print(*e);
     }
     arena =  aer.result;
 }
 
 
 void JsonParserEnvironment::TearDown() {
-    arena_destroy_arena(arena);
+    alok_arena_destroy(arena);
     jsonp_destroy();
 }
 
@@ -30,9 +36,9 @@ void JsonParserTest::SetUp() {
     // Fresh allocation for every test case. {} ensures all fields
     // (especially the enum and buffers) start at zero.
     err = new JsonParseError{};
-    // todo (rob) for future optimization - we should reset the Arena here so it starts from the beginning
-    arena_reset(arena, false);
-    // for each test. Thus the memory allocated for the Arena will attain a "high water mark",
+    // todo (rob) for future optimization - we should reset the AlokArena here so it starts from the beginning
+    alok_arena_reset(arena, false);
+    // for each test. Thus the memory allocated for the AlokArena will attain a "high water mark",
     // but won't grow without bound.
 }
 
@@ -195,7 +201,7 @@ TEST_P(JsonParserStrings, TestStrings) {
     ASSERT_NE(jval, nullptr) << "Failed to parse: " << input_json;
     EXPECT_EQ(jval->type, JSON_STRING);
     if (jval->type == JSON_STRING) {
-        EXPECT_STREQ(jval->u.string, expected_output.c_str());
+        EXPECT_TRUE(slice_equal(jval->u.string, SLIT(expected_output.c_str())));
     }
 }
 
@@ -217,7 +223,7 @@ TEST_P(JsonParserStringEscapes, TestStringEscapes) {
     ASSERT_NE(jval, nullptr) << "Failed to parse: " << input_json << " " << err->message;
     EXPECT_EQ(jval->type, JSON_STRING);
     if (jval->type == JSON_STRING) {
-        EXPECT_STREQ(jval->u.string, expected_output.c_str()) ;
+        EXPECT_TRUE(slice_equal(jval->u.string, SLIT(expected_output.c_str()))) ;
     }
 }
 
@@ -263,7 +269,7 @@ TEST_P(JsonParserUnicodeStrings, TestStrings) {
     ASSERT_NE(jval, nullptr) << "Failed to parse: " << input_json;
     EXPECT_EQ(jval->type, JSON_STRING);
     if (jval->type == JSON_STRING) {
-        EXPECT_STREQ(jval->u.string, expected_output.c_str());
+        EXPECT_TRUE(slice_equal(jval->u.string, SLIT(expected_output.c_str())));
     }
 }
 

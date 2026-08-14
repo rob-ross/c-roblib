@@ -5,7 +5,7 @@
 //
 // Created 2026/06/02 01:37:49 PDT
 
-// version: JSONP v0.1.1
+// version: JSONP v0.1.2
 
 
 /*
@@ -38,15 +38,18 @@ The literal names MUST be lowercase.  No other literal names are allowed.
 #include <stdio.h>
 #include <stdint.h>
 
-#include "arena.h"
+#include "allocator.h"
 #include "error_result.h"
+#include "roblib_types.h"
+#include "string_builder.h"
+#include "string_slice.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 
-typedef enum json_type{
+typedef enum json_type_e : char{
     JSON_NULL,
     JSON_BOOLEAN,
 
@@ -54,29 +57,20 @@ typedef enum json_type{
     JSON_NUMBER,  // generic JSON number type. Implemented as a double.
     JSON_LONG,
     JSON_DOUBLE,
-    JSON_LONG_LONG,
-    JSON_LONG_DOUBLE,  // for future use. long double == double on my machine :(
+    JSON_LONG_LONG,    // for future use. long == long long on my machine. :(
+    JSON_LONG_DOUBLE,  // for future use.
 
     JSON_STRING,
     JSON_ARRAY,
     JSON_OBJECT
-} json_type;
+} JsonType;
 
 typedef struct json_value_s JsonValue;
 typedef struct json_object_entry_s JsonObjectEntry;
 
 struct json_value_s {
-    json_type type;
     union {
-        int boolean;
-        union {
-            long        n_long;
-            double      n_double;
-            double      n_number;
-            long long   n_long_long;
-            long double n_long_double;
-        };
-        const char *string;
+        StringSlice string;
         struct {
             JsonValue **elements;
             size_t count;
@@ -85,11 +79,20 @@ struct json_value_s {
             JsonObjectEntry **entries;
             size_t count;
         } object;
+        union {
+            long        n_long;
+            double      n_double;
+            double      n_number;
+            // long long   n_long_long;
+            // long double n_long_double;
+        };
+        bool boolean;
     } u;
+    JsonType type;
 };
 
 struct json_object_entry_s {
-    char const *key;
+    StringSlice key;
     JsonValue *value;
 };
 
@@ -235,7 +238,8 @@ typedef struct json_context_s JsonContext; // opaque type
 
 constexpr jp_bitset_t JSON_CONFIG_FLAGS_DEFAULT     = 0;
 constexpr uint32_t    JSON_DEPTH_MAX_DEFAULT        = 64;
-char const * const    JSON_WHITESPACE_CHARS_DEFAULT = " \t\n\r";
+
+extern char const * const    JSON_WHITESPACE_CHARS_DEFAULT;
 
 
 // -----------------------------------------------------------------
@@ -286,27 +290,27 @@ void jsonp_destroy(void);
 //      PARSING
 // -----------------------------------------------------------------
 
-// JsonValue * jsonp_parse(const char *json_text, JsonParseError *error, Arena *arena);
+// JsonValue * jsonp_parse(const char *json_text, JsonParseError *error, AlokArena *arena);
 
-JsonValue * jsonp_parse_string(const char *json_text, JsonParseError *error, Arena *arena) ;
-JsonValue * jsonp_parse_string_using_context(const char *json_text, JsonParseError *error, Arena *arena, JsonContext *context );
+JsonValue * jsonp_parse_string(const char *json_text, JsonParseError *error, AlokArena *arena) ;
+JsonValue * jsonp_parse_string_using_context(const char *json_text, JsonParseError *error, AlokArena *arena, JsonContext *context );
 
 // version that takes an argument, buffer_size, which is the actual size of the JSON text buffer in bytes.
 // this method can report errors where it parsed successfully but did not use up the entire buffer
-JsonValue *jsonp_parse_string_ex(const char *json, JsonParseError *error, Arena *arena, uint32_t buffer_size);
+JsonValue *jsonp_parse_string_ex(const char *json, JsonParseError *error, AlokArena *arena, uint32_t buffer_size);
 
 
-JsonValue * jsonp_parse_file(const char *json_filename, JsonParseError *error, Arena *arena);
+JsonValue * jsonp_parse_file(const char *json_filename, JsonParseError *error, AlokArena *arena);
 
 /**
  * The user is responsible for passing a FILE* opened in binary mode ("rb").
  * The behavior is unspecified otherwise and will likely fail on Windows.
  */
-JsonValue * jsonp_parse_stream( FILE *fp, JsonParseError *error, Arena *arena);
+JsonValue * jsonp_parse_stream( FILE *fp, JsonParseError *error, AlokArena *arena);
 
 // For future use. Not really tested. Not for production.
 // How to integrate with security constraints, authorization, API keys, etc?
-JsonValue * jsonp_parse_url( const char* url, JsonParseError *error, Arena *arena);
+JsonValue * jsonp_parse_url( const char* url, JsonParseError *error, AlokArena *arena);
 
 //// ------------------------------------------------------------
 ////
@@ -439,7 +443,18 @@ const char *jsonp_parse_error_type_name(JsonParseErrType err_type);
 void jsonp_print_parse_error(JsonParseError *err);
 
 
-void jsonp_value_repr(JsonValue *value);
+// -----------------------------------------------------------------
+//      JSON Pretty Printer
+// -----------------------------------------------------------------
+typedef struct jsonp_format_flags_s {
+    u8 indent; // number of spaces to indent each nested level. More than 4 makes the output very wide
+    bool single_line; // true if this should format JSON text as single line, if false, print on multiple lines
+} JsonFormatFlags;
+
+// Prints the JsonValue in JSON format to stdout
+int jsonp_print( const JsonValue *jval, JsonFormatFlags flags);
+int jsonp_fprint( FILE* stream, const JsonValue *jval, JsonFormatFlags flags );
+int jsonp_sprint( StringBuilder *sb, const JsonValue *jval, JsonFormatFlags flags);
 
 #ifdef __cplusplus
 }
