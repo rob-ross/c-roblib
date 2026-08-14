@@ -126,17 +126,17 @@ void alok_arena_destroy( AlokArena * arena);
 /**
  * @brief Allocates memory from the arena.
  *
- * This function can be called with 2 - 4 arguments. The `ArenaErrResult` and `align_size` parameters are optional.
- * If passed and an error occurs, it will contain the error information.
+ * This function can be called with 2 - 4 arguments. The `align_size` and `ArenaErrResult`   parameters are optional.
+ * If `aer` is not null and an error occurs, it will contain the error information.
  * If no error occurs, a pointer to the newly allocated memory is returned,
  * and aer->err (if not null) will be set to false.
  * Otherwise, a nullptr is returned, and aer->err (if not null) will be set to true.
- * If `align_size` is omitted, the default size set in `alok_arena_create` is used. This defaults to DEFAULT_ALIGNMENT
- * if not explicitly set. Otherwise, the argument value is used to align the memory location at which
- * the allocation is made.
+ * If `align_size` is omitted, the default size set in `alok_arena_create` is used.
+ * This defaults to DEFAULT_ALIGNMENT if not explicitly set. Otherwise, the argument value is used
+ * to align the memory location at which the allocation is made.
  * - `arena_alloc( arena, size_t size)`
- * - `arena_alloc( arena, size_t size, [[nullable]] ArenaErrResult * aer)`
- * - `arena_alloc( arena, size_t size, [[nullable]] ArenaErrResult * aer, size_t align_size)`
+ * - `arena_alloc( arena, size_t size, size_t align_size)`
+ * - `arena_alloc( arena, size_t size, size_t align_size, [[nullable]] ArenaErrResult * aer)`
  * @returns void * to the newly allocated memory
  */
 #define alok_arena_alloc(_1, _2, ...) \
@@ -146,11 +146,12 @@ void alok_arena_destroy( AlokArena * arena);
 
 // --- Internal Use Only ---
 
-#define _alok_arena_alloc_2(_1, _2)        (_alok_arena_alloc)(_1, _2, nullptr, 0)
-#define _alok_arena_alloc_3(_1, _2, _3)    (_alok_arena_alloc)(_1, _2, _3,      0)
-#define _alok_arena_alloc_4(_1, _2, _3, _4)(_alok_arena_alloc)(_1, _2, _3,     _4)
+#define _alok_arena_alloc_2(_1, _2)        (_alok_arena_alloc)(_1, _2,  0, nullptr )
+#define _alok_arena_alloc_3(_1, _2, _3)    (_alok_arena_alloc)(_1, _2, _3, nullptr )
+#define _alok_arena_alloc_4(_1, _2, _3, _4)(_alok_arena_alloc)(_1, _2, _3,     _4 )
 #define _alok_arena_alloc_SELECT_(_1, _2, NAME, ...) NAME
-void * _alok_arena_alloc(AlokArena * arena,  size_t size, [[nullable]] ArenaErrResult * aer, size_t alignment); // NOLINT(*-reserved-identifier)
+
+void * _alok_arena_alloc(AlokArena * arena, size_t size, size_t align_size, [[nullable]] ArenaErrResult * aer);  // NOLINT(*-reserved-identifier)
 
 
 StackMarker * alok_arena_marker(AlokArena * arena);

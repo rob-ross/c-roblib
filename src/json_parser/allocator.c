@@ -212,6 +212,12 @@ static size_t pvt_alok_align_up(const size_t value, const size_t alignment) {
 
 // todo (rob) not tested.
 // zero out the contents of the arena
+// we can't just zero out the entire arena. This will commit every page in the reservation.
+// Also, mmap zeroes the pages for us. We just need to keep track of a bock's max offset position.
+// If the current offset is greater than or equal this, the memory is already zeroed.
+// if current offset is < max offset position, we have previously allocated memory from the
+// current region and should zero those allocation bytes.
+[[deprecated]]
 static void pvt_alok_arena_zero(AlokArena const * arena, const size_t first_block_metadata_size) {
     AllocatorHeader *header = arena->alloc_header;
     BlockHeader * current = header->head_block;
@@ -285,8 +291,8 @@ void alok_arena_release_scratch(AlokArenaTemp *temp) {
 ////
 //// ------------------------------------------------------------
 
-constexpr size_t BUMP_HEAD_BLOCK_METADATA_SIZE = sizeof(BlockHeader) + sizeof(AlokArena) + sizeof(AllocatorHeader);
-void * _alok_arena_alloc(AlokArena * arena, const size_t size, [[nullable]] ArenaErrResult * aer, size_t align_size);
+constexpr size_t ARENA_HEAD_BLOCK_METADATA_SIZE = sizeof(BlockHeader) + sizeof(AlokArena) + sizeof(AllocatorHeader);
+void * _alok_arena_alloc(AlokArena * arena, const size_t size, size_t align_size, [[nullable]] ArenaErrResult * aer);
 size_t round_up_to_power_of_two(size_t x);
 
 // precondition: the align_size size is a power of two
@@ -368,7 +374,7 @@ static void * pvt_alok_arena_alloc_impl(
 
 ArenaErrResult (_alok_arena_create)( size_t arena_capacity, bool auto_grow, size_t default_alignment ){
     // Account for the block header size, AlokArena struct, and AllocatorHeader struct
-    const size_t needed_capacity = arena_capacity + BUMP_HEAD_BLOCK_METADATA_SIZE;
+    const size_t needed_capacity = arena_capacity + ARENA_HEAD_BLOCK_METADATA_SIZE;
 
     BlockHeaderErrResult bher = pvt_alok_new_os_block(needed_capacity);
 
@@ -377,7 +383,7 @@ ArenaErrResult (_alok_arena_create)( size_t arena_capacity, bool auto_grow, size
     }
 
     BlockHeader * new_block_header = bher.result;
-    new_block_header->usable_size = new_block_header->block_size - BUMP_HEAD_BLOCK_METADATA_SIZE;
+    new_block_header->usable_size = new_block_header->block_size - ARENA_HEAD_BLOCK_METADATA_SIZE;
 
     if (! default_alignment) {
         default_alignment = DEFAULT_ALIGNMENT;
@@ -397,10 +403,10 @@ ArenaErrResult (_alok_arena_create)( size_t arena_capacity, bool auto_grow, size
     AlokArena temp_bump_arena = { .alloc_header = &temp_bump_header};
 
     // The very first allocation is for the AlokArena struct itself
-    AlokArena *new_bump_arena = _alok_arena_alloc(&temp_bump_arena, sizeof(AlokArena), nullptr, _Alignof(AlokArena));
+    AlokArena *new_bump_arena = _alok_arena_alloc(&temp_bump_arena, sizeof(AlokArena), _Alignof(AlokArena), nullptr);
 
     // The next allocation is for the AllocatorHeader struct itself
-    AllocatorHeader *new_alloc_header = _alok_arena_alloc(&temp_bump_arena, sizeof(AllocatorHeader), nullptr, _Alignof(AllocatorHeader));
+    AllocatorHeader *new_alloc_header = _alok_arena_alloc(&temp_bump_arena, sizeof(AllocatorHeader), _Alignof(AllocatorHeader), nullptr);
     *new_alloc_header = temp_bump_header;  // value copy
 
     // Initialize the AlokArena's const pointer to the permanent AllocatorHeader
@@ -415,11 +421,11 @@ void alok_arena_reset(AlokArena * arena, bool zero_mem) {
     }
     AllocatorHeader *header = arena->alloc_header;
 
-    if (zero_mem) pvt_alok_arena_zero(arena, BUMP_HEAD_BLOCK_METADATA_SIZE);
+    // if (zero_mem) pvt_alok_arena_zero(arena, ARENA_HEAD_BLOCK_METADATA_SIZE);
     // Reset the current buffer pointer to the start of the first block
     header->current_block = (byte*)header->head_block;
     // Reset the offset to usable start of the first block (after the headers)
-    header->offset = BUMP_HEAD_BLOCK_METADATA_SIZE;
+    header->offset = ARENA_HEAD_BLOCK_METADATA_SIZE;
 }
 
 void alok_arena_destroy( AlokArena * arena) {
@@ -435,7 +441,7 @@ void alok_arena_destroy( AlokArena * arena) {
 }
 
 // Returns pointer to allocated chunk in the arena, or nullptr if arena is out of memory.
-void * _alok_arena_alloc(AlokArena * arena, const size_t size, [[nullable]] ArenaErrResult * aer, size_t align_size) {
+void * _alok_arena_alloc(AlokArena * arena, const size_t size, size_t align_size, [[nullable]] ArenaErrResult * aer) {
     AllocatorHeader *header = arena->alloc_header;
     if ( ! align_size) {
         align_size = header->default_alignment;
