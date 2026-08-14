@@ -40,6 +40,8 @@ The literal names MUST be lowercase.  No other literal names are allowed.
 
 #include "allocator.h"
 #include "error_result.h"
+#include "roblib_types.h"
+#include "string_builder.h"
 #include "string_slice.h"
 
 #ifdef __cplusplus
@@ -444,9 +446,15 @@ void jsonp_print_parse_error(JsonParseError *err);
 // -----------------------------------------------------------------
 //      JSON Pretty Printer
 // -----------------------------------------------------------------
+typedef struct jsonp_format_flags_s {
+    u8 indent; // number of spaces to indent each nested level. More than 4 makes the output very wide
+    bool single_line; // true if this should format JSON text as single line, if false, print on multiple lines
+} JsonFormatFlags;
 
-void jsonp_print_json( const JsonValue *jval ) ;
-
+// Prints the JsonValue in JSON format to stdout
+int jsonp_print( const JsonValue *jval, JsonFormatFlags flags);
+int jsonp_fprint( FILE* stream, const JsonValue *jval, JsonFormatFlags flags );
+int jsonp_sprint( StringBuilder *sb, const JsonValue *jval, JsonFormatFlags flags);
 
 #ifdef __cplusplus
 }

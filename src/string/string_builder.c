@@ -155,3 +155,11 @@ uint32_t sb_replace_match_chars(StringBuilder *sb, char const * match_chars, cha
 void sb_repr( StringBuilder *sb ) {
     printf("(StringBuilder){ .capacity=%d, .length=%d, .buffer=\"%s\" }\n", sb->capacity, sb->length, sb->buffer);
 }
+
+int sb_fprint( FILE* stream, StringBuilder *sb ) {
+    return fprintf( stream, "%s", sb->buffer);
+}
+
+int sb_print( StringBuilder *sb ) {
+    return sb_fprint(stdout, sb);
+}

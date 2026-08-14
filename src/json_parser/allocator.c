@@ -162,7 +162,7 @@ static BlockHeaderErrResult pvt_alok_new_os_block( const size_t block_size ) {
         BlockHeaderErrResult bher =  (BlockHeaderErrResult){ .err = true, .reported_err = err_no,  };
         strerror_r(err_no, bher.msg, sizeof bher.msg);
 #else
-    raw_mem = calloc(1, page_aligned_block_size);
+    raw_mem = malloc( page_aligned_block_size );
     if (raw_mem == nullptr) {
         int err_no = errno;
         BlockHeaderErrResult bher =  (BlockHeaderErrResult){ .err = true, .reported_err = err_no, };
@@ -350,6 +350,9 @@ static void * pvt_alok_arena_alloc_impl(
             header->offset = sizeof(BlockHeader);
         }
     }
+
+    //todo (rob) zero out the allocation memory area
+    memset(&header->current_block[ header->offset ], '0', alignment_padding + size);
 
     header->offset += alignment_padding;
 

@@ -3225,11 +3225,40 @@ void parse_json_file(char const *filename) {
         jsonp_print_parse_error(&err);
     }
     else {
-        jsonp_print_json_value(jval);
-        printf("\nPretty Printer:\n");
+        jsonp_print_json_value(jval);  //baseline for comparison
+        int chars_printed = 0;
 
-        jsonp_print_json(jval);
+
+        JsonFormatFlags flags = { .single_line = true, .indent = 2 };
+        printf("\nPretty Printer:\n");
+        printf("-----------------\n");
+        printf("\nsingle line:\n");
+
+        chars_printed = jsonp_print(jval, flags);
         printf("\n");
+        printf("\ntotal_chars_printed= %d\n", chars_printed);
+
+        printf("\nsprint to StringBuilder:\n");
+        // todo (rob) StringBuilder init should take an Arena/allocator
+        StringBuilder sb = {};
+        sb_init(&sb, 64, "");
+        jsonp_sprint(&sb, jval, flags);
+        sb_print(&sb); // print the StringBuilder.
+
+        sb_destroy(&sb);
+
+        printf("\nmulti line:\n");
+        flags.single_line = false;
+        chars_printed = jsonp_print(jval, flags);
+        printf("\n");
+        printf("\ntotal_chars_printed= %d\n", chars_printed);
+        printf("\nsprint to StringBuilder:\n");
+        sb_init(&sb, 64, "");
+        jsonp_sprint(&sb, jval, flags);
+        sb_print(&sb); // print the StringBuilder.
+
+        sb_destroy(&sb);
+
     }
 
     alok_arena_destroy(arena);
