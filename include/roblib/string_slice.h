@@ -4,7 +4,8 @@
 //
 //  Copyright (c) 2026.  All rights reserved.
 
-//
+// version: STRING_SLICE v0.1.0
+
 
 #ifndef C_ROBLIB_STRING_SLICE_H
 #define C_ROBLIB_STRING_SLICE_H
