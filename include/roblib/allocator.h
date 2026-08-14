@@ -81,9 +81,13 @@ constexpr size_t MAX_ALIGNMENT     = _Alignof(max_align_t);
 constexpr size_t POINTER_ALIGNMENT = _Alignof(void*);
 constexpr size_t DEFAULT_ALIGNMENT = MAX_ALIGNMENT;
 
+// todo (rob) this probably belongs in a more general utilities type unit
+
+size_t alok_align_up(const size_t value, const size_t alignment);
+
 //// ------------------------------------------------------------
 ////
-////    MONOTONIC (BUMP, LINEAR)  ALLOCATOR
+////    MONOTONIC (Arena, Bump, Linear)  ALLOCATOR
 ////
 //// ------------------------------------------------------------
 
@@ -114,6 +118,7 @@ constexpr size_t DEFAULT_ALIGNMENT = MAX_ALIGNMENT;
 #define _alok_arena_create_3(_1, _2, _3)    (_alok_arena_create)(_1, _2,    _3)
 #define _alok_arena_create_SELECT_(_1, _2, NAME, ...) NAME
 
+// todo (rob) add "zero" flag, default is true, writes 0 to memory as it is allocated
 ArenaErrResult _alok_arena_create( size_t arena_capacity, bool auto_grow, size_t default_alignment );
 // macro notes: in the SELECT_ parameter list, the numbers are for the OPTIONAL arguments. _1 is for no_grow,
 // _2 is for default_alignment.
