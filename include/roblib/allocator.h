@@ -164,6 +164,7 @@ void * _alok_arena_alloc(AlokArena * arena, size_t size, size_t align_size, [[nu
 
 StackMarker * alok_arena_marker(AlokArena * arena);
 void alok_arena_pop_to_marker(AlokArena * arena, StackMarker * marker);
+void * alok_arena_top_pointer( const AlokArena * arena);
 
 AlokArenaTemp alok_arena_get_scratch(AlokArena **conflict_array, size_t count);
 void alok_arena_release_scratch(AlokArenaTemp *temp);

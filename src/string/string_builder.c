@@ -99,8 +99,22 @@ static bool sb_ensure_capacity(StringBuilder *sb, uint32_t capacity_wanted) {
     }
     char *buf = nullptr;
     if (sb->arena) {
-        buf = alok_arena_alloc(sb->arena,  new_capacity + 1, alignof(char), nullptr );
-        if (!buf) return false;
+        // optimization: if this allocation is right after the previous one in the arena,
+        // we can keep the original pointer and just request the additional space.
+        void * top = alok_arena_top_pointer(sb->arena);
+        void * buffer_end = sb->buffer + (sb->capacity + 1) * sizeof(char);
+        if ( top == buffer_end) {
+            // we can just grow the buffer in place
+            void * new_mem = alok_arena_alloc(sb->arena,  (new_capacity - old_capacity ), alignof(char), nullptr );
+            if ( !new_mem) return false; // todo (rob) error reporting
+            buf = sb->buffer; // the buffer doesn't move, it just grows.
+        } else {
+            // we have to allocate a new buffer and copy the current buffer contents to the new location
+            void * new_buf = alok_arena_alloc(sb->arena,  new_capacity + 1, alignof(char), nullptr );
+            if ( !new_buf) return false; // todo (rob) error reporting
+            memcpy(new_buf, sb->buffer, sb->capacity + 1);
+            buf = new_buf;
+        }
     } else {
         buf = realloc(sb->buffer, new_capacity + 1);
         if (!buf) return false;
@@ -115,13 +129,10 @@ static bool sb_ensure_capacity(StringBuilder *sb, uint32_t capacity_wanted) {
 StringBuilder * sb_append_char( StringBuilder *sb,  char c) {
     if (c == '\0') return sb;  // adding empty string does nothing.
     uint32_t new_length = sb->length + sizeof(char);
-    //todo (rob) why are we passing new_length + 1 here??
-    if (!sb_ensure_capacity(sb, new_length + 1)) return nullptr;
+    if (!sb_ensure_capacity(sb, new_length )) return nullptr;
 
     sb->buffer[sb->length++] = c;
     sb->buffer[sb->length] = '\0';
-    sb->length = new_length;
-
     return sb;
 }
 

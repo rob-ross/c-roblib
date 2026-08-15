@@ -1415,7 +1415,7 @@ static bool pvt_validate_utf8(JsonContext *context, JsonParseError *error,  Stri
 }
 
 // assumes pvt_peek_char(context) == 'u' or 'U' and the previous character was a backslash '\'
-static StringBuilder * pvt_parse_unicode_escape( JsonContext *context, JsonParseError *error, AlokArena *arena, StringBuilder *sb_out ) {
+static StringBuilder * pvt_parse_unicode_escape( JsonContext *context, JsonParseError *error, StringBuilder *sb_out ) {
     Input *input = context->input;
 
     if (pvt_current_char(context) == 'U') {
@@ -1515,8 +1515,10 @@ constexpr char QUOTE           = 0x22;  // "
 constexpr char REVERSE_SOLIDUS = 0x5c;  // \  backslash
 
 static JsonValue * pvt_parse_string(JsonContext *context, JsonParseError *error, AlokArena *arena ) {
-    StringBuilder sb;
-    sb_init(&sb, 16, "");
+
+    AlokArenaTemp arena_temp = alok_arena_get_scratch(&(AlokArena*){arena}, 0);
+    AlokArena * scratch_arena = arena_temp.arena;
+    StringBuilder *sb2 = sb_new(16, scratch_arena);
 
     // we examine chars in the stream until we find:
     // 1. a closing quote, which is a quote not preceded by the backlash (reverse solidus)
@@ -1532,15 +1534,16 @@ static JsonValue * pvt_parse_string(JsonContext *context, JsonParseError *error,
 
             // Ensure the result is null-terminated from the StringBuilder
             // before copying into the arena.
-            size_t len = sb.length;
+            size_t len = sb2->length;
+
             char * str_value = alok_arena_alloc(arena, len + 1);
-            memcpy(str_value, sb.buffer, len);
+            memcpy(str_value, sb2->buffer, len);
             str_value[len] = NUL;
 
             value->u.string = (StringSlice){ .length = len, .data = str_value };
 
             pvt_advance(context, 1); // consume the terminating quote
-            sb_destroy(&sb);
+            alok_arena_release_scratch(&arena_temp);
             return value;
         }
 
@@ -1550,7 +1553,7 @@ static JsonValue * pvt_parse_string(JsonContext *context, JsonParseError *error,
 
             if (current_byte == NUL) {
                 pvt_record_error(context, error, JSON_ERR_UNEXPECTED_EOF, "Unexpected EOF after backslash");
-                sb_destroy(&sb);
+                alok_arena_release_scratch(&arena_temp);
                 return nullptr; // Unexpected EOF
             }
 
@@ -1559,27 +1562,27 @@ static JsonValue * pvt_parse_string(JsonContext *context, JsonParseError *error,
                 case '"':
                 case '\\':
                 case '/':
-                    sb_append_char(&sb, (char)current_byte);
+                    sb_append_char(sb2, (char)current_byte);
                     pvt_advance(context, 1);
                     break;
                 case 'b':
-                    sb_append_char(&sb, '\b');
+                    sb_append_char(sb2, '\b');
                     pvt_advance(context, 1);
                     break;
                 case 'f':
-                    sb_append_char(&sb, '\f');
+                    sb_append_char(sb2, '\f');
                     pvt_advance(context, 1);
                     break;
                 case 'n':
-                    sb_append_char(&sb, '\n');
+                    sb_append_char(sb2, '\n');
                     pvt_advance(context, 1);
                     break;
                 case 'r':
-                    sb_append_char(&sb, '\r');
+                    sb_append_char(sb2, '\r');
                     pvt_advance(context, 1);
                     break;
                 case 't':
-                    sb_append_char(&sb, '\t');
+                    sb_append_char(sb2, '\t');
                     pvt_advance(context, 1);
                     break;
                 case 'u':
@@ -1587,21 +1590,21 @@ static JsonValue * pvt_parse_string(JsonContext *context, JsonParseError *error,
                     // RFC 8259: \u followed by 4 hex digits
                     // roblib addition \U followed by 6 hex digits is a codepoint,
                     //  no surrogates required!
-                    StringBuilder *result = pvt_parse_unicode_escape(context, error, arena, &sb);
+                    StringBuilder *result = pvt_parse_unicode_escape(context, error, sb2);
                     if (!result) {
                         // if `pvt_parse_unicode_escape` encountered an error, it will have reported it in `error`
-                        // context->parse_end = context->current_index;
-                        sb_destroy(&sb);
+                        alok_arena_release_scratch(&arena_temp);
                         return nullptr;
                     }
                     break;
+
                 default:
                     char const *format_str;
                     if (current_byte < 0x20 || current_byte > 0x7E) format_str = "invalid escape sequence: '\\0x%.2X'";
                     else format_str = "invalid escape sequence: '\\%c'";
                     snprintf(error->message, ERROR_MSG_BUFFER_SIZE, format_str, current_byte);
                     pvt_record_error(context, error, JSON_ERR_INVALID_ESCAPE_SEQUENCE, error->message);
-                    sb_destroy(&sb);
+                    alok_arena_release_scratch(&arena_temp);
                     return nullptr;
             }
 
@@ -1610,16 +1613,17 @@ static JsonValue * pvt_parse_string(JsonContext *context, JsonParseError *error,
             // This means the literal bytes cannot appear here.
             snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "unescaped control character: 0x%.2X", current_byte);
             pvt_record_error(context, error, JSON_ERR_UNESCAPED_CONTROL_CHAR, error->message);
-            sb_destroy(&sb);
+            alok_arena_release_scratch(&arena_temp);
             return nullptr;
         } else {
             // Here we validate a string of UTF-8 characters
-            if (! pvt_validate_utf8(context, error, &sb)) return nullptr;
+            if (! pvt_validate_utf8(context, error, sb2)) return nullptr;
         }
         current_byte = (unsigned char)pvt_current_char(context);
     }
     pvt_record_error(context, error, JSON_ERR_UNTERMINATED_STRING, "missing closing quote '\"' ");
-    sb_destroy(&sb);
+    alok_arena_release_scratch(&arena_temp);
+
     return nullptr;
 }
 
@@ -2102,7 +2106,7 @@ static void pvt_init_context_whitespace_table(JsonContext *context) {
     }
 }
 
-void pvt_write_global_state(JsonContext *context) {
+void pvt_copy_global_state(JsonContext *context) {
     if (!context) return;
     context->config_flags = atomic_load(&json_config_flags);
     context->depth_max    = atomic_load(&pvt_depth_max);
@@ -2115,7 +2119,7 @@ void pvt_write_global_state(JsonContext *context) {
 
 JsonContext *jsonp_copy_global_context() {
     JsonContext *context  = (JsonContext *)calloc(1, sizeof(JsonContext));
-    pvt_write_global_state(context);
+    pvt_copy_global_state(context);
     return context;
 }
 
@@ -2187,7 +2191,7 @@ JsonValue * jsonp_parse_string(const char *json_text, JsonParseError *error, Alo
     CharRingBuffer *crb = crb_new_CharRingBuffer(LOOK_AHEAD_BUF_SIZE, arena);
     input.look_behind_buffer = crb;
     JsonContext context = {};
-    pvt_write_global_state(&context);
+    pvt_copy_global_state(&context);
     context.input = &input;
     JsonValue *value = pvt_jsonp_parse_impl(&context, error, arena);
 
@@ -2206,7 +2210,7 @@ JsonValue *jsonp_parse_string_ex(const char *json_text, JsonParseError *error, A
     CharRingBuffer *crb = crb_new_CharRingBuffer(LOOK_AHEAD_BUF_SIZE, arena);
     input.look_behind_buffer = crb;
     JsonContext context = {};
-    pvt_write_global_state(&context);
+    pvt_copy_global_state(&context);
     context.input = &input;
 
     JsonValue *value = pvt_jsonp_parse_impl(&context, error, arena);
@@ -2356,7 +2360,7 @@ JsonValue * jsonp_parse_file(const char *json_filename, JsonParseError *error, A
     CharRingBuffer *crb = crb_new_CharRingBuffer(LOOK_AHEAD_BUF_SIZE, arena);
     input.look_behind_buffer = crb;
     JsonContext context = {};
-    pvt_write_global_state(&context);
+    pvt_copy_global_state(&context);
     context.input = &input;
 
     JsonValue *value = nullptr;
@@ -2416,7 +2420,7 @@ JsonValue * jsonp_parse_stream( FILE* fp, JsonParseError *error, AlokArena *aren
     CharRingBuffer *crb = crb_new_CharRingBuffer(LOOK_AHEAD_BUF_SIZE, arena);
     input.look_behind_buffer = crb;
     JsonContext context = {};
-    pvt_write_global_state(&context);
+    pvt_copy_global_state(&context);
     context.input = &input;
 
     JsonValue *value = nullptr;

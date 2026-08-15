@@ -153,7 +153,7 @@ TEST(ArenaAllocator, alok_arena_get_scratch) {
     EXPECT_EQ(header->default_block_size, alok_align_up(ALOK_DEFAULT_SCRATCH_ARENA_SIZE, 4096)) << "default blocksize for scratch arena is platform pagesize" ;
     EXPECT_EQ(header->default_alignment, DEFAULT_ALIGNMENT) << "default alignment size used when not explicitly specified" ;
     EXPECT_EQ(header->offset, aligned_marker_start + sizeof(StackMarker) ) << "initial offset is 140" ;
-    EXPECT_EQ(header->auto_grow, false) << "default grow value is true when not explicitly specified" ;
+    EXPECT_EQ(header->auto_grow, true) << "default grow value is true when not explicitly specified" ;
 
     size_t block_offset = header->offset;
     byte * current_ptr = (byte*)block1 + header->offset;

@@ -247,7 +247,7 @@ AlokArenaTemp alok_arena_get_scratch( AlokArena **conflict_array, size_t count){
     if (THREAD_SCRATCH_ARENAS[0] == nullptr){
         AlokArena **scratch_slot = THREAD_SCRATCH_ARENAS;
         for (size_t i = 0; i < ALOK_SCRATCH_ARENA_COUNT; i += 1, scratch_slot += 1){
-            ArenaErrResult aer = _alok_arena_create(ALOK_DEFAULT_SCRATCH_ARENA_SIZE, false, ALLOCATOR_ALIGNMENT);
+            ArenaErrResult aer = _alok_arena_create(ALOK_DEFAULT_SCRATCH_ARENA_SIZE, true, ALLOCATOR_ALIGNMENT);
             if (aer.err ) {
                 fprintf(stderr, "Couldn't allocated scratch arena.\n");
                 return result;
@@ -355,7 +355,7 @@ static void * pvt_alok_arena_alloc_impl(
     }
 
     //todo (rob) zero out the allocation memory area
-    memset(&header->current_block[ header->offset ], '0', alignment_padding + size);
+    memset(&header->current_block[ header->offset ], '\0', alignment_padding + size);
 
     header->offset += alignment_padding;
 
@@ -453,6 +453,9 @@ StackMarker * alok_arena_marker(AlokArena * arena) {
     AllocatorHeader *header = arena->alloc_header;
     StackMarker temp_marker = { .mark_block = (BlockHeader*)header->current_block, .mark_offset = header->offset};
     StackMarker * marker =  pvt_alok_arena_alloc_impl(arena, sizeof(StackMarker), nullptr, _Alignof(StackMarker));
+    if (!marker) {
+        fprintf(stderr, "alok_arena_alloc failed to allocate memory for StackMarker in alok_arena_marker\n ");
+    }
     memcpy(marker, &temp_marker, sizeof(StackMarker));
 
     return marker;
@@ -467,7 +470,11 @@ void alok_arena_pop_to_marker(AlokArena * arena, StackMarker * marker) {
     marker->is_stale = true;
 }
 
-
+// Returns a pointer to the current top of this arena. I.e., the next allocation will return this pointer value,
+// adjusted for alignment
+void * alok_arena_top_pointer( const AlokArena * arena) {
+    return arena->alloc_header->current_block + arena->alloc_header->offset;
+}
 
 //// ------------------------------------------------------------
 ////
