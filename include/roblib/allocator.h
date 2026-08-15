@@ -45,6 +45,7 @@
 
 #include <stddef.h>
 
+#include "base.h"
 #include "error_result.h"
 
 
@@ -81,6 +82,8 @@ constexpr size_t MAX_ALIGNMENT     = _Alignof(max_align_t);
 constexpr size_t POINTER_ALIGNMENT = _Alignof(void*);
 constexpr size_t DEFAULT_ALIGNMENT = MAX_ALIGNMENT;
 
+constexpr size_t ALOK_DEFAULT_SCRATCH_ARENA_SIZE = KB(1);
+
 // todo (rob) this probably belongs in a more general utilities type unit
 
 size_t alok_align_up(const size_t value, const size_t alignment);
@@ -91,10 +94,10 @@ size_t alok_align_up(const size_t value, const size_t alignment);
 ////
 //// ------------------------------------------------------------
 
-
+// break needed for documentation below
 
 /**
- *  * @brief Creates a new arena(bump) linear allocator. Caller must call `alok_arena_destroy` when finished with it.
+ *  @brief Creates a new arena(bump) linear allocator. Caller must call `alok_arena_destroy` when finished with it.
  *
  *  This function can be called with 1-3 arguments:
  *      `arena_capacity`, `auto_grow`, and `default_alignment`.

@@ -20,8 +20,6 @@
 
 #include <stddef.h>
 
-#include "roblib/base.h"
-
 
 #if !defined(_WIN32)
 // we use POSIX mmap for allocating pages from the OS
@@ -39,7 +37,6 @@
 #include <string.h>  // for memset
 
 constexpr size_t ALOK_SCRATCH_ARENA_COUNT  = 2;
-constexpr size_t ALOK_DEFAULT_SCRATCH_ARENA_SIZE = KB(1);
 
 
 typedef unsigned char byte;

@@ -3444,7 +3444,7 @@ int main( ) {
     // test_number_parse();
     // test_array_parse();
     // test_parse_objects();
-    // test_parse_unicode_escapes();
+    test_parse_unicode_escapes();
 
     // test_multi_byte_char_strings();
 
@@ -3457,7 +3457,7 @@ int main( ) {
     // test_fails_for_reporting();
     // test_json_test_suite_fails();
 
-    test_one_json_file();
+    // test_one_json_file();
 
     // test_one_url();
 
