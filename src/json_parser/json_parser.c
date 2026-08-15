@@ -1509,10 +1509,71 @@ static StringBuilder * pvt_parse_unicode_escape( JsonContext *context, JsonParse
     return sb_out;
 }
 
-
-
 constexpr char QUOTE           = 0x22;  // "
 constexpr char REVERSE_SOLIDUS = 0x5c;  // \  backslash
+
+static bool pvt_parse_backlash_escapes( JsonContext *context, JsonParseError *error, unsigned char current_byte, StringBuilder *sb ) {
+        pvt_advance(context, 1); // Skip the backslash
+        current_byte = (unsigned char )pvt_current_char(context);
+
+        if (current_byte == NUL) {
+            pvt_record_error(context, error, JSON_ERR_UNEXPECTED_EOF, "Unexpected EOF after backslash");
+            return false; // Unexpected EOF
+        }
+
+        // Validate escape sequence
+        switch (current_byte) {
+            case '"':
+            case '\\':
+            case '/':
+                sb_append_char(sb, (char)current_byte);
+                pvt_advance(context, 1);
+                break;
+            case 'b':
+                sb_append_char(sb, '\b');
+                pvt_advance(context, 1);
+                break;
+            case 'f':
+                sb_append_char(sb, '\f');
+                pvt_advance(context, 1);
+                break;
+            case 'n':
+                sb_append_char(sb, '\n');
+                pvt_advance(context, 1);
+                break;
+            case 'r':
+                sb_append_char(sb, '\r');
+                pvt_advance(context, 1);
+                break;
+            case 't':
+                sb_append_char(sb, '\t');
+                pvt_advance(context, 1);
+                break;
+            case 'u':
+            case 'U':
+                // RFC 8259: \u followed by 4 hex digits
+                // roblib addition \U followed by 6 hex digits is a codepoint,
+                //  no surrogates required!
+                StringBuilder *result = pvt_parse_unicode_escape(context, error, sb);
+                if (!result) {
+                    // if `pvt_parse_unicode_escape` encountered an error, it will have reported it in `error`
+                    return false;
+                }
+                break;
+
+            default:
+                char const *format_str;
+                if (current_byte < 0x20 || current_byte > 0x7E) format_str = "invalid escape sequence: '\\0x%.2X'";
+                else format_str = "invalid escape sequence: '\\%c'";
+                snprintf(error->message, ERROR_MSG_BUFFER_SIZE, format_str, current_byte);
+                pvt_record_error(context, error, JSON_ERR_INVALID_ESCAPE_SEQUENCE, error->message);
+                return false;
+        }
+
+    return true;
+}
+
+
 
 static JsonValue * pvt_parse_string(JsonContext *context, JsonParseError *error, AlokArena *arena ) {
 
@@ -1548,65 +1609,71 @@ static JsonValue * pvt_parse_string(JsonContext *context, JsonParseError *error,
         }
 
         if (current_byte == REVERSE_SOLIDUS) {
-            pvt_advance(context, 1); // Skip the backslash
-            current_byte = (unsigned char )pvt_current_char(context);
-
-            if (current_byte == NUL) {
-                pvt_record_error(context, error, JSON_ERR_UNEXPECTED_EOF, "Unexpected EOF after backslash");
+            if (!pvt_parse_backlash_escapes(context, error, current_byte, sb2)) {
                 alok_arena_release_scratch(&arena_temp);
-                return nullptr; // Unexpected EOF
+                return nullptr;
             }
 
-            // Validate escape sequence
-            switch (current_byte) {
-                case '"':
-                case '\\':
-                case '/':
-                    sb_append_char(sb2, (char)current_byte);
-                    pvt_advance(context, 1);
-                    break;
-                case 'b':
-                    sb_append_char(sb2, '\b');
-                    pvt_advance(context, 1);
-                    break;
-                case 'f':
-                    sb_append_char(sb2, '\f');
-                    pvt_advance(context, 1);
-                    break;
-                case 'n':
-                    sb_append_char(sb2, '\n');
-                    pvt_advance(context, 1);
-                    break;
-                case 'r':
-                    sb_append_char(sb2, '\r');
-                    pvt_advance(context, 1);
-                    break;
-                case 't':
-                    sb_append_char(sb2, '\t');
-                    pvt_advance(context, 1);
-                    break;
-                case 'u':
-                case 'U':
-                    // RFC 8259: \u followed by 4 hex digits
-                    // roblib addition \U followed by 6 hex digits is a codepoint,
-                    //  no surrogates required!
-                    StringBuilder *result = pvt_parse_unicode_escape(context, error, sb2);
-                    if (!result) {
-                        // if `pvt_parse_unicode_escape` encountered an error, it will have reported it in `error`
-                        alok_arena_release_scratch(&arena_temp);
-                        return nullptr;
-                    }
-                    break;
 
-                default:
-                    char const *format_str;
-                    if (current_byte < 0x20 || current_byte > 0x7E) format_str = "invalid escape sequence: '\\0x%.2X'";
-                    else format_str = "invalid escape sequence: '\\%c'";
-                    snprintf(error->message, ERROR_MSG_BUFFER_SIZE, format_str, current_byte);
-                    pvt_record_error(context, error, JSON_ERR_INVALID_ESCAPE_SEQUENCE, error->message);
-                    alok_arena_release_scratch(&arena_temp);
-                    return nullptr;
-            }
+            // pvt_advance(context, 1); // Skip the backslash
+            // current_byte = (unsigned char )pvt_current_char(context);
+            //
+            // if (current_byte == NUL) {
+            //     pvt_record_error(context, error, JSON_ERR_UNEXPECTED_EOF, "Unexpected EOF after backslash");
+            //     alok_arena_release_scratch(&arena_temp);
+            //     return nullptr; // Unexpected EOF
+            // }
+            //
+            // // Validate escape sequence
+            // switch (current_byte) {
+            //     case '"':
+            //     case '\\':
+            //     case '/':
+            //         sb_append_char(sb2, (char)current_byte);
+            //         pvt_advance(context, 1);
+            //         break;
+            //     case 'b':
+            //         sb_append_char(sb2, '\b');
+            //         pvt_advance(context, 1);
+            //         break;
+            //     case 'f':
+            //         sb_append_char(sb2, '\f');
+            //         pvt_advance(context, 1);
+            //         break;
+            //     case 'n':
+            //         sb_append_char(sb2, '\n');
+            //         pvt_advance(context, 1);
+            //         break;
+            //     case 'r':
+            //         sb_append_char(sb2, '\r');
+            //         pvt_advance(context, 1);
+            //         break;
+            //     case 't':
+            //         sb_append_char(sb2, '\t');
+            //         pvt_advance(context, 1);
+            //         break;
+            //     case 'u':
+            //     case 'U':
+            //         // RFC 8259: \u followed by 4 hex digits
+            //         // roblib addition \U followed by 6 hex digits is a codepoint,
+            //         //  no surrogates required!
+            //         StringBuilder *result = pvt_parse_unicode_escape(context, error, sb2);
+            //         if (!result) {
+            //             // if `pvt_parse_unicode_escape` encountered an error, it will have reported it in `error`
+            //             alok_arena_release_scratch(&arena_temp);
+            //             return nullptr;
+            //         }
+            //         break;
+            //
+            //     default:
+            //         char const *format_str;
+            //         if (current_byte < 0x20 || current_byte > 0x7E) format_str = "invalid escape sequence: '\\0x%.2X'";
+            //         else format_str = "invalid escape sequence: '\\%c'";
+            //         snprintf(error->message, ERROR_MSG_BUFFER_SIZE, format_str, current_byte);
+            //         pvt_record_error(context, error, JSON_ERR_INVALID_ESCAPE_SEQUENCE, error->message);
+            //         alok_arena_release_scratch(&arena_temp);
+            //         return nullptr;
+            // }
 
         } else if ( current_byte <= 0x1F) {
             // RFC 8259: Control characters U+0000 through U+001F MUST be escaped. (u-escaped, not solidus-escaped)
@@ -1620,7 +1687,7 @@ static JsonValue * pvt_parse_string(JsonContext *context, JsonParseError *error,
             if (! pvt_validate_utf8(context, error, sb2)) return nullptr;
         }
         current_byte = (unsigned char)pvt_current_char(context);
-    }
+    }  // end while (current_byte)
     pvt_record_error(context, error, JSON_ERR_UNTERMINATED_STRING, "missing closing quote '\"' ");
     alok_arena_release_scratch(&arena_temp);
 
