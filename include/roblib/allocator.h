@@ -76,8 +76,8 @@ typedef struct pool_err_result_s {
     AlokPool * result;
 } PoolErrResult;
 
-constexpr size_t MAX_ALIGNMENT     = _Alignof(max_align_t);
-constexpr size_t POINTER_ALIGNMENT = _Alignof(void*);
+constexpr size_t MAX_ALIGNMENT     = alignof(max_align_t);
+constexpr size_t POINTER_ALIGNMENT = alignof(void*);
 constexpr size_t DEFAULT_ALIGNMENT = MAX_ALIGNMENT;
 
 constexpr size_t ALOK_DEFAULT_SCRATCH_ARENA_SIZE = KB(1);
