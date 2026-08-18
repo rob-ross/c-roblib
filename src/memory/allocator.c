@@ -43,8 +43,10 @@ typedef unsigned char byte;
 
 typedef struct block_header_t {
     struct block_header_t * next_block;  // Links to the next memory block
-    size_t block_size;                   // Tracks size of this block for mmap
+    size_t block_size;                   // Tracks the size of this block for mmap
     // size available for allocations; omits BlockHeader size, other headers like AllocatorHeader, etc.
+    // if you have a pointer to a BlockHeader, the first usable byte is
+    // &BlockHeader + (block_size - usable_size)
     size_t usable_size;
 } BlockHeader;
 
