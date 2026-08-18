@@ -51,8 +51,6 @@
 
 #ifdef __cplusplus
 extern "C" {
-// Map the C11 keyword to the native C++ keyword
-#define _Alignof alignof
 #endif
 
 // opaque types
