@@ -344,6 +344,9 @@ static void jsonp_print_multi_line( const JsonValue *jval, JsonPrintContext *con
     }
 }
 
+// JsonPrintContext encapsulates the output location of the printing operation.
+// from `jsonp_sprint`, it will print to a StringBuilder via `sb_vprint`
+// from `jsonp_fprint`, it will print to a FILE* stream via `file_vprint`
 static int jsonp_print_impl( const JsonValue *jval, JsonPrintContext *context ) {
     // one-time initialization of SPACERS
     if (SPACERS[1][0] != SPACE) {
