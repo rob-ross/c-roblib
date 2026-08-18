@@ -1613,68 +1613,6 @@ static JsonValue * pvt_parse_string(JsonContext *context, JsonParseError *error,
                 alok_arena_release_scratch(&arena_temp);
                 return nullptr;
             }
-
-
-            // pvt_advance(context, 1); // Skip the backslash
-            // current_byte = (unsigned char )pvt_current_char(context);
-            //
-            // if (current_byte == NUL) {
-            //     pvt_record_error(context, error, JSON_ERR_UNEXPECTED_EOF, "Unexpected EOF after backslash");
-            //     alok_arena_release_scratch(&arena_temp);
-            //     return nullptr; // Unexpected EOF
-            // }
-            //
-            // // Validate escape sequence
-            // switch (current_byte) {
-            //     case '"':
-            //     case '\\':
-            //     case '/':
-            //         sb_append_char(sb2, (char)current_byte);
-            //         pvt_advance(context, 1);
-            //         break;
-            //     case 'b':
-            //         sb_append_char(sb2, '\b');
-            //         pvt_advance(context, 1);
-            //         break;
-            //     case 'f':
-            //         sb_append_char(sb2, '\f');
-            //         pvt_advance(context, 1);
-            //         break;
-            //     case 'n':
-            //         sb_append_char(sb2, '\n');
-            //         pvt_advance(context, 1);
-            //         break;
-            //     case 'r':
-            //         sb_append_char(sb2, '\r');
-            //         pvt_advance(context, 1);
-            //         break;
-            //     case 't':
-            //         sb_append_char(sb2, '\t');
-            //         pvt_advance(context, 1);
-            //         break;
-            //     case 'u':
-            //     case 'U':
-            //         // RFC 8259: \u followed by 4 hex digits
-            //         // roblib addition \U followed by 6 hex digits is a codepoint,
-            //         //  no surrogates required!
-            //         StringBuilder *result = pvt_parse_unicode_escape(context, error, sb2);
-            //         if (!result) {
-            //             // if `pvt_parse_unicode_escape` encountered an error, it will have reported it in `error`
-            //             alok_arena_release_scratch(&arena_temp);
-            //             return nullptr;
-            //         }
-            //         break;
-            //
-            //     default:
-            //         char const *format_str;
-            //         if (current_byte < 0x20 || current_byte > 0x7E) format_str = "invalid escape sequence: '\\0x%.2X'";
-            //         else format_str = "invalid escape sequence: '\\%c'";
-            //         snprintf(error->message, ERROR_MSG_BUFFER_SIZE, format_str, current_byte);
-            //         pvt_record_error(context, error, JSON_ERR_INVALID_ESCAPE_SEQUENCE, error->message);
-            //         alok_arena_release_scratch(&arena_temp);
-            //         return nullptr;
-            // }
-
         } else if ( current_byte <= 0x1F) {
             // RFC 8259: Control characters U+0000 through U+001F MUST be escaped. (u-escaped, not solidus-escaped)
             // This means the literal bytes cannot appear here.
