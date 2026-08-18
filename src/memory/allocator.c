@@ -69,7 +69,7 @@ typedef struct allocator_header_s {
 } AllocatorHeader;
 
 
-constexpr size_t ALLOCATOR_ALIGNMENT        = _Alignof(max_align_t);
+constexpr size_t ALLOCATOR_ALIGNMENT        = alignof(max_align_t);
 constexpr size_t ALLOCATOR_ALIGNMENT_MASK   = ALLOCATOR_ALIGNMENT - 1;
 constexpr size_t POINTER_ALIGNMENT_MASK     = POINTER_ALIGNMENT - 1;
 
@@ -193,7 +193,7 @@ static BlockHeaderErrResult pvt_alok_new_os_block( const size_t block_size ) {
 
 // Return the size of the argument aligned to system alignment size (16 bytes on macOS)
 static size_t pvt_alok_aligned_size(const size_t size) {
-    // 1. Get the system's maximum required scalar alignment (usually 16): _Alignof(max_align_t)
+    // 1. Get the system's maximum required scalar alignment (usually 16): alignof(max_align_t)
     // 2. Round the requested size to the nearest multiple of 'alignment'
     //      Formula: ( size + ( alignment - 1) ) & ~( alignment - 1 )
     //          ex. for alignment of 16 bytes:
@@ -293,6 +293,7 @@ void * _alok_arena_alloc(AlokArena * arena, const size_t size, size_t align_size
 size_t round_up_to_power_of_two(size_t x);
 
 // precondition: the align_size size is a power of two
+// todo (rob) look into using __asan_poison_memory_region so we can run address sanitizer for our own allocations
 static void * pvt_alok_arena_alloc_impl(
                             AlokArena * arena,
                             const size_t size,
@@ -400,10 +401,10 @@ ArenaErrResult (_alok_arena_create)( size_t arena_capacity, bool auto_grow, size
     AlokArena temp_bump_arena = { .alloc_header = &temp_bump_header};
 
     // The very first allocation is for the AlokArena struct itself
-    AlokArena *new_bump_arena = _alok_arena_alloc(&temp_bump_arena, sizeof(AlokArena), _Alignof(AlokArena), nullptr);
+    AlokArena *new_bump_arena = _alok_arena_alloc(&temp_bump_arena, sizeof(AlokArena), alignof(AlokArena), nullptr);
 
     // The next allocation is for the AllocatorHeader struct itself
-    AllocatorHeader *new_alloc_header = _alok_arena_alloc(&temp_bump_arena, sizeof(AllocatorHeader), _Alignof(AllocatorHeader), nullptr);
+    AllocatorHeader *new_alloc_header = _alok_arena_alloc(&temp_bump_arena, sizeof(AllocatorHeader), alignof(AllocatorHeader), nullptr);
     *new_alloc_header = temp_bump_header;  // value copy
 
     // Initialize the AlokArena's const pointer to the permanent AllocatorHeader
@@ -452,7 +453,7 @@ void * _alok_arena_alloc(AlokArena * arena, const size_t size, size_t align_size
 StackMarker * alok_arena_marker(AlokArena * arena) {
     AllocatorHeader *header = arena->alloc_header;
     StackMarker temp_marker = { .mark_block = (BlockHeader*)header->current_block, .mark_offset = header->offset};
-    StackMarker * marker =  pvt_alok_arena_alloc_impl(arena, sizeof(StackMarker), nullptr, _Alignof(StackMarker));
+    StackMarker * marker =  pvt_alok_arena_alloc_impl(arena, sizeof(StackMarker), nullptr, alignof(StackMarker));
     if (!marker) {
         fprintf(stderr, "alok_arena_alloc failed to allocate memory for StackMarker in alok_arena_marker\n ");
     }
@@ -484,11 +485,11 @@ void * alok_arena_top_pointer( const AlokArena * arena) {
 
 
 
-// `object_size` should be passed as sizeof(YourObjectType) and `object_alignment` as _Alignof(YourObjectType)
+// `object_size` should be passed as sizeof(YourObjectType) and `object_alignment` as alignof(YourObjectType)
 PoolErrResult arena_pool_create( const size_t num_objects, const size_t object_size, const size_t object_alignment ){
     // Account for the block header size and AlokPool size
-    const size_t aligned_block_header_size = alok_align_up(sizeof(BlockHeader), _Alignof(BlockHeader));
-    const size_t aligned_pool_header_size  = alok_align_up(sizeof(AlokPool),   _Alignof(AlokPool));
+    const size_t aligned_block_header_size = alok_align_up(sizeof(BlockHeader), alignof(BlockHeader));
+    const size_t aligned_pool_header_size  = alok_align_up(sizeof(AlokPool),   alignof(AlokPool));
     const size_t aligned_object_size       = alok_align_up(object_size,                  object_alignment);
 
     size_t needed_capacity = (num_objects * aligned_object_size) + aligned_block_header_size + aligned_pool_header_size;
