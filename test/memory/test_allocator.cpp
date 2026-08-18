@@ -93,16 +93,16 @@ TEST(ArenaAllocator, alok_arena_pop_to_marker1) {
     // allocate 10 bytes with 1 byte alignment
     size_t original_offset = header->offset;
 
-    std::cout << "original offset: " << original_offset << '\n';
+    // std::cout << "original offset: " << original_offset << '\n';
 
     void * mem = alok_arena_alloc(arena, 10, 1);
-    std::cout << "offset after alloc 10: " << header->offset << '\n';
+    // std::cout << "offset after alloc 10: " << header->offset << '\n';
 
     EXPECT_EQ(header->offset, original_offset + 10) << "alloc of 10 bytes moves offest by 10 bytes";
 
     StackMarker *marker =  alok_arena_marker(arena);
 
-    std::cout << "offset after making marker: " << header->offset << '\n';
+    // std::cout << "offset after making marker: " << header->offset << '\n';
 
 
     EXPECT_EQ(marker->mark_block, block1) << "marker should point to current block";
@@ -111,10 +111,10 @@ TEST(ArenaAllocator, alok_arena_pop_to_marker1) {
 
     // allocate 20 more bytes past the current marker
     void * new_mem1 = alok_arena_alloc(arena, 10, 1);
-    std::cout << "offset after alloc 10: " << header->offset << '\n';
+    // std::cout << "offset after alloc 10: " << header->offset << '\n';
 
     void * new_mem2 = alok_arena_alloc(arena, 10, 1);
-    std::cout << "offset after alloc 10: " << header->offset << '\n';
+    // std::cout << "offset after alloc 10: " << header->offset << '\n';
 
     EXPECT_EQ(header->offset,
         alok_align_up(original_offset + 10 , alignof(StackMarker) ) + sizeof(StackMarker) + 20)

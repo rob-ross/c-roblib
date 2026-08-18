@@ -224,8 +224,8 @@ TEST_P(JsonParserStringEscapes, TestStringEscapes) {
     EXPECT_EQ(jval->type, JSON_STRING);
     if (jval->type == JSON_STRING) {
         EXPECT_TRUE(slice_equal(jval->u.string, SLIT(expected_output.c_str())));
-        printf("actual: "); slice_print(jval->u.string);
-        printf(", expected: "); slice_print(SLIT(expected_output.c_str())); NL
+        // printf("actual: "); slice_print(jval->u.string);
+        // printf(", expected: "); slice_print(SLIT(expected_output.c_str())); NL
     }
 }
 
