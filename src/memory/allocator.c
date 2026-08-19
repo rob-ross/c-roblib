@@ -488,7 +488,7 @@ void * alok_arena_top_pointer( const AlokArena * arena) {
 
 
 // `object_size` should be passed as sizeof(YourObjectType) and `object_alignment` as alignof(YourObjectType)
-PoolErrResult arena_pool_create( const size_t num_objects, const size_t object_size, const size_t object_alignment ){
+PoolErrResult alok_pool_create( const size_t num_objects, const size_t object_size, const size_t object_alignment ){
     // Account for the block header size and AlokPool size
     const size_t aligned_block_header_size = alok_align_up(sizeof(BlockHeader), alignof(BlockHeader));
     const size_t aligned_pool_header_size  = alok_align_up(sizeof(AlokPool),   alignof(AlokPool));
@@ -527,17 +527,17 @@ PoolErrResult arena_pool_create( const size_t num_objects, const size_t object_s
     return (PoolErrResult){ .err = false, .result =  pool };
 }
 
-void pool_free(AlokPool *pool, void *object) {
+void alok_pool_free(AlokPool *pool, void *object) {
     FreeNode *node = (FreeNode*)object;
     node->next = pool->free_list;
     pool->free_list = node;
 }
 
-void pool_destroy(AlokPool *pool) {
+void alok_pool_destroy(AlokPool *pool) {
     pvt_alok_dealloc(pool->head_block);
 }
 
-void * arena_pool_alloc(AlokPool * pool, [[nullable]] PoolErrResult * aer) {
+void * alok_pool_alloc(AlokPool * pool, [[nullable]] PoolErrResult * aer) {
     if (! pool->free_list ) {
         if (aer) {
             aer->err = true;
