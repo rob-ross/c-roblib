@@ -18,6 +18,9 @@
 #include <stdint.h>
 
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 
 // 1 byte
@@ -130,3 +133,8 @@ ColValue value_for_void_ptr(const void *v);
         void *: value_for_void_ptr,   const void *: value_for_void_ptr, \
         default: value_for_long \
     ) (V) )
+
+
+#ifdef __cplusplus
+}
+#endif
