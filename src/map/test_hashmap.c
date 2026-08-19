@@ -8,7 +8,7 @@
 #include <stdio.h>
 
 #include "../testing_utils.h"
-#include "hashmap.h"
+#include "roblib/hashmap.h"
 #include <stdlib.h>
 #include <string.h>
 
