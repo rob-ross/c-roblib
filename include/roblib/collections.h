@@ -18,6 +18,7 @@
 #include <stdint.h>
 
 
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -52,7 +53,7 @@ typedef struct ColValue {
 //ColValuePolicyType: describes the policy for handling values added to a collection.
 // 1 byte
 typedef enum ColValuePolicyType: unsigned char {
-    // default ininitialized value
+    // default initialized value
     COL_VALUE_POLICY_NONE,
     // Collection makes a copy and owns the copy. Collection frees owned copy
     COL_VALUE_POLICY_COPY,
