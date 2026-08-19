@@ -56,7 +56,7 @@ static MunitResult test_create_0(const MunitParameter params[], void* fixture) {
 }
 
 static MunitResult test_create_1(const MunitParameter params[], void* fixture) {
-    // test all default arguments
+    // test explicit initial capacity, rest default args
     List *list;
     list = list_create(17); //closest next power of 2 is 32
     munit_assert_ptr_not_null(list);
@@ -72,7 +72,7 @@ static MunitResult test_create_1(const MunitParameter params[], void* fixture) {
 }
 
 static MunitResult test_create_2(const MunitParameter params[], void* fixture) {
-    // test all default arguments
+    // test explicit initial capacity and value policy, rest default args
     List *list;
     list = list_create(0, LIST_DEFAULT_VALUE_POLICY);
     munit_assert_ptr_not_null(list);
@@ -89,7 +89,7 @@ static MunitResult test_create_2(const MunitParameter params[], void* fixture) {
 
 
 static MunitResult test_create_3(const MunitParameter params[], void* fixture) {
-    // test all default arguments
+    // test explicit initial capacity, value policy, and mem policy
     List *list;
     list = list_create(0, LIST_DEFAULT_VALUE_POLICY, MEM_DEFAULT_MALLOC_POLICY);
 
