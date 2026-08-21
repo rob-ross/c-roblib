@@ -382,10 +382,11 @@ void jsonp_clear_context_config_flag( JsonContext *context, JsonConfigFlag flag)
  *  Sets the maximum nesting depth allowed in the JSON text for the JsonContext.
  *  If depth is exceeded during parsing, the JSON text is rejected as invalid.
  *  The default is specified in DEPTH_MAX_DEFAULT
+ *  @param context
  *  @param max_depth the maximum allowed nesting depth of the JSON text structure.
  */
 void jsonp_set_context_max_depth(JsonContext *context, uint32_t max_depth);
-uint32_t jsonp_get_context_max_depth(JsonContext *context);
+uint32_t jsonp_get_context_max_depth(const JsonContext *context);
 
 // -----------------------------------------------------------------
 //      WHITESPACE
@@ -421,7 +422,7 @@ const char  * jsonp_get_context_whitespace_chars( JsonContext *context);
 //      Decimal Seperator Char
 // -----------------------------------------------------------------
 
-char jsonp_get_context_decimal_separator( JsonContext *context );
+char jsonp_get_context_decimal_separator(const JsonContext *context );
 
 void jsonp_set_context_decimal_separator( JsonContext *context, char c);
 
