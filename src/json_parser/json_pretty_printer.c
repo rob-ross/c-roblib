@@ -39,7 +39,6 @@ typedef struct jsonp_print_context_s {
     const JsonFormatFlags flags;
 } JsonPrintContext;
 
-constexpr JsonFormatFlags JSON_FORMAT_FLAGS_DEFAULT = { .indent = 2, .single_line = true};
 
 static constexpr size_t MAX_NESTING_DEPTH = 256;
 static constexpr char SPACE = ' ';

@@ -429,9 +429,10 @@ void jsonp_set_context_decimal_separator( JsonContext *context, char c);
 // Returns nullptr if there is no entry with this key.
 JsonObjectEntry * jsonp_entry_for_key(const JsonValue *json_obj, char const * key) ;
 
-// print a string representation of the JSON graph to the console
-void jsonp_print_json_value(JsonValue *value);
 
+// -----------------------------------------------------------------
+//      Error Reporting
+// -----------------------------------------------------------------
 
 /**
  * Returns the string name of the JsonParseErrType constant.
@@ -439,17 +440,20 @@ void jsonp_print_json_value(JsonValue *value);
  * @return A constant string literal representing the enum name.
  */
 const char *jsonp_parse_error_type_name(JsonParseErrType err_type);
-
 void jsonp_print_parse_error(JsonParseError *err);
 
 
 // -----------------------------------------------------------------
-//      JSON Pretty Printer
+//      JSON Pretty Printing
 // -----------------------------------------------------------------
+
 typedef struct jsonp_format_flags_s {
     u8 indent; // number of spaces to indent each nested level. More than 4 makes the output very wide
     bool single_line; // true if this should format JSON text as single line, if false, print on multiple lines
 } JsonFormatFlags;
+
+constexpr JsonFormatFlags JSON_FORMAT_FLAGS_DEFAULT = { .indent = 2, .single_line = true};
+
 
 // Prints the JsonValue in JSON format to stdout
 int jsonp_print( const JsonValue *jval, JsonFormatFlags flags);
