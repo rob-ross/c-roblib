@@ -3,8 +3,9 @@
 //
 
 #include <stdio.h>
-#include "../base.h"
-#include "vector_types.h"
+#include "roblib/base.h"
+
+#include "vector_types.h"  // this dynamically generates the implementation and headers for VectorInt
 
 
 void vector_repr(VectorInt const vint, char const *message) {

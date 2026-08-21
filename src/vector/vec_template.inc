@@ -56,7 +56,7 @@ static VecError VEC_FN(_ensure_capacity)(VEC_NAME *v, const size_t capacity) {
         // must grow buffer
         size_t new_capacity = v->capacity ? v->capacity * 2 : 1;
         do {
-            new_capacity *= 2;  // keep doubling capacity until we can accomodate argument capacity
+            new_capacity *= 2;  // keep doubling capacity until we can accommodate argument capacity
         } while (new_capacity < capacity);
         if (v->capacity > SIZE_MAX / 2 || new_capacity > SIZE_MAX / sizeof(VEC_T)) {
             return VEC_ERR_OVERFLOW;
