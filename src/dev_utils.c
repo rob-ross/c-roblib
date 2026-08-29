@@ -89,3 +89,22 @@ double du_elapsed_seconds(struct timespec start, struct timespec end) {
     return (double)(end.tv_sec - start.tv_sec)
          + (double)(end.tv_nsec - start.tv_nsec) / 1e9;
 }
+
+// 2. Printing the Bit Pattern String
+static void pvt_print_hex_bits(unsigned char hex) {
+    int val = pvt_hex_to_dec(hex);
+    if (val == -1) return;
+
+    // Extract bits using bitwise masking
+    for (int i = 3; i >= 0; i--) {
+        printf("%d", (val >> i) & 1);
+    }
+    printf("\n");
+}
+
+static void pvt_print_8_bits(uint8_t bits) {
+    printf("0b");
+    for (int i = 7; i >= 0; i--) {
+        printf("%d", (bits >> i) & 1);
+    }
+}
