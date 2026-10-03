@@ -205,6 +205,7 @@ typedef struct json_parse_error_s {
     char             message[ERROR_MSG_BUFFER_SIZE + 1];
 } JsonParseError;
 
+// todo (rob) investigate JSONC and JSON5 for additional config ideas
 typedef enum json_config_flag_e : uint64_t {
     JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_ARRAYS,
     JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_OBJECTS,
@@ -225,6 +226,10 @@ typedef enum json_config_flag_e : uint64_t {
     //  if set, replace any invalid utf-16 surrogate sequences with the missing symbol character
     //  if not set (the default), rejects the JSON text as invalid if it contains invalid utf-16 surrogate sequences.
     JSON_CONFIG_REPLACE_BAD_SURROGATES,
+    // The C function isspace() includes \f and \v, whereas the JSON spec does not. By default, the parser does not
+    // include these chars as white space. If JSON_CONFIG_USE_C_ISSPACE is set, the parser will call isspace(), which
+    // includes these characters as a space. It may also be more performant.
+    JSON_CONFIG_USE_C_ISSPACE,
 
 } JsonConfigFlag;
 
