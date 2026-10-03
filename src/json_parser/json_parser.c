@@ -2776,6 +2776,8 @@ static void test_multi_byte_char_strings() {
 
     parse_test_str("\"\xF4\x90\x80\x80\""); // '󿿿'
 
+    // todo : ¯\_(ツ)_/¯ sequence
+
 
 }
 
