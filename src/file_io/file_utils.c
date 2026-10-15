@@ -112,7 +112,9 @@ void walk_directory(const char *path) {
     walk_directory_impl(path, 0);
 }
 
+#ifdef FILE_UTILS_MAIN
 int main(void) {
     walk_directory("../");
     return 0;
 }
+#endif
