@@ -52,7 +52,8 @@ StringBuilder * sb_init( StringBuilder *sb, uint32_t capacity, char const * str)
 }
 
 void sb_destroy(StringBuilder *sb) {
-    if (sb->arena) {
+    if (!sb->arena) {
+        // if no arena is set, we assume memory was malloc'ed
         free(sb->buffer);
         sb->buffer = nullptr;
     }
