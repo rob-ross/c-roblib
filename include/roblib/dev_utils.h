@@ -37,6 +37,10 @@ double du_elapsed_seconds(struct timespec start, struct timespec end);
     } while (0)
 #endif
 
+// todo (Rob 10-14-26) TIMEIT_START and TIMEIT_END don't appear to be used anywhere, and they won't work as is
+// I suspect this was my early attempts to create a simple timing macro. 'start' and 'end' need to be visible in
+// both blocks, but they are not visible from TIMEIT_END.
+// `TIMEIT` appears to be the actual usable macro.
 #define TIMEIT_START                                    \
     do {                                                \
         struct timespec start;                          \
@@ -52,6 +56,7 @@ double du_elapsed_seconds(struct timespec start, struct timespec end);
         printf( #S "  time: %.6g s, ", elapsed_time);   \
     } while(0)
 
+// Statement form, works in all compilers
 // #define TIMEIT( S )                                     \
 //     do {                                                \
 //         struct timespec start;                          \
@@ -65,6 +70,10 @@ double du_elapsed_seconds(struct timespec start, struct timespec end);
 //         elapsed_time;                                   \
 //     } while (0)
 
+// This form can be used as an expression. It will evaluate to
+// double elapsed_time.
+// Not all compilers support this form. It "returns" its result via the value of the last
+// statement in the macro, `elapsed_time`.
 #define TIMEIT( S )                                     \
     __extension__ ({                                    \
         struct timespec start;                          \
