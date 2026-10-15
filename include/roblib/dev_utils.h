@@ -5,13 +5,26 @@
 //
 
 #pragma once
+#ifndef C_ROBLIB_DEV_UTILS_H
+#define C_ROBLIB_DEV_UTILS_H
 
 #include <stddef.h>
 #include <time.h>
 
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+#ifdef __cplusplus
+void repr_array_int(size_t n, const int array[], char const *prefix);
+void du_repr_array_int_2D(size_t rows, size_t cols, int const array[][cols]);
+#else
 void repr_array_int(size_t n, const int array[static n], char const *prefix);
-void du_repr_array_int_2D(size_t rows, size_t cols, int const array[static rows][ cols]);
+void du_repr_array_int_2D(size_t rows, size_t cols, int const array[static rows][cols]);
+#endif
+
 double du_elapsed_seconds(struct timespec start, struct timespec end);
 
 
@@ -64,3 +77,9 @@ double du_elapsed_seconds(struct timespec start, struct timespec end);
         printf( #S "  time: %.6f s, ", elapsed_time);   \
         elapsed_time;                                   \
     } )
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif //C_ROBLIB_DEV_UTILS_H
