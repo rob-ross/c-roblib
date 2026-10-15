@@ -71,9 +71,11 @@ set(LIB_SOURCES
         ${LIB_SRC_DIR}/unicode/unicode_tools.c
         ${LIB_SRC_DIR}/file_io/file_utils.c
         ${LIB_SRC_DIR}/set/bitset.c
-        src/string/string_slice.c
-        src/platform_specific.c
-        src/json_parser/json_pretty_printer.c
+        ${LIB_SRC_DIR}/string/string_slice.c
+        ${LIB_SRC_DIR}/platform_specific.c
+        ${LIB_SRC_DIR}/json_parser/json_pretty_printer.c
+
+        ${LIB_SRC_DIR}/dev_utils.c
 )
 
 # Find the libcurl package
