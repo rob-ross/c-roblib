@@ -19,6 +19,10 @@
 
 
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 
 // 1 byte
 typedef enum ColTypeEnum: unsigned char {
@@ -49,7 +53,7 @@ typedef struct ColValue {
 //ColValuePolicyType: describes the policy for handling values added to a collection.
 // 1 byte
 typedef enum ColValuePolicyType: unsigned char {
-    // default ininitialized value
+    // default initialized value
     COL_VALUE_POLICY_NONE,
     // Collection makes a copy and owns the copy. Collection frees owned copy
     COL_VALUE_POLICY_COPY,
@@ -130,3 +134,8 @@ ColValue value_for_void_ptr(const void *v);
         void *: value_for_void_ptr,   const void *: value_for_void_ptr, \
         default: value_for_long \
     ) (V) )
+
+
+#ifdef __cplusplus
+}
+#endif

@@ -73,7 +73,7 @@ typedef struct string_slice_ll_s{
 extern const StringSlice EMPTY_STRING_SLICE;
 
 
-StringSlice         slice_from_cstring( char const * cstring );
+StringSlice slice_from_cstring( char const * cstring );
 StringSlice slice_from_char( char c_char );
 // todo (rob) slice_char_as_cstring probably belongs in string_utils as a general string method
 char const * slice_char_as_cstring(char c);
@@ -189,6 +189,49 @@ size_t              slice_snprint(StringSlice s, size_t n, char * buf);
 
 size_t slice_fprint_slice_array(StringSliceArray *slices, FILE* stream);
 size_t slice_print_slice_array(StringSliceArray *slices);
+
+
+//// ------------------------------------------------------------
+////
+////    TO IMPLEMENT FOR UNICODE PROCESSING
+////
+//// ------------------------------------------------------------
+
+// A character is an extended grapheme cluster as defined by Unicode.
+size_t byte_length( StringSlice s);
+size_t codepoint_length( StringSlice s);
+size_t grapheme_length( StringSlice s);
+
+/*
+string_codepoint_at(s, n);
+string_grapheme_at(s, n);
+
+// these functions would belong in a mutating class like StringBuilder.
+string_remove_codepoints(s, start, count);
+string_remove_graphemes(s, start, count);
+
+string_insert_codepoints(s, position, other);
+string_insert_graphemes(s, position, other);
+
+string_normalize_nfc()
+string_normalize_nfd()
+
+        String
+           │
+     UTF-8 bytes
+           │
+     UTF-8 decode
+           │
+     Unicode code points
+           │
+Unicode grapheme breaking
+           │
+  extended grapheme clusters
+           │
+      "characters"
+
+
+*/
 
 
 #ifdef __cplusplus

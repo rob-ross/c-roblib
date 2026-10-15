@@ -13,10 +13,7 @@
 #include <string.h>
 #include <time.h>
 
-
-#include <time.h>
-
-
+// mallocs a new string and returns a pointer to it
 char const *create_string(char const *fmt, ...) {
 
     va_list args = {};
@@ -88,4 +85,44 @@ void du_repr_array_int_2D(size_t const rows, size_t const cols, int const array[
 double du_elapsed_seconds(struct timespec start, struct timespec end) {
     return (double)(end.tv_sec - start.tv_sec)
          + (double)(end.tv_nsec - start.tv_nsec) / 1e9;
+}
+
+static int pvt_hex_to_dec(const unsigned char hex)
+{
+    if (hex >= '0' && hex <= '9')
+        return hex - '0';
+    switch (hex) {
+        case 'a':
+        case 'A': return 10;
+        case 'b':
+        case 'B': return 11;
+        case 'c':
+        case 'C': return 12;
+        case 'd':
+        case 'D': return 13;
+        case 'e':
+        case 'E': return 14;
+        case 'f':
+        case 'F': return 15;
+        default: return -1;
+    }
+}
+
+// 2. Printing the Bit Pattern String
+static void pvt_print_hex_bits(unsigned char hex) {
+    int val = pvt_hex_to_dec(hex);
+    if (val == -1) return;
+
+    // Extract bits using bitwise masking
+    for (int i = 3; i >= 0; i--) {
+        printf("%d", (val >> i) & 1);
+    }
+    printf("\n");
+}
+
+static void pvt_print_8_bits(uint8_t bits) {
+    printf("0b");
+    for (int i = 7; i >= 0; i--) {
+        printf("%d", (bits >> i) & 1);
+    }
 }

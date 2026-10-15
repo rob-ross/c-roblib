@@ -10,47 +10,51 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
  * Any object that allocates objects dynamically can be assigned a MemPolicy.
  * Initially, we have HashMap and ArrayList that use a MemPolicy.
  * The same MemPolicy object can be assigned to multiple objects. In this case, they are all part of the same
  * object graph rooted in the context of the shared MemPolicy. All allocations by objects using the same MemPolicy
  * are allocated in the same backing memory pool, either the standard system OS memory manager, accessed via the
- * stdlib methods malloc, calloc, realloc, and free. Or via a MemoryPool object which can be thought of as an allocator
+ * stdlib methods malloc, calloc, realloc, and free. Or via a MemoryPool object that can be thought of as an allocator
  * or arena. If multiple objects share the same MemPolicy.context, exactly one may use an *_OWN policy type.
  * All others must use the corresponding *_SHARED type.
  *
  * A MemPolicy must have a single owner. If the same MemPolicy is assigned to more than one object, only one object
  * must have a policy_type of OWN, and the other objects using the same MemPolicy must have a policy_type of SHARED.
- * The object with a MemPolicyType of OWN is resoponsible for disposing the MemPolicy context. For an allocator such as
+ * The object with a MemPolicyType of OWN is responsible for disposing the MemPolicy context. For an allocator such as
  * MemoryPool, this is an allocator/arena in which memory allocations have been made by any objects using the same
- * allocator. Care must be taking to not dispose the object that owns the MemPolicy if other objects are using any
+ * allocator. Care must be taken to not dispose of the object that owns the MemPolicy if other objects are using any
  * memory allocated by the MemPolicy allocator. Conversely, a complex object graph can be disposed of virtually instantly
- * by disposing the owning object. This frees the MemoryPool and destroys every object in that object graph.
+ * by disposing of the owning object. This frees the MemoryPool and destroys every object in that object graph.
  *
  * A MemPolicy has two basic types, MALLOC and ALLOCATOR. If using MEM_POLICY_MALLOC_OWN or MEM_POLICY_MALLOC_SHARED,
  * calls to the memory_pool API methods mem_alloc_bytes, mem_calloc_bytes, mem_realloc_bytes, mem_strdup, and
- * mem_free_bytes will use the stdlib calls malloc, calloc, realloc, and free. mem_strdup allocates memory using malloc.
+ * mem_free_bytes will use the stdlib calls malloc, calloc, realloc, and free. `mem_strdup` allocates memory using malloc.
  *
  * If using MEM_POLICY_ALLOCATOR_OWN or MEM_POLICY_ALLOCATOR_SHARED, all memory allocations are dispatched to the
  * underlying MemoryPool object.
  *
  * Two default MemPolicy objects are defined, MEM_DEFAULT_MALLOC_POLICY and MEM_DEFAULT_ALLOCATOR_POLICY. To use either
- * as an object's alloctor/arena, copy the relevent MemPolicy. When using the MEM_DEFAULT_ALLOCATOR_POLICY, you must
- * also attach a MemoryPoool as the MemPolicy.context object. A convenience method, mem_create_default_allocator(),
+ * as an object's allocator/arena, copy the relevant MemPolicy. When using the MEM_DEFAULT_ALLOCATOR_POLICY, you must
+ * also attach a MemoryPool as the MemPolicy.context object. A convenience method, mem_create_default_allocator(),
  * has been defined for this purpose. It will create a new MemoryPool and wrap it in a MEM_DEFAULT_ALLOCATOR_POLICY,
  * setting its context member to the newly allocated MemoryPool. You can then use this MemPolicy as an argument to
  * a collection create() function. Note that this default MemPolicy is set to the MemPolicyType of
  * MEM_POLICY_ALLOCATOR_OWN. If you intend to use this same MemPolicy and MemoryPool with multiple objects/functions,
  * you must set the policy_type to MEM_POLICY_ALLOCATOR_SHARED for those objects' copies of the MemPolicy. Only
- * a single object must be responsible for disposing of the MemPolicy's MemoryPool context when that object is disposed.
+ * a single object must be responsible for disposing of the MemPolicy's MemoryPool context when that object is disposed of.
  *
  * When using MEM_DEFAULT_MALLOC_POLICY, there is typically no context set, i.e., the context member is NULL. However,
  * users are free to store any object they wish, and the MemPolicy's free_context method will be called for that context when
- * the owning object is disposed. As with MEM_DEFAULT_ALLOCATOR_POLICY, only a single object should OWN this MemPolicy,
+ * the owning object is disposed of. As with MEM_DEFAULT_ALLOCATOR_POLICY, only a single object should OWN this MemPolicy,
  * and any other objects sharing the same policy should have their policy_type set to MEM_POLICY_MALLOC_SHARED.
  *
- * A new MemPolicy instance (not the defaults discussed above) will have its policy_type set to MEM_POLICY_NONE
+ * A new MemPolicy instance (not the defaults discussed above) will have its policy_type set to MEM_POLICY_NONE,
  * indicating the policy_type has not yet been set. Some functions returning a MemPolicy may set policy_type to NULL
  * to indicate an error occurred or to indicate no MemPolicy exists.
  *
@@ -67,7 +71,7 @@ typedef enum MemPolicyType: uint8_t {
 
 // --- Structures ---
 
-// MemPolicy struct  is a textbook "Polymorphic Allocator" interface.
+// MemPolicy struct is a textbook "Polymorphic Allocator" interface.
 // It uses function pointers (alloc, calloc, realloc, free) and a context to allow different implementations
 // to sit behind the same API.
 
@@ -184,3 +188,9 @@ void pool_reset(MemoryPool *pool);
  * @param ptr Pointer to the memory to free.
  */
 void pool_free(MemoryPool *pool, void *ptr);
+
+
+
+#ifdef __cplusplus
+}
+#endif

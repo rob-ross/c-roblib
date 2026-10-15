@@ -9,6 +9,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "roblib/allocator.h"
+#include "roblib/roblib_types.h"
+
 
 /*
  * Todo this code currently uses malloc/calloc when allocating buffers. Add the ability to configure a custom allocator
@@ -21,8 +24,13 @@
 constexpr double FILL_RATIO = 3.0 / 4.0 ;
 constexpr double CAPACITY_FACTOR = 1.0 / FILL_RATIO;
 
+//// ------------------------------------------------------------
+////
+////    Create, Destroy functions
+////
+//// ------------------------------------------------------------
+
 StringBuilder * sb_init( StringBuilder *sb, uint32_t capacity, char const * str) {
-    // todo check for too-large strings? Over 2GB of characters?
     uint32_t str_len = strlen(str);
     uint32_t max_len = (str_len < capacity) ? capacity : str_len;
 
@@ -39,14 +47,46 @@ StringBuilder * sb_init( StringBuilder *sb, uint32_t capacity, char const * str)
     sb->buffer[str_len] = '\0';
     sb->capacity = capacity;
     sb->length = str_len;
+    sb->arena = nullptr;
     return sb;
 }
 
-
 void sb_destroy(StringBuilder *sb) {
-    free(sb->buffer);
+    if (!sb->arena) {
+        // if no arena is set, we assume memory was malloc'ed
+        free(sb->buffer);
+        sb->buffer = nullptr;
+    }
     sb->capacity = 0;
     sb->length = 0;
+}
+
+StringBuilder * sb_from_cstring( char const * cstring, uint32_t capacity, AlokArena *arena ) {
+    const size_t str_sz = strlen(cstring);
+    const uint32_t str_len =  (str_sz >= U32_MAX) ? U32_MAX - 1 : strlen(cstring);
+    const uint32_t max_len = (str_len < capacity) ? capacity : str_len;
+
+    uint32_t ideal_capacity = (uint32_t)(max_len * CAPACITY_FACTOR);
+    if (ideal_capacity == 0) ideal_capacity = 16;
+    if ( capacity < ideal_capacity ) capacity = ideal_capacity;
+
+    StringBuilder * sb   = alok_arena_alloc( arena, sizeof(StringBuilder), alignof(StringBuilder), nullptr );
+    char          * buf  = alok_arena_alloc( arena, (capacity + 1) * sizeof(char), alignof(char),  nullptr );
+    if (!buf || !sb) {
+        // todo (rob) error reporting
+        return nullptr;
+    }
+    sb->buffer = buf;
+    memcpy(sb->buffer, cstring, str_len);
+    sb->buffer[str_len] = '\0';
+    sb->capacity = capacity;
+    sb->length = str_len;
+    sb->arena = arena;
+    return sb;
+}
+
+StringBuilder * sb_new( const uint32_t capacity, AlokArena *arena ) {
+    return sb_from_cstring("", capacity, arena);
 }
 
 static bool sb_ensure_capacity(StringBuilder *sb, uint32_t capacity_wanted) {
@@ -54,11 +94,34 @@ static bool sb_ensure_capacity(StringBuilder *sb, uint32_t capacity_wanted) {
     // must grow capacity
     uint32_t old_capacity = sb->capacity;
     uint32_t new_capacity = (uint32_t)(capacity_wanted * CAPACITY_FACTOR);
-    char *buf = realloc(sb->buffer, new_capacity + 1);
-    if (!buf) return false;
-
-    // clear new bytes
-    memset(buf + old_capacity, '\0', new_capacity - old_capacity + 1);
+    if (old_capacity > new_capacity) {
+        // capacity is at max size, buffer is full. Overflow.
+        return false;
+    }
+    char *buf = nullptr;
+    if (sb->arena) {
+        // optimization: if this allocation is right after the previous one in the arena,
+        // we can keep the original pointer and just request the additional space.
+        void * top = alok_arena_top_pointer(sb->arena);
+        void * buffer_end = sb->buffer + (sb->capacity + 1) * sizeof(char);
+        if ( top == buffer_end) {
+            // we can just grow the buffer in place
+            void * new_mem = alok_arena_alloc(sb->arena,  (new_capacity - old_capacity ), alignof(char), nullptr );
+            if ( !new_mem) return false; // todo (rob) error reporting
+            buf = sb->buffer; // the buffer doesn't move, it just grows.
+        } else {
+            // we have to allocate a new buffer and copy the current buffer contents to the new location
+            void * new_buf = alok_arena_alloc(sb->arena,  new_capacity + 1, alignof(char), nullptr );
+            if ( !new_buf) return false; // todo (rob) error reporting
+            memcpy(new_buf, sb->buffer, sb->capacity + 1);
+            buf = new_buf;
+        }
+    } else {
+        buf = realloc(sb->buffer, new_capacity + 1);
+        if (!buf) return false;
+        // clear new bytes
+        memset(buf + old_capacity, '\0', new_capacity - old_capacity + 1);
+    }
     sb->buffer = buf;
     sb->capacity = new_capacity;
     return true;
@@ -67,13 +130,10 @@ static bool sb_ensure_capacity(StringBuilder *sb, uint32_t capacity_wanted) {
 StringBuilder * sb_append_char( StringBuilder *sb,  char c) {
     if (c == '\0') return sb;  // adding empty string does nothing.
     uint32_t new_length = sb->length + sizeof(char);
-    //todo (rob) why are we passing new_length + 1 here??
-    if (!sb_ensure_capacity(sb, new_length + 1)) return nullptr;
+    if (!sb_ensure_capacity(sb, new_length )) return nullptr;
 
     sb->buffer[sb->length++] = c;
     sb->buffer[sb->length] = '\0';
-    sb->length = new_length;
-
     return sb;
 }
 

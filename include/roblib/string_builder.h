@@ -13,12 +13,16 @@
 extern "C" {
 #endif
 
+typedef struct alok_arena_s AlokArena;
+
+
 /**
  * A mutable sequence of characters.
  */
 typedef struct string_builder_s {
     uint32_t  capacity;
     uint32_t  length;
+    AlokArena *arena;
     char      *buffer;  // this needs to be a pointer because it can be reallocated if capacity increases
 } StringBuilder;
 
@@ -34,11 +38,18 @@ typedef struct string_builder_s {
  */
 StringBuilder * sb_init( StringBuilder *sb, uint32_t capacity, char const * str);
 
+
 /**
  * Frees memory associated with the StringBuilder
  * @param sb The StringBuilder to destroy
  */
 void sb_destroy( StringBuilder *sb);
+
+
+// The StringBuilder struct and backing char buffer are created in the argument `arena`. These resources are
+// "freed" when the arena is reset or deallocated.
+StringBuilder * sb_from_cstring( char const * cstring, uint32_t capacity, AlokArena *arena );
+StringBuilder * sb_new(  uint32_t capacity, AlokArena *arena );
 
 
 StringBuilder * sb_append_char( StringBuilder *sb, char c);

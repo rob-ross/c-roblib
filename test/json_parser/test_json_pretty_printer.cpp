@@ -16,6 +16,12 @@
 
 
 TEST(JsonPrettyPrinter,  jsonp_print) {
+    // todo (rob) currently this "test" just prints a JSON value to the console.
+    // we need to capture the JsonValue and expected output as a test parameter and compare the console output (actual)
+    // to the expected console output. Since we know all print/repr methods are implemented by `jsonp_print_impl`,
+    // we really only need to store a string output result (expected) and compare to the output from `jsonp_sprint`,
+    // and that will test all such repr methods.
+
     JsonFormatFlags flags1 = { .indent = 2, .single_line = false,  };
     JsonFormatFlags flags2 = { .indent = 2, .single_line = true };
 

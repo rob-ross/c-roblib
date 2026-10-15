@@ -16,8 +16,11 @@
 
 
 // like HashMap, we first support long, double, string, and void*.
-// like HashMap, the base List implementation is heterogenous
+// like HashMap, the base List implementation is heterogeneous
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 typedef struct List List;
 
@@ -64,34 +67,34 @@ extern const MemPolicy       LIST_DEFAULT_MALLOC_POLICY;
 // ---------------------------
 
 // adds the value to the end of the list
-CollectionsError list_append(List list[static 1], ColValue value);
+CollectionsError list_append(List *list, ColValue value);
 
 //Removes all the elements from this list. After call, size == 0.
-void list_clear(List list[static 1]);
+void list_clear(List *list);
 
 // Returns true if the list contains the value, otherwise returns false.
-bool list_contains(List list[static 1], ColValue value);
+bool list_contains(List *list, ColValue value);
 // call list_destroy to free all resources
 List * (list_create)(size_t initial_capacity, ListValuePolicy value_policy, MemPolicy mem_policy) ;
-void list_destroy(List list[static 1]);
+void list_destroy(List *list );
 
 // Returns the element at the specified position in this list.
-ColValue list_get(const List list[static 1], size_t index);
+ColValue list_get(const List *list, size_t index);
 
-CollectionsError list_insert(List list[static 1], size_t index, ColValue value );
-bool list_is_empty(const List list[static 1]);
+CollectionsError list_insert(List *list, size_t index, ColValue value );
+bool list_is_empty(const List *list );
 
 //Removes the element at the specified position in this list
 //Shifts any subsequent elements to the left (subtracts one from their indices).
 //Returns the element that was removed from the list.
-ColValue list_remove(List list[static 1], size_t index);
+ColValue list_remove(List *list , size_t index);
 
 // Returns the number of elements in this List
 size_t list_size(const List *list);
 //// ---------------------------------------------
 ////  repr methods
 //// ---------------------------------------------
-void list_repr_List(const List list[static 1], bool verbose, const char* type_str);
+void list_repr_List(const List *list , bool verbose, const char* type_str);
 
 
 
@@ -105,3 +108,7 @@ void list_repr_List(const List list[static 1], bool verbose, const char* type_st
 #define list_create_SELECT_(_1, _2, _3, NAME, ...) NAME
 #define list_create(...) \
 list_create_SELECT_(__VA_ARGS__ __VA_OPT__(,) list_create_3, list_create_2, list_create_1, list_create_0 ) (__VA_ARGS__)
+
+#ifdef __cplusplus
+}
+#endif

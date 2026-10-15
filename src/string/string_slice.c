@@ -268,7 +268,7 @@ StringSliceArray * slice_split( AlokArena * arena, StringSlice s, StringSlice de
 
     while (s.length > 0 ) {
         StringSlice result =  slice_chop_by_delimiter(&s, delimiter);
-        StringSliceNode *node = alok_arena_alloc(arena_temp.arena, sizeof(StringSliceNode), nullptr, alignof(StringSliceNode));
+        StringSliceNode *node = alok_arena_alloc(arena_temp.arena, sizeof(StringSliceNode), alignof(StringSliceNode), nullptr);
         node->next = nullptr;
         node->slice = result;
         SLLQueuePush(sll.first, sll.last, node );
@@ -276,7 +276,7 @@ StringSliceArray * slice_split( AlokArena * arena, StringSlice s, StringSlice de
     }
     // creating return struct in the caller's arena
     StringSliceArray * array_mem = alok_arena_alloc(arena,
-        sizeof(StringSliceArray) + list_count * sizeof(StringSlice), nullptr, alignof(StringSlice));
+        sizeof(StringSliceArray) + list_count * sizeof(StringSlice), alignof(StringSlice), nullptr);
 
     array_mem->size = list_count;
     StringSliceNode *node = sll.first;

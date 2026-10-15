@@ -43,8 +43,8 @@
  */
 
 
-constexpr char NUL = '\0';
-constexpr size_t LOOK_AHEAD_BUF_SIZE = 40;
+static constexpr char NUL = '\0';
+static constexpr size_t LOOK_AHEAD_BUF_SIZE = 40;
 char const * const    JSON_WHITESPACE_CHARS_DEFAULT = " \t\n\r";
 
 
@@ -94,6 +94,7 @@ typedef struct {
 
 } Input;
 
+// ReSharper disable once CppUseInternalLinkage
 typedef struct json_context_s {
     Input          *input;
 
@@ -136,7 +137,7 @@ typedef struct {
 } FileSourceInputContext;
 
 
-long file_read( void *context, size_t requested_bytes)
+static long file_read( void *context, size_t requested_bytes)
 {
     FileSourceInputContext *src = context;
     Input *input = src->input;
@@ -191,24 +192,7 @@ static long file_ensure_char_ring_buffer_length(FileSourceInputContext *src, siz
     return input->read(src, num_bytes);  // try to fill as much of the buffer as we can
 }
 
-int file_next_char(void *context)
-{
-    FileSourceInputContext *src = context;
-    Input *input = src->input;
-    if ( src->length_bytes > 0 && input->current_byte_index == src->length_bytes ) return EOF;
-    uint32_t bytes_advanced = input->advance_n_bytes(context, 1);
-    if (! bytes_advanced ) return EOF;
-
-    CharRingBuffer *scan_buf = src->scanner_buffer;
-    if (scan_buf->length == 0 ) {
-        // need to read into the buffer first
-        file_read(context, 1);
-    }
-
-    return (unsigned char)input->current_char(src);
-}
-
-int file_current_char(void *context) {
+static int file_current_char(void *context) {
     FileSourceInputContext *src = context;
     Input *input = src->input;
 
@@ -224,7 +208,7 @@ int file_current_char(void *context) {
     return crb_peek_char_CharRingBuffer(scan_buf, 0);
 }
 
-int file_peek_next_char(void *context) {
+static int file_peek_next_char(void *context) {
     FileSourceInputContext *src = context;
     Input *input = src->input;
     if ( src->length_bytes > 0 && input->current_byte_index == src->length_bytes ) return EOF;
@@ -241,7 +225,7 @@ int file_peek_next_char(void *context) {
 
 // we only intend to support max lookahead of:
 // 6 for \U0XXXXX, 4 for \uXXXX, 3 for BOM, 2 for \t, etc.
-int file_peek_lookahead_chars(void *context, uint32_t lookahead ) {
+static int file_peek_lookahead_chars(void *context, uint32_t lookahead ) {
     FileSourceInputContext *src = context;
     Input *input = src->input;
 
@@ -259,7 +243,7 @@ int file_peek_lookahead_chars(void *context, uint32_t lookahead ) {
     return crb_peek_char_CharRingBuffer(scanner_buffer, lookahead);
 }
 
-uint32_t file_advance_n_bytes( void *context, uint32_t num_bytes) {
+static uint32_t file_advance_n_bytes( void *context, uint32_t num_bytes) {
     FileSourceInputContext *src = context;
     Input *input = src->input;
     CharRingBuffer *look_behind_buffer = input->look_behind_buffer;
@@ -303,7 +287,7 @@ uint32_t file_advance_n_bytes( void *context, uint32_t num_bytes) {
 }
 
 // copies up to `n_chars` chars forward from the current position of the JSON text.
-void file_sprint_n_lookahead_chars(void *context, const uint32_t n_chars, char buffer[ static n_chars + 1 ] ) {
+static void file_sprint_n_lookahead_chars(void *context, const uint32_t n_chars, char buffer[ static n_chars + 1 ] ) {
     FileSourceInputContext *src = context;
     Input *input = src->input;
     if ( src->length_bytes > 0 && input->current_byte_index == src->length_bytes) return;
@@ -343,7 +327,7 @@ typedef struct {
     size_t              length_bytes;           // total length of the json_text C-string in bytes
 } StringSourceInputContext;
 
-long string_read( void *context, size_t max_bytes) {
+static long string_read( void *context, size_t max_bytes) {
     // this is basically a no-op since the full json_text is already in memory at src->json_text
 
 //     StringSourceInputContext *src = context;
@@ -354,24 +338,14 @@ long string_read( void *context, size_t max_bytes) {
     return 0;
 }
 
-int string_current_char(void *context) {
+static int string_current_char(void *context) {
     StringSourceInputContext *src = context;
     Input *input = src->input;
     if (input->current_byte_index == src->length_bytes) return (unsigned char)src->json_text[src->length_bytes];
     return (unsigned char)src->json_text[input->current_byte_index];
 }
 
-int string_next_char(void *context) {
-    StringSourceInputContext *src = context;
-    Input *input = src->input;
-    if ( input->current_byte_index == src->length_bytes ) return (unsigned char)src->json_text[src->length_bytes];
-
-    CharRingBuffer *look_behind_buffer = input->look_behind_buffer;
-    crb_add_char_to_buffer_CharRingBuffer(look_behind_buffer,  src->json_text[input->current_byte_index]);
-    return (unsigned char)src->json_text[input->current_byte_index++];
-}
-
-int string_peek_next_char(void *context) {
+static int string_peek_next_char(void *context) {
     StringSourceInputContext *src = context;
     Input *input = src->input;
     if (input->current_byte_index + 1 >= src->length_bytes) return EOF;
@@ -380,14 +354,14 @@ int string_peek_next_char(void *context) {
 }
 
 // we only intend to support max lookahead of 6
-int string_peek_lookahead_chars( void *context, uint32_t lookahead ) {
+static int string_peek_lookahead_chars( void *context, uint32_t lookahead ) {
     StringSourceInputContext *src = context;
     Input *input = src->input;
     if (input->current_byte_index + lookahead >= src->length_bytes) return EOF;
     return (unsigned char)src->json_text[input->current_byte_index + lookahead];
 }
 
-uint32_t string_advance_n_bytes( void *context, const uint32_t num_bytes) {
+static uint32_t string_advance_n_bytes( void *context, const uint32_t num_bytes) {
     StringSourceInputContext *src = context;
     Input *input = src->input;
     CharRingBuffer *look_behind_buffer = input->look_behind_buffer;
@@ -423,7 +397,7 @@ uint32_t string_advance_n_bytes( void *context, const uint32_t num_bytes) {
 }
 
 // copies up to `n_chars` chars forward from the current position of the JSON text.
-void string_sprint_n_lookahead_chars(void *context, const uint32_t n_chars, char buffer[ static n_chars + 1 ] ) {
+static void string_sprint_n_lookahead_chars(void *context, const uint32_t n_chars, char buffer[ static n_chars + 1 ] ) {
     StringSourceInputContext *src = context;
     Input *input = src->input;
 
@@ -445,12 +419,12 @@ void string_sprint_n_lookahead_chars(void *context, const uint32_t n_chars, char
 //      Forward Declarations
 // -----------------------------------------------------------------
 static JsonValue * pvt_parse_value(JsonContext *context, JsonParseError *error, AlokArena *arena );
-static JsonValue * pvt_parse_string(JsonContext *context, JsonParseError *error, AlokArena *arena );
+static JsonValue * pvt_parse_string(const JsonContext *context, JsonParseError *error, AlokArena *arena );
 static void pvt_init_context_whitespace_table(JsonContext *context);
 static char pvt_current_char(JsonContext const *context);
 static bool pvt_starts_with_bom(JsonContext const *context, uint32_t n_bytes, uint8_t const bom_bytes[static n_bytes]);
-static bool pvt_is_rejected_due_to_bom(JsonContext *context, JsonParseError *error);
-static void pvt_advance(JsonContext *context, uint32_t char_count);
+static bool pvt_is_rejected_due_to_bom(const JsonContext *context, JsonParseError *error);
+static void pvt_advance(const JsonContext *context, uint32_t char_count);
 
 
 // -----------------------------------------------------------------
@@ -496,11 +470,11 @@ void jsonp_set_context_whitespace_chars( JsonContext *context, const char  *whit
     pvt_init_context_whitespace_table(context);
 }
 
-static inline bool pvt_is_json_whitespace(JsonContext *context, const unsigned char c) {
+static inline bool pvt_is_json_whitespace(const JsonContext *context, const unsigned char c) {
     return context->ws_table[c];
 }
 
-static void pvt_skip_whitespace(JsonContext *context) {
+static void pvt_skip_whitespace(const JsonContext *context) {
     Input *input = context->input;
     char c;
     while ( c = pvt_current_char(context), pvt_is_json_whitespace(context, (const unsigned char)c ) ) {
@@ -524,12 +498,12 @@ void jsonp_set_context_max_depth(JsonContext *context, uint32_t max_depth){
     context->depth_max = max_depth;
 }
 
-uint32_t jsonp_get_context_max_depth(JsonContext *context) {
+uint32_t jsonp_get_context_max_depth(const JsonContext *context) {
     return context->depth_max;
 }
 
 // advance the parser state based on the current parse window
-static void pvt_advance(JsonContext *context, const uint32_t char_count) {;
+static void pvt_advance(const JsonContext *context, const uint32_t char_count) {;
     uint32_t bytes_advanced = context->input->advance_n_bytes(context->input->input_context, char_count);
     Input *input = context->input;
     input->column += bytes_advanced;
@@ -566,7 +540,7 @@ static void pvt_format_error_message_char(
     }
 }
 
-static void pvt_record_error(   JsonContext *context,
+static void pvt_record_error(const JsonContext *context,
                                 JsonParseError *error,
                                 const JsonParseErrType err_type,
                                 const char *msg) {
@@ -591,7 +565,7 @@ static void pvt_record_error(   JsonContext *context,
     error->parse_end = input->parse_end;
 }
 
-static void pvt_record_missing_comma_error(JsonContext *context, JsonParseError *error) {
+static void pvt_record_missing_comma_error(const JsonContext *context, JsonParseError *error) {
     int written = snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "expected comma, got ");
     if (written > 0) {
         pvt_format_error_message_char(ERROR_MSG_BUFFER_SIZE - written,
@@ -601,7 +575,7 @@ static void pvt_record_missing_comma_error(JsonContext *context, JsonParseError 
 }
 
 
-static bool pvt_max_depth_exceeded(JsonContext *context, JsonParseError *error) {
+static bool pvt_max_depth_exceeded(const JsonContext *context, JsonParseError *error) {
     if (context->depth_current > context->depth_max) {
         snprintf(error->message, ERROR_MSG_BUFFER_SIZE,
             "max nested depth of %u exceeded", context->depth_max);
@@ -612,7 +586,8 @@ static bool pvt_max_depth_exceeded(JsonContext *context, JsonParseError *error) 
 }
 
 
-typedef struct json_object_entry_node_s {
+// ReSharper disable once CppUseInternalLinkage
+typedef struct json_object_entry_node_s { // NOLINT(modernize-use-anonymous-namespace)
     JsonObjectEntry *object_entry;
     struct json_object_entry_node_s *next;
 } JsonObjectEntryNode;
@@ -804,6 +779,7 @@ static JsonValue * pvt_parse_object(JsonContext *context, JsonParseError *error,
     return object;
 }
 
+// ReSharper disable once CppUseInternalLinkage
 typedef struct json_value_node_s {
     JsonValue *value;
     struct json_value_node_s *next;
@@ -950,27 +926,10 @@ static int pvt_hex_to_dec(const unsigned char hex)
     }
 }
 
-// 2. Printing the Bit Pattern String
-static void pvt_print_hex_bits(unsigned char hex) {
-    int val = pvt_hex_to_dec(hex);
-    if (val == -1) return;
 
-    // Extract bits using bitwise masking
-    for (int i = 3; i >= 0; i--) {
-        printf("%d", (val >> i) & 1);
-    }
-    printf("\n");
-}
 
-static void pvt_print_8_bits(uint8_t bits) {
-    printf("0b");
-    for (int i = 7; i >= 0; i--) {
-        printf("%d", (bits >> i) & 1);
-    }
-}
-
-constexpr uint8_t continue_mask = 0b00111111;  // 0x3F
-constexpr uint8_t continue_bits = 0b10000000;  // 0x80
+static constexpr uint8_t continue_mask = 0b00111111;  // 0x3F
+static constexpr uint8_t continue_bits = 0b10000000;  // 0x80
 
 
 // assumes the UTF-8 bytes are correct and well-ordered. No error checking is done here.
@@ -1007,7 +966,7 @@ static uint32_t pvt_decode_utf8(const uint32_t num_bytes, uint8_t const utf8_byt
 }
 
 
-static StringBuilder * pvt_encode_utf8( JsonContext *context, JsonParseError *error, const uint32_t codepoint, StringBuilder *sb) {
+static StringBuilder * pvt_encode_utf8(const JsonContext *context, JsonParseError *error, const uint32_t codepoint, StringBuilder *sb) {
     /**
      *  Rules for encoding Unicode codepoint into UTF-8:
      *  0. Unicode points U+D800 - U+DFFF are reserved as surrogate pairs in UTF-16 and are not allowed. Error.
@@ -1079,7 +1038,7 @@ static StringBuilder * pvt_encode_utf8( JsonContext *context, JsonParseError *er
     return sb;
 }
 
-static uint32_t pvt_parse_hex_impl(JsonContext *context, JsonParseError *error, const uint32_t num_chars) {
+static uint32_t pvt_parse_hex_impl(const JsonContext *context, JsonParseError *error, const uint32_t num_chars) {
     uint32_t result = 0;
     for (uint32_t i = 0; i < num_chars; i++) {
         const char next_char = pvt_current_char(context);
@@ -1108,19 +1067,19 @@ static uint32_t pvt_parse_hex_impl(JsonContext *context, JsonParseError *error, 
 }
 
 // try to parse 6 hex bytes from the stream. Report in error if we didn't find 6 hex bytes.
-static uint32_t pvt_parse_hex6(JsonContext *context, JsonParseError *error) {
+static uint32_t pvt_parse_hex6(const JsonContext *context, JsonParseError *error) {
     return pvt_parse_hex_impl(context, error, 6);
 }
 
 // try to parse 4 hex bytes from the stream. Report in error if we didn't find 4 hex bytes.
-static uint16_t pvt_parse_hex4(JsonContext *context, JsonParseError *error) {
+static uint16_t pvt_parse_hex4(const JsonContext *context, JsonParseError *error) {
     return pvt_parse_hex_impl(context, error, 4);
 }
 
 //  expect a valid continuation byte from 0x80 - 0xBF at current index
 // Return true if found, otherwise return false and report error
 static bool pvt_validate_utf8_continuation_byte(
-    JsonContext *context, JsonParseError *error,
+    const JsonContext *context, JsonParseError *error,
     uint8_t current_byte, uint8_t start_range, uint8_t end_range) {
 
     uint8_t next_byte = pvt_current_char(context);
@@ -1135,7 +1094,7 @@ static bool pvt_validate_utf8_continuation_byte(
     return true;
 }
 
-static bool pvt_validate_utf8(JsonContext *context, JsonParseError *error,  StringBuilder *sb) {
+static bool pvt_validate_utf8(const JsonContext *context, JsonParseError *error,  StringBuilder *sb) {
     uint8_t stream_bytes[4] = {};
     uint8_t lead_byte = pvt_current_char(context);;
     uint32_t num_bytes = 0;
@@ -1415,7 +1374,7 @@ static bool pvt_validate_utf8(JsonContext *context, JsonParseError *error,  Stri
 }
 
 // assumes pvt_peek_char(context) == 'u' or 'U' and the previous character was a backslash '\'
-static StringBuilder * pvt_parse_unicode_escape( JsonContext *context, JsonParseError *error, AlokArena *arena, StringBuilder *sb_out ) {
+static StringBuilder * pvt_parse_unicode_escape(const JsonContext *context, JsonParseError *error, StringBuilder *sb_out ) {
     Input *input = context->input;
 
     if (pvt_current_char(context) == 'U') {
@@ -1509,14 +1468,77 @@ static StringBuilder * pvt_parse_unicode_escape( JsonContext *context, JsonParse
     return sb_out;
 }
 
+static constexpr char QUOTE           = 0x22;  // "
+static constexpr char REVERSE_SOLIDUS = 0x5c;  // \  backslash
+
+static bool pvt_parse_backlash_escapes(const JsonContext *context, JsonParseError *error, unsigned char current_byte, StringBuilder *sb ) {
+        pvt_advance(context, 1); // Skip the backslash
+        current_byte = (unsigned char )pvt_current_char(context);
+
+        if (current_byte == NUL) {
+            pvt_record_error(context, error, JSON_ERR_UNEXPECTED_EOF, "Unexpected EOF after backslash");
+            return false; // Unexpected EOF
+        }
+
+        // Validate escape sequence
+        switch (current_byte) {
+            case '"':
+            case '\\':
+            case '/':
+                sb_append_char(sb, (char)current_byte);
+                pvt_advance(context, 1);
+                break;
+            case 'b':
+                sb_append_char(sb, '\b');
+                pvt_advance(context, 1);
+                break;
+            case 'f':
+                sb_append_char(sb, '\f');
+                pvt_advance(context, 1);
+                break;
+            case 'n':
+                sb_append_char(sb, '\n');
+                pvt_advance(context, 1);
+                break;
+            case 'r':
+                sb_append_char(sb, '\r');
+                pvt_advance(context, 1);
+                break;
+            case 't':
+                sb_append_char(sb, '\t');
+                pvt_advance(context, 1);
+                break;
+            case 'u':
+            case 'U':
+                // RFC 8259: \u followed by 4 hex digits
+                // roblib addition \U followed by 6 hex digits is a codepoint,
+                //  no surrogates required!
+                StringBuilder *result = pvt_parse_unicode_escape(context, error, sb);
+                if (!result) {
+                    // if `pvt_parse_unicode_escape` encountered an error, it will have reported it in `error`
+                    return false;
+                }
+                break;
+
+            default:
+                char const *format_str;
+                if (current_byte < 0x20 || current_byte > 0x7E) format_str = "invalid escape sequence: '\\0x%.2X'";
+                else format_str = "invalid escape sequence: '\\%c'";
+                snprintf(error->message, ERROR_MSG_BUFFER_SIZE, format_str, current_byte);
+                pvt_record_error(context, error, JSON_ERR_INVALID_ESCAPE_SEQUENCE, error->message);
+                return false;
+        }
+
+    return true;
+}
 
 
-constexpr char QUOTE           = 0x22;  // "
-constexpr char REVERSE_SOLIDUS = 0x5c;  // \  backslash
 
-static JsonValue * pvt_parse_string(JsonContext *context, JsonParseError *error, AlokArena *arena ) {
-    StringBuilder sb;
-    sb_init(&sb, 16, "");
+static JsonValue * pvt_parse_string(const JsonContext *context, JsonParseError *error, AlokArena *arena ) {
+
+    AlokArenaTemp arena_temp = alok_arena_get_scratch(&(AlokArena*){arena}, 0);
+    AlokArena * scratch_arena = arena_temp.arena;
+    StringBuilder *sb2 = sb_new(16, scratch_arena);
 
     // we examine chars in the stream until we find:
     // 1. a closing quote, which is a quote not preceded by the backlash (reverse solidus)
@@ -1532,97 +1554,44 @@ static JsonValue * pvt_parse_string(JsonContext *context, JsonParseError *error,
 
             // Ensure the result is null-terminated from the StringBuilder
             // before copying into the arena.
-            size_t len = sb.length;
+            size_t len = sb2->length;
+
             char * str_value = alok_arena_alloc(arena, len + 1);
-            memcpy(str_value, sb.buffer, len);
+            memcpy(str_value, sb2->buffer, len);
             str_value[len] = NUL;
 
             value->u.string = (StringSlice){ .length = len, .data = str_value };
 
             pvt_advance(context, 1); // consume the terminating quote
-            sb_destroy(&sb);
+            alok_arena_release_scratch(&arena_temp);
             return value;
         }
 
         if (current_byte == REVERSE_SOLIDUS) {
-            pvt_advance(context, 1); // Skip the backslash
-            current_byte = (unsigned char )pvt_current_char(context);
-
-            if (current_byte == NUL) {
-                pvt_record_error(context, error, JSON_ERR_UNEXPECTED_EOF, "Unexpected EOF after backslash");
-                sb_destroy(&sb);
-                return nullptr; // Unexpected EOF
+            if (!pvt_parse_backlash_escapes(context, error, current_byte, sb2)) {
+                alok_arena_release_scratch(&arena_temp);
+                return nullptr;
             }
-
-            // Validate escape sequence
-            switch (current_byte) {
-                case '"':
-                case '\\':
-                case '/':
-                    sb_append_char(&sb, (char)current_byte);
-                    pvt_advance(context, 1);
-                    break;
-                case 'b':
-                    sb_append_char(&sb, '\b');
-                    pvt_advance(context, 1);
-                    break;
-                case 'f':
-                    sb_append_char(&sb, '\f');
-                    pvt_advance(context, 1);
-                    break;
-                case 'n':
-                    sb_append_char(&sb, '\n');
-                    pvt_advance(context, 1);
-                    break;
-                case 'r':
-                    sb_append_char(&sb, '\r');
-                    pvt_advance(context, 1);
-                    break;
-                case 't':
-                    sb_append_char(&sb, '\t');
-                    pvt_advance(context, 1);
-                    break;
-                case 'u':
-                case 'U':
-                    // RFC 8259: \u followed by 4 hex digits
-                    // roblib addition \U followed by 6 hex digits is a codepoint,
-                    //  no surrogates required!
-                    StringBuilder *result = pvt_parse_unicode_escape(context, error, arena, &sb);
-                    if (!result) {
-                        // if `pvt_parse_unicode_escape` encountered an error, it will have reported it in `error`
-                        // context->parse_end = context->current_index;
-                        sb_destroy(&sb);
-                        return nullptr;
-                    }
-                    break;
-                default:
-                    char const *format_str;
-                    if (current_byte < 0x20 || current_byte > 0x7E) format_str = "invalid escape sequence: '\\0x%.2X'";
-                    else format_str = "invalid escape sequence: '\\%c'";
-                    snprintf(error->message, ERROR_MSG_BUFFER_SIZE, format_str, current_byte);
-                    pvt_record_error(context, error, JSON_ERR_INVALID_ESCAPE_SEQUENCE, error->message);
-                    sb_destroy(&sb);
-                    return nullptr;
-            }
-
         } else if ( current_byte <= 0x1F) {
             // RFC 8259: Control characters U+0000 through U+001F MUST be escaped. (u-escaped, not solidus-escaped)
             // This means the literal bytes cannot appear here.
             snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "unescaped control character: 0x%.2X", current_byte);
             pvt_record_error(context, error, JSON_ERR_UNESCAPED_CONTROL_CHAR, error->message);
-            sb_destroy(&sb);
+            alok_arena_release_scratch(&arena_temp);
             return nullptr;
         } else {
             // Here we validate a string of UTF-8 characters
-            if (! pvt_validate_utf8(context, error, &sb)) return nullptr;
+            if (! pvt_validate_utf8(context, error, sb2)) return nullptr;
         }
         current_byte = (unsigned char)pvt_current_char(context);
-    }
+    }  // end while (current_byte)
     pvt_record_error(context, error, JSON_ERR_UNTERMINATED_STRING, "missing closing quote '\"' ");
-    sb_destroy(&sb);
+    alok_arena_release_scratch(&arena_temp);
+
     return nullptr;
 }
 
+// ReSharper disable once CppUseInternalLinkage
 typedef struct CharBuffer {
     size_t length;
     uint8_t buffer[1024];
@@ -1634,7 +1603,7 @@ static void pvt_add_char_to_buffer( CharBuffer * cb, char c) {
     cb->buffer[cb->length++] = (uint8_t)c;
 }
 
-static JsonValue * pvt_parse_number(JsonContext *context, JsonParseError *error, AlokArena *arena ) {
+static JsonValue * pvt_parse_number(const JsonContext *context, JsonParseError *error, AlokArena *arena ) {
     JsonValue *value = nullptr;
     CharBuffer cb = {}; // todo this is a fixed buffer of 1024 bytes. Max length of number we can parse.
 
@@ -1838,15 +1807,14 @@ static JsonValue * pvt_parse_number(JsonContext *context, JsonParseError *error,
 }
 
 
-// not used, but this defines what a JSON number is, so it's convenient to have around.
-static const char * const REGEX_NUMBER_STR = "(-?(0|([1-9][0-9]*))(\\.[0-9]+)?([eE][-+]?[0-9]+)?)";
+// not used, but this defines what a JSON number is, so it's convenient to have around for reference.
+[[maybe_unused]] static const char * const REGEX_NUMBER_STR = "(-?(0|([1-9][0-9]*))(\\.[0-9]+)?([eE][-+]?[0-9]+)?)";
 
-static JsonValue *  pvt_parse_literal_impl(  JsonContext *context,
+static JsonValue *  pvt_parse_literal_impl(const JsonContext *context,
                                                 JsonParseError *error,
                                                 JsonValue *literal,
                                                 char const *key_word ) {
 
-    uint32_t current_index = context->input->current_byte_index;
     char const * keyword_ptr = key_word;
     char cur_char = pvt_current_char(context);
     enum json_error_type_e err_type = JSON_ERR_NONE;
@@ -1863,11 +1831,9 @@ static JsonValue *  pvt_parse_literal_impl(  JsonContext *context,
         keyword_ptr++;
     }
 
-
     if ( err_type == JSON_ERR_NONE && *keyword_ptr != NUL) {
-        // unexpected end of text
+        // unexpected end of text; the stream ended before we finished parsing the keyword
         err_type = JSON_ERR_UNEXPECTED_EOF;
-        // context->parse_end = current_index;
         snprintf(error->message, ERROR_MSG_BUFFER_SIZE, "unexpected EOF, expected '%s'", key_word);
     }
     if (err_type != JSON_ERR_NONE) {
@@ -1878,33 +1844,33 @@ static JsonValue *  pvt_parse_literal_impl(  JsonContext *context,
     return literal;
 }
 
-constexpr StringSlice NULL_SLICE  = (StringSlice){ .length = 4, .data = "null"};
+static constexpr StringSlice NULL_SLICE  = (StringSlice){ .length = 4, .data = "null"};
 
 
 
 
 // todo (rob) these JsonValues need to be const
-constexpr size_t JSON_KEYWORD_NULL_LEN = 4;
-constexpr char   JSON_KEYWORD_NULL[JSON_KEYWORD_NULL_LEN + 1] = "null";
+static constexpr size_t JSON_KEYWORD_NULL_LEN = 4;
+static constexpr char   JSON_KEYWORD_NULL[JSON_KEYWORD_NULL_LEN + 1] = "null";
 static JsonValue JSON_NULL_VALUE = { .type = JSON_NULL, .u.string = NULL_SLICE};
 
-constexpr size_t JSON_KEYWORD_TRUE_LEN = 4;
-constexpr char   JSON_KEYWORD_TRUE[JSON_KEYWORD_TRUE_LEN + 1] = "true";
+static constexpr size_t JSON_KEYWORD_TRUE_LEN = 4;
+static constexpr char   JSON_KEYWORD_TRUE[JSON_KEYWORD_TRUE_LEN + 1] = "true";
 static JsonValue JSON_TRUE_VALUE = { .type = JSON_BOOLEAN, .u.boolean = true};
 
-constexpr size_t JSON_KEYWORD_FALSE_LEN = 5;
-constexpr char   JSON_KEYWORD_FALSE[JSON_KEYWORD_FALSE_LEN + 1] = "false";
+static constexpr size_t JSON_KEYWORD_FALSE_LEN = 5;
+static constexpr char   JSON_KEYWORD_FALSE[JSON_KEYWORD_FALSE_LEN + 1] = "false";
 static JsonValue JSON_FALSE_VALUE = { .type = JSON_BOOLEAN, .u.boolean = false};
 
-static JsonValue *  pvt_parse_true(JsonContext *context, JsonParseError *error ) {
+static JsonValue *  pvt_parse_true(const JsonContext *context, JsonParseError *error ) {
     return pvt_parse_literal_impl(context, error, &JSON_TRUE_VALUE, JSON_KEYWORD_TRUE );
 }
 
-static JsonValue *  pvt_parse_false(JsonContext *context, JsonParseError *error ) {
+static JsonValue *  pvt_parse_false(const JsonContext *context, JsonParseError *error ) {
     return pvt_parse_literal_impl(context, error, &JSON_FALSE_VALUE, JSON_KEYWORD_FALSE );
 }
 
-static JsonValue *  pvt_parse_null(JsonContext *context, JsonParseError *error ) {
+static JsonValue *  pvt_parse_null(const JsonContext *context, JsonParseError *error ) {
     return pvt_parse_literal_impl(context, error, &JSON_NULL_VALUE, JSON_KEYWORD_NULL );
 }
 
@@ -2015,7 +1981,7 @@ static bool pvt_starts_with_bom(JsonContext const *context,
     return true;
 }
 
-static bool pvt_is_rejected_due_to_bom(JsonContext *context, JsonParseError *error) {
+static bool pvt_is_rejected_due_to_bom(const JsonContext *context, JsonParseError *error) {
     // UTF-16 and UTF-32 BOMs always cause failure
     uint32_t bom_array_length = ARRAY_COUNT(BOM_UTF16_BE);
     if (pvt_starts_with_bom( context ,bom_array_length, BOM_UTF16_BE) ||
@@ -2057,7 +2023,7 @@ static bool pvt_is_rejected_due_to_bom(JsonContext *context, JsonParseError *err
 
 // Assumes a simple ASCII character. If the local's dec separator is multibyte or non-printable, returns the default
 // '.'
-char pvt_get_locale_decimal_separator_char() {
+static char pvt_get_locale_decimal_separator_char() {
     struct lconv *lc = localeconv();
     if (lc && lc->decimal_point) {
         unsigned char c = (unsigned char) lc->decimal_point[0];
@@ -2078,19 +2044,12 @@ static void pvt_tmp_set_local_decimal_separator_char(char *c) {
     }
 }
 
-char jsonp_get_context_decimal_separator( JsonContext *context ) {
+char jsonp_get_context_decimal_separator(const JsonContext *context ) {
     return context->decimal_separator;
 }
 
 void jsonp_set_context_decimal_separator( JsonContext *context, char c) {
     context->decimal_separator = c;
-}
-
-
-
-JsonContext *jsonp_new_empty_context() {
-    JsonContext *context = (JsonContext *)calloc(1, sizeof(JsonContext));
-    return context;
 }
 
 static void pvt_init_context_whitespace_table(JsonContext *context) {
@@ -2102,7 +2061,7 @@ static void pvt_init_context_whitespace_table(JsonContext *context) {
     }
 }
 
-void pvt_write_global_state(JsonContext *context) {
+static void pvt_copy_global_state(JsonContext *context) {
     if (!context) return;
     context->config_flags = atomic_load(&json_config_flags);
     context->depth_max    = atomic_load(&pvt_depth_max);
@@ -2115,11 +2074,11 @@ void pvt_write_global_state(JsonContext *context) {
 
 JsonContext *jsonp_copy_global_context() {
     JsonContext *context  = (JsonContext *)calloc(1, sizeof(JsonContext));
-    pvt_write_global_state(context);
+    pvt_copy_global_state(context);
     return context;
 }
 
-JsonContext *jsonp_make_empty_context(void) {
+JsonContext *jsonp_make_empty_context() {
     JsonContext *context  = (JsonContext *)calloc(1, sizeof(JsonContext));
     context->whitespace_chars[0] = NUL; // empty string
     return context;
@@ -2135,7 +2094,7 @@ static void pvt_reset_context(JsonContext *context) {
 }
 
 
-Input pvt_get_string_input_source( StringSourceInputContext *ss) {
+static Input pvt_get_string_input_source( StringSourceInputContext *ss) {
     Input input = {
         .input_context            = (void*)ss,
         .read                     = string_read,
@@ -2187,7 +2146,7 @@ JsonValue * jsonp_parse_string(const char *json_text, JsonParseError *error, Alo
     CharRingBuffer *crb = crb_new_CharRingBuffer(LOOK_AHEAD_BUF_SIZE, arena);
     input.look_behind_buffer = crb;
     JsonContext context = {};
-    pvt_write_global_state(&context);
+    pvt_copy_global_state(&context);
     context.input = &input;
     JsonValue *value = pvt_jsonp_parse_impl(&context, error, arena);
 
@@ -2206,7 +2165,7 @@ JsonValue *jsonp_parse_string_ex(const char *json_text, JsonParseError *error, A
     CharRingBuffer *crb = crb_new_CharRingBuffer(LOOK_AHEAD_BUF_SIZE, arena);
     input.look_behind_buffer = crb;
     JsonContext context = {};
-    pvt_write_global_state(&context);
+    pvt_copy_global_state(&context);
     context.input = &input;
 
     JsonValue *value = pvt_jsonp_parse_impl(&context, error, arena);
@@ -2224,7 +2183,7 @@ JsonValue *jsonp_parse_string_ex(const char *json_text, JsonParseError *error, A
     return value;
 }
 
-Input pvt_get_file_input_source( FileSourceInputContext *fs) {
+static Input pvt_get_file_input_source( FileSourceInputContext *fs) {
     Input input = {
         .input_context            = (void*)fs,
         .read                     = file_read,
@@ -2356,7 +2315,7 @@ JsonValue * jsonp_parse_file(const char *json_filename, JsonParseError *error, A
     CharRingBuffer *crb = crb_new_CharRingBuffer(LOOK_AHEAD_BUF_SIZE, arena);
     input.look_behind_buffer = crb;
     JsonContext context = {};
-    pvt_write_global_state(&context);
+    pvt_copy_global_state(&context);
     context.input = &input;
 
     JsonValue *value = nullptr;
@@ -2416,7 +2375,7 @@ JsonValue * jsonp_parse_stream( FILE* fp, JsonParseError *error, AlokArena *aren
     CharRingBuffer *crb = crb_new_CharRingBuffer(LOOK_AHEAD_BUF_SIZE, arena);
     input.look_behind_buffer = crb;
     JsonContext context = {};
-    pvt_write_global_state(&context);
+    pvt_copy_global_state(&context);
     context.input = &input;
 
     JsonValue *value = nullptr;
@@ -2434,6 +2393,7 @@ JsonValue * jsonp_parse_stream( FILE* fp, JsonParseError *error, AlokArena *aren
 
 
 // A struct to help us collect the data from libcurl
+// ReSharper disable once CppUseInternalLinkage
 struct MemoryStruct {
     char *memory;
     size_t size;
@@ -2441,7 +2401,7 @@ struct MemoryStruct {
 
 // This is a callback function that libcurl will call with chunks of data
 static size_t
-WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp) {
+WriteMemoryCallback(const void *contents, size_t size, size_t nmemb, void *userp) {
     size_t realsize = size * nmemb;
     struct MemoryStruct *mem = (struct MemoryStruct *)userp;
 
@@ -2574,7 +2534,7 @@ Error (jsonp_init)(jp_bitset_t config_flags, uint32_t max_depth, char const * wh
 //      DESTROY
 // -----------------------------------------------------------------
 
-void jsonp_destroy(void) {
+void jsonp_destroy() {
     if (atomic_exchange(&is_initialized, false)) {
         const char *ws = atomic_exchange(&pvt_whitespace_chars, nullptr);
         if (ws) {
@@ -2588,77 +2548,9 @@ void jsonp_destroy(void) {
 
 
 // -----------------------------------------------------------------
-//      Pretty-Printer like output
+//      Error Reporting
 // -----------------------------------------------------------------
 
-static void pvt_json_object_str(JsonValue *object) {
-    if (!object || object->type != JSON_OBJECT) return;
-    if (object->u.object.count == 0 ) {
-        printf("{ }");
-        return;
-    }
-    // First entry
-    printf("{ ");
-    printf("'%s' : ", SLICE_BUF(object->u.object.entries[0]->key, 128));
-    jsonp_print_json_value(object->u.object.entries[0]->value);
-    for (size_t i = 1; i < object->u.object.count; ++i) {
-        printf(", '%s' : ", SLICE_BUF(object->u.object.entries[i]->key, 128));
-        jsonp_print_json_value(object->u.object.entries[i]->value);
-    }
-    printf(" }");
-}
-
-void json_array_str(JsonValue *array) {
-    if (!array || array->type != JSON_ARRAY) return;
-    if (array->u.array.count == 0 ) {
-        printf("[ ]");
-        return;
-    }
-    printf("[ ");
-    jsonp_print_json_value(array->u.array.elements[0]);
-    for (size_t i = 1; i < array->u.array.count; ++i) {
-        printf(", ");
-        jsonp_print_json_value(array->u.array.elements[i]);
-    }
-    printf(" ]");
-}
-
-void jsonp_print_json_value(JsonValue *value) {
-    switch (value->type) {
-        case JSON_NULL:
-            printf("null");
-            break;
-        case JSON_BOOLEAN:
-            if (value->u.boolean) printf("true");
-            else printf("false");
-            break;
-        case JSON_NUMBER:
-            printf("%g", value->u.n_number);
-            break;
-        case JSON_LONG:
-            printf("%ld", value->u.n_long);
-            break;
-        // case JSON_LONG_LONG:
-        //     printf("%lld", value->u.n_long_long);
-        //     break;
-        case JSON_DOUBLE:
-            printf("%g", value->u.n_double);
-            break;
-        // case JSON_LONG_DOUBLE:
-        //     printf("%Lg", value->u.n_long_double);
-        //     break;
-        case JSON_STRING:
-            printf("'%s'", SLICE_BUF(value->u.string, 128));
-            break;
-        case JSON_ARRAY:
-            json_array_str(value);
-            break;
-        case JSON_OBJECT:
-            pvt_json_object_str(value);
-            break;
-        default: break;
-    }
-}
 
 const char *jsonp_parse_error_type_name(const JsonParseErrType err_type) {
     switch (err_type) {
@@ -2668,48 +2560,14 @@ const char *jsonp_parse_error_type_name(const JsonParseErrType err_type) {
 #undef X
     }
     return "UNKNOWN_JSON_ERROR";
-    /*switch (err_type) {
-#define STR(x) case x: return #x
-        STR(JSON_ERR_NONE);
-        STR(JSON_ERR_NULL_TEXT);
-        STR(JSON_ERR_EMPTY_TEXT);
-        STR(JSON_ERR_UNEXPECTED_TEXT);
-        STR(JSON_ERR_UNESCAPED_CONTROL_CHAR);
-        STR(JSON_ERR_UNEXPECTED_EOF);
-        STR(JSON_ERR_UNTERMINATED_ARRAY);
-        STR(JSON_ERR_UNTERMINATED_STRING);
-        STR(JSON_ERR_UNTERMINATED_OBJECT);
-        STR(JSON_ERR_MISSING_COMMA);
-        STR(JSON_ERR_MISSING_COLON);
-        STR(JSON_ERR_INVALID_NUMBER_FORMAT);
-        STR(JSON_ERR_INVALID_ESCAPE_SEQUENCE);
-        STR(JSON_ERR_INVALID_UNICODE_ESCAPE);
-        STR(JSON_ERR_NO_PRECEDING_HIGH_SURROGATE);
-        STR(JSON_ERR_NO_FOLLOWING_LOW_SURROGATE);
-        STR(JSON_ERR_RESERVED_FOR_HIGH_SURROGATE);
-        STR(JSON_ERR_RESERVED_FOR_LOW_SURROGATE);
-        STR(JSON_ERR_CODEPOINT_OUT_OF_RANGE);
-        STR(JSON_ERR_INVALID_UTF8_START_BYTE);
-        STR(JSON_ERR_INVALID_UTF8_CONTINUATION_BYTE);
-        STR(JSON_ERR_OVERLONG_SEQUENCE);
-        STR(JSON_ERR_MAX_NESTED_DEPTH_EXCEEDED);
-        STR(JSON_ERR_UNEXPECTED_UTF16_ENCODING);
-        STR(JSON_ERR_UNEXPECTED_UTF32_ENCODING);
-        STR(JSON_ERR_BOM_NOT_ALLOWED);
-        STR(JSON_ERR_TRAILING_COMMA_NOT_ALLOWED);
-        STR(JSON_ERR_OUT_OF_MEMORY);
-        STR(JSON_ERR_COUNT);
-#undef STR
-    }
-    return "UNKNOWN_JSON_ERROR";*/
 }
 
-constexpr char NEWLINE_CHARS[] = "\n\r\t\f\v";
-constexpr char SPACE_CHAR = ' ';
+static constexpr char NEWLINE_CHARS[] = "\n\r\t\f\v";
+static constexpr char SPACE_CHAR = ' ';
 
-constexpr char caret[]       = "\033[91m^\033[0m";
-constexpr char left_caret[]  = "\033[91m>\033[0m";
-constexpr char right_caret[] = "\033[91m<\033[0m";
+static constexpr char caret[]       = "\033[91m^\033[0m";
+static constexpr char left_caret[]  = "\033[91m>\033[0m";
+static constexpr char right_caret[] = "\033[91m<\033[0m";
 
 void jsonp_print_parse_error(JsonParseError *err) {
     if (!err) {
@@ -2762,7 +2620,7 @@ void jsonp_print_parse_error(JsonParseError *err) {
 //// ------------------------------------------------------------
 
 
-void parse_test_str(char const * str) {
+static void parse_test_str(char const * str) {
     Error init_err = jsonp_init();
     if (init_err.err) {
         err_print(init_err);
@@ -2785,7 +2643,7 @@ void parse_test_str(char const * str) {
            err.err_type, err.first_bad_char,  err.line, err.column, err.parse_start, err.parse_end, err.message);
     }
     else {
-        jsonp_print_json_value(jval);
+        jsonp_print(jval, JSON_FORMAT_FLAGS_DEFAULT);
         printf("\n");
     }
 
@@ -2793,7 +2651,7 @@ void parse_test_str(char const * str) {
     jsonp_destroy();
 }
 
-void parse_test_str_custom_init(
+static void parse_test_str_custom_init(
         char const * str,
         jp_bitset_t config_flags,
         uint32_t max_depth,
@@ -2822,7 +2680,8 @@ void parse_test_str_custom_init(
            json_err.parse_end, json_err.message);
     }
     else {
-        jsonp_print_json_value(jval);
+        jsonp_print(jval, JSON_FORMAT_FLAGS_DEFAULT);
+
         printf("\n");
     }
 
@@ -2832,7 +2691,7 @@ void parse_test_str_custom_init(
 }
 
 
-void simple_parse(char const *json_text) {
+static void simple_parse(char const *json_text) {
 
     Error init_err = jsonp_init();
     if (init_err.err) {
@@ -2856,7 +2715,7 @@ void simple_parse(char const *json_text) {
         // handle error
         jsonp_print_parse_error(&err);
     } else {
-        jsonp_print_json_value(jval);
+        jsonp_print(jval, JSON_FORMAT_FLAGS_DEFAULT);
         putchar('\n');
     }
 
@@ -2864,7 +2723,7 @@ void simple_parse(char const *json_text) {
     jsonp_destroy();
 }
 
-void test_custom_flags(void) {
+static void test_custom_flags() {
     jp_bitset_t my_custom_flags =
         jsonp_make_config_flag_bitset( 3, (JsonConfigFlag[3]) {
             JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_ARRAYS,
@@ -2889,7 +2748,7 @@ void test_custom_flags(void) {
 }
 
 
-void test_multi_byte_char_strings() {
+static void test_multi_byte_char_strings() {
     // one byte
     parse_test_str("\"\x41\"");     // A
 
@@ -2917,10 +2776,12 @@ void test_multi_byte_char_strings() {
 
     parse_test_str("\"\xF4\x90\x80\x80\""); // '󿿿'
 
+    // todo : ¯\_(ツ)_/¯ sequence
+
 
 }
 
-void test_parse_unicode_escapes() {
+static void test_parse_unicode_escapes() {
     // parse_test_str("\"\\uCAFE \\uBABE\"");
     // parse_test_str("\"\\uCAFE\\uBABE\"");
 
@@ -2961,7 +2822,7 @@ void test_parse_unicode_escapes() {
     simple_parse("[\"\\uD888\\u1234\"]");
 }
 
-void test_null_parse(void) {
+static void test_null_parse() {
     parse_test_str("null");
     // parse_test_str(" null ");
     // parse_test_str("nul");
@@ -2974,7 +2835,7 @@ void test_null_parse(void) {
     // parse_test_str("nulll");
 }
 
-void test_true_parse(void) {
+static void test_true_parse() {
     parse_test_str("true");
     parse_test_str(" true ");
     parse_test_str(" truetrue ");
@@ -2982,7 +2843,7 @@ void test_true_parse(void) {
     parse_test_str(" tr true");
 }
 
-void test_false_parse(void) {
+static void test_false_parse() {
     parse_test_str("false");
     parse_test_str(" false ");
     parse_test_str(" falsefalse ");
@@ -2990,7 +2851,7 @@ void test_false_parse(void) {
     parse_test_str(" fals ");
 }
 
-void test_number_parse(void) {
+static void test_number_parse() {
     // parse_test_str("\\x43");
     // parse_test_str("-");
     // parse_test_str("-A");
@@ -3036,7 +2897,7 @@ void test_number_parse(void) {
 
 }
 
-void test_array_parse(void) {
+static void test_array_parse() {
     // parse_test_str("[]");
     // parse_test_str("[1]");
     // parse_test_str("[1, 2]");
@@ -3067,7 +2928,7 @@ void test_array_parse(void) {
     simple_parse("[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16, 17,18,19   20,21,22,23,24,25,26,27,28,29,30,31]");
 }
 
-void test_parse_objects(void ) {
+static void test_parse_objects() {
     parse_test_str("{}");   // empty object is fine by the spec
 
     parse_test_str("{ \"foo\": null }");
@@ -3091,7 +2952,7 @@ static void debug_dump_bytes(const char *label, const char *s) {
     printf("\n");
 }
 
-static void test_hex_and_chars(void) {
+static void test_hex_and_chars() {
     char const * str = "Apôñéas\u253C\U0001F604\U0001F64F";
     // 1. Output to Console
     printf("Console Output:\n");
@@ -3109,7 +2970,7 @@ static void test_hex_and_chars(void) {
     repr_hex_and_chars_for_codepoint(&out, 0xDFFF);
 }
 
-void test_indeterminates(void) {
+static void test_indeterminates() {
     // parse_test_str("[\"日ш�\"]");
 
     // a really big int.
@@ -3144,7 +3005,7 @@ void test_indeterminates(void) {
     parse_test_str("[-1e+9999]");  // [ -inf ]
 }
 
-void test_json_test_suite_fails(void) {
+static void test_json_test_suite_fails() {
     simple_parse("{]");
     simple_parse(" "); // single space
     simple_parse(""); // no data
@@ -3154,7 +3015,7 @@ void test_json_test_suite_fails(void) {
 
 }
 
-void test_fails_for_reporting(void) {
+static void test_fails_for_reporting() {
 
     // printf("unterminated string\033[91m^\033[0m\033[91m^\033[0m\n");
 
@@ -3199,7 +3060,7 @@ void test_fails_for_reporting(void) {
     // simple_parse(big_str);
 }
 
-void parse_json_file(char const *filename) {
+static void parse_json_file(char const *filename) {
     Error init_err = jsonp_init();
     if (init_err.err) {
         err_print(init_err);
@@ -3225,9 +3086,7 @@ void parse_json_file(char const *filename) {
         jsonp_print_parse_error(&err);
     }
     else {
-        jsonp_print_json_value(jval);  //baseline for comparison
         int chars_printed = 0;
-
 
         JsonFormatFlags flags = { .single_line = true, .indent = 2 };
         printf("\nPretty Printer:\n");
@@ -3265,7 +3124,7 @@ void parse_json_file(char const *filename) {
     jsonp_destroy();
 }
 
-void parse_json_stream(char const *filename) {
+static void parse_json_stream(char const *filename) {
     Error init_err = jsonp_init();
     if (init_err.err) {
         err_print(init_err);
@@ -3319,7 +3178,7 @@ void parse_json_stream(char const *filename) {
         jsonp_print_parse_error(&err);
     }
     else {
-        jsonp_print_json_value(jval);
+        jsonp_print(jval, JSON_FORMAT_FLAGS_DEFAULT);
         printf("\n");
     }
 
@@ -3327,7 +3186,7 @@ void parse_json_stream(char const *filename) {
     jsonp_destroy();
 }
 
-void parse_json_url(char const *url_string) {
+static void parse_json_url(char const *url_string) {
     Error init_err = jsonp_init();
     if (init_err.err) {
         err_print(init_err);
@@ -3353,16 +3212,15 @@ void parse_json_url(char const *url_string) {
         jsonp_print_parse_error(&err);
     }
     else {
-        jsonp_print_json_value(jval);
         printf("\n");
+        jsonp_print(jval, JSON_FORMAT_FLAGS_DEFAULT);
     }
 
     alok_arena_destroy(arena);
     jsonp_destroy();
 }
 
-
-void test_one_json_file(void) {
+static void test_one_json_file() {
     // parse_json_file(nullptr);
     // parse_json_file("");
     // parse_json_file("no such file");
@@ -3409,7 +3267,7 @@ void test_one_json_file(void) {
 
 }
 
-void test_one_url(void) {
+static void test_one_url() {
     parse_json_url("https://jsonplaceholder.typicode.com/todos");
 }
 
@@ -3444,7 +3302,7 @@ int main( ) {
     // test_number_parse();
     // test_array_parse();
     // test_parse_objects();
-    // test_parse_unicode_escapes();
+    test_parse_unicode_escapes();
 
     // test_multi_byte_char_strings();
 
@@ -3457,7 +3315,7 @@ int main( ) {
     // test_fails_for_reporting();
     // test_json_test_suite_fails();
 
-    test_one_json_file();
+    // test_one_json_file();
 
     // test_one_url();
 

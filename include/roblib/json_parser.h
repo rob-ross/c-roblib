@@ -205,6 +205,7 @@ typedef struct json_parse_error_s {
     char             message[ERROR_MSG_BUFFER_SIZE + 1];
 } JsonParseError;
 
+// todo (rob) investigate JSONC and JSON5 for additional config ideas
 typedef enum json_config_flag_e : uint64_t {
     JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_ARRAYS,
     JSON_CONFIG_ALLOW_TRAILING_COMMAS_IN_OBJECTS,
@@ -225,6 +226,10 @@ typedef enum json_config_flag_e : uint64_t {
     //  if set, replace any invalid utf-16 surrogate sequences with the missing symbol character
     //  if not set (the default), rejects the JSON text as invalid if it contains invalid utf-16 surrogate sequences.
     JSON_CONFIG_REPLACE_BAD_SURROGATES,
+    // The C function isspace() includes \f and \v, whereas the JSON spec does not. By default, the parser does not
+    // include these chars as white space. If JSON_CONFIG_USE_C_ISSPACE is set, the parser will call isspace(), which
+    // includes these characters as a space. It may also be more performant.
+    JSON_CONFIG_USE_C_ISSPACE,
 
 } JsonConfigFlag;
 
@@ -382,10 +387,11 @@ void jsonp_clear_context_config_flag( JsonContext *context, JsonConfigFlag flag)
  *  Sets the maximum nesting depth allowed in the JSON text for the JsonContext.
  *  If depth is exceeded during parsing, the JSON text is rejected as invalid.
  *  The default is specified in DEPTH_MAX_DEFAULT
+ *  @param context
  *  @param max_depth the maximum allowed nesting depth of the JSON text structure.
  */
 void jsonp_set_context_max_depth(JsonContext *context, uint32_t max_depth);
-uint32_t jsonp_get_context_max_depth(JsonContext *context);
+uint32_t jsonp_get_context_max_depth(const JsonContext *context);
 
 // -----------------------------------------------------------------
 //      WHITESPACE
@@ -421,7 +427,7 @@ const char  * jsonp_get_context_whitespace_chars( JsonContext *context);
 //      Decimal Seperator Char
 // -----------------------------------------------------------------
 
-char jsonp_get_context_decimal_separator( JsonContext *context );
+char jsonp_get_context_decimal_separator(const JsonContext *context );
 
 void jsonp_set_context_decimal_separator( JsonContext *context, char c);
 
@@ -429,9 +435,10 @@ void jsonp_set_context_decimal_separator( JsonContext *context, char c);
 // Returns nullptr if there is no entry with this key.
 JsonObjectEntry * jsonp_entry_for_key(const JsonValue *json_obj, char const * key) ;
 
-// print a string representation of the JSON graph to the console
-void jsonp_print_json_value(JsonValue *value);
 
+// -----------------------------------------------------------------
+//      Error Reporting
+// -----------------------------------------------------------------
 
 /**
  * Returns the string name of the JsonParseErrType constant.
@@ -439,17 +446,20 @@ void jsonp_print_json_value(JsonValue *value);
  * @return A constant string literal representing the enum name.
  */
 const char *jsonp_parse_error_type_name(JsonParseErrType err_type);
-
 void jsonp_print_parse_error(JsonParseError *err);
 
 
 // -----------------------------------------------------------------
-//      JSON Pretty Printer
+//      JSON Pretty Printing
 // -----------------------------------------------------------------
+
 typedef struct jsonp_format_flags_s {
     u8 indent; // number of spaces to indent each nested level. More than 4 makes the output very wide
     bool single_line; // true if this should format JSON text as single line, if false, print on multiple lines
 } JsonFormatFlags;
+
+constexpr JsonFormatFlags JSON_FORMAT_FLAGS_DEFAULT = { .indent = 2, .single_line = true};
+
 
 // Prints the JsonValue in JSON format to stdout
 int jsonp_print( const JsonValue *jval, JsonFormatFlags flags);
