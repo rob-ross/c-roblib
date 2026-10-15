@@ -124,7 +124,8 @@ add_executable(json_parse2
 #target_link_libraries(json_parse2 PRIVATE c_roblib)
 target_link_libraries(json_parse2 PRIVATE
         # ... other libraries ...
-        CURL::libcurl
+        # I added this when I was testing parsing a JSON document via URL. this feature is not fully integrated yet.
+         CURL::libcurl
 )
 target_include_directories(json_parse2
         PUBLIC
@@ -138,6 +139,7 @@ target_compile_options(json_parse2 PRIVATE -DJSON_PARSER_2_MAIN -Wno-unused-func
 # You can run: cmake --install . --prefix ../other_project/libs
 # e.g.
 # cmake --install cmake-build-debug --prefix "/Users/robross/Documents/Development/CLionProjects/text_adventures/external/roblib"
+# cmake --install cmake-build-debug --prefix /Users/robross/Documents/Development/CLionProjects/assembly_playground/external/
 install(TARGETS c_roblib
         ARCHIVE DESTINATION lib
         LIBRARY DESTINATION lib)
@@ -145,6 +147,22 @@ install(TARGETS c_roblib
 install(DIRECTORY "${LIB_INCLUDE_DIR}/"
         DESTINATION include
         FILES_MATCHING PATTERN "*.h")
+
+
+# ad-hoc executables
+add_executable(powers_of_two
+        ${LIB_SRC_DIR}/map/powers_of_two.c
+)
+target_link_libraries(powers_of_two PRIVATE c_roblib)
+target_include_directories(powers_of_two
+        PUBLIC
+        PRIVATE
+        ${LIB_INCLUDE_DIR}
+        ${LIB_SRC_DIR}
+)
+
+target_compile_options(powers_of_two PRIVATE -DPOWERS_OF_TWO_MAIN -Wno-unused-function -Wno-unused-variable -Wno-unused-value )
+
 
 
 ##################################################
