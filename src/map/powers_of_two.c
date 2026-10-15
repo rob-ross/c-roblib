@@ -6,17 +6,17 @@
 // Created 2026/03/11 18:09:58 PDT
 
 //
-// Created by Rob Ross on 3/11/26.
+// Quick test printing powers of 2
 //
 
 #include <locale.h>
 #include <stddef.h>
 #include <stdio.h>
 
-#include "../dev_utils.h"
+#include "roblib/dev_utils.h"
 
 
-void display_powers(void) {
+void display_powers() {
     size_t pow = 1;
     for (int i=0; i < 64; ++i) {
         printf("%3d  %'zu\n", i, pow);
@@ -28,13 +28,33 @@ void display_powers(void) {
 // make:
 // clang -std=c23 -o ./out/powers_of_two.out powers_of_two.c ../dev_utils.c
 
+#ifdef POWERS_OF_TWO_MAIN
+#include <tgmath.h>
 int main(int argc, char *argv[]) {
     setlocale(LC_NUMERIC, "en_US.UTF-8");   // use user's system locale
-    TIMEIT( display_powers() ); print("");
+    TIMEIT_EXPR( display_powers() );
+    putchar('\n');
 
+
+    // Temp testing of TIMEIT macros
+
+    printf("\nTIMEIT_STATEMENT test with statement:\n");
+    TIMEIT_STATEMENT( display_powers() );
+    putchar('\n');
+    printf("\nTIMEIT_STATEMENT test with expression:\n");
+    TIMEIT_STATEMENT( (long)pow(2,47) >> 26 );
+    putchar('\n');
+
+    printf("\nTIMEIT_EXPR test with statement:\n");
+    double t1 = TIMEIT_EXPR( display_powers() );
+    putchar('\n');
+    printf("\nTIMEIT_EXPR test with expression:\n");
+    // the result of TIMEIT_EXPR is the elapsed time to compute the expression, not the value of the argument expression
+    double t2 = TIMEIT_EXPR( (long)pow(2,47) >> 26 );
+    putchar('\n');
 
 }
-
+#endif
 
 /*
  *  Powers of Two:
