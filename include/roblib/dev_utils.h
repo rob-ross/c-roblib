@@ -28,7 +28,8 @@ void du_repr_array_int_2D(size_t rows, size_t cols, int const array[static rows]
 double du_elapsed_seconds(struct timespec start, struct timespec end);
 
 
-#if !defined(print)
+#if 0
+// not worth the possible name collisions for the functionality it provides (rob)
 // expands to printf( fmt, ...)  but adds a newline to the end of fmt.
 #define print(fmt, ...)                 \
     do {                                \
@@ -37,44 +38,40 @@ double du_elapsed_seconds(struct timespec start, struct timespec end);
     } while (0)
 #endif
 
-// todo (Rob 10-14-26) TIMEIT_START and TIMEIT_END don't appear to be used anywhere, and they won't work as is
-// I suspect this was my early attempts to create a simple timing macro. 'start' and 'end' need to be visible in
-// both blocks, but they are not visible from TIMEIT_END.
-// `TIMEIT` appears to be the actual usable macro.
-#define TIMEIT_START                                    \
+// todo (rob) implement versions that allow formatting options for the time metric, (i.e., seconds, ms, micros, etc.
+/**
+ *  Calculates the elapsed time to execute the statement in argument `S` and prints the elapsed time
+ *  to stdout via printf. The time is formatted in seconds.
+ *  This form can only be used as a statement. I.e., it cannot be an rvalue.
+ *  All compilers support this form.
+ *  The argument must be a statement.
+ *  Example:
+ *   TIMEIT_STATEMENT( < statement > );
+ */
+#define TIMEIT_STATEMENT( S )                           \
     do {                                                \
         struct timespec start;                          \
         struct timespec end;                            \
-        double elapsed_time;                            \
+        double elapsed_time = 0;                        \
         clock_gettime(CLOCK_MONOTONIC, &start);         \
-    } while(0)
-
-#define TIMEIT_END                                      \
-    do {                                                \
+        ( S ) ;                                         \
         clock_gettime(CLOCK_MONOTONIC, &end);           \
         elapsed_time = du_elapsed_seconds(start, end);  \
-        printf( #S "  time: %.6g s, ", elapsed_time);   \
-    } while(0)
+        printf( #S "  time: %.6f s, ", elapsed_time);   \
+        elapsed_time;                                   \
+    } while (0)
 
-// Statement form, works in all compilers
-// #define TIMEIT( S )                                     \
-//     do {                                                \
-//         struct timespec start;                          \
-//         struct timespec end;                            \
-//         double elapsed_time = 0;                        \
-//         clock_gettime(CLOCK_MONOTONIC, &start);         \
-//         ( S ) ;                                         \
-//         clock_gettime(CLOCK_MONOTONIC, &end);           \
-//         elapsed_time = du_elapsed_seconds(start, end);  \
-//         printf( #S "  time: %.6f s, ", elapsed_time);   \
-//         elapsed_time;                                   \
-//     } while (0)
-
-// This form can be used as an expression. It will evaluate to
-// double elapsed_time.
-// Not all compilers support this form. It "returns" its result via the value of the last
-// statement in the macro, `elapsed_time`.
-#define TIMEIT( S )                                     \
+// todo (Rob) implement option to supress printing, or to format time display as seconds, ms, micro seconds, etc.
+/**
+ *  This form can be used as an expression. It will evaluate to
+ *  (double) elapsed_time.
+ *  Not all compilers support this form. It "returns" its result via the value of the last
+ *  statement in the macro, which is `elapsed_time`
+ *  The argument must be a statement.
+ *  Example:
+ *      double elapsed_time = TIMEIT_EXPR( < statement > );
+ */
+#define TIMEIT_EXPR( S )                                \
     __extension__ ({                                    \
         struct timespec start;                          \
         struct timespec end;                            \
