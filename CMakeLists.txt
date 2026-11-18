@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 4.2)
+cmake_minimum_required(VERSION 3.25)
 project(c_roblib C CXX)
 
 set(CMAKE_C_STANDARD 23)
@@ -79,15 +79,17 @@ set(LIB_SOURCES
 )
 
 # Find the libcurl package
-find_package(CURL REQUIRED)
+# todo curl support is only needed for parsing JSON over http, which is not yet fully tested/supported
+# make this a build option, i.e., http support, then curl will be required.
+#find_package(CURL REQUIRED)
 
 add_library(c_roblib STATIC ${LIB_SOURCES})
 
 # Link c_roblib against libcurl
-target_link_libraries(c_roblib PRIVATE
-        # ... other libraries ...
-        CURL::libcurl
-)
+#target_link_libraries(c_roblib PRIVATE
+#        # ... other libraries ...
+#        CURL::libcurl
+#)
 
 # 2. Organize Header Search Paths
 # PUBLIC: headers in 'include' are needed by anyone linking to this library.
@@ -125,7 +127,7 @@ add_executable(json_parse2
 target_link_libraries(json_parse2 PRIVATE
         # ... other libraries ...
         # I added this when I was testing parsing a JSON document via URL. this feature is not fully integrated yet.
-         CURL::libcurl
+#         CURL::libcurl
 )
 target_include_directories(json_parse2
         PUBLIC

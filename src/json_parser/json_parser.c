@@ -14,7 +14,8 @@
 #include <errno.h>
 #include <stdatomic.h>
 
-#include <curl/curl.h>
+// todo make conditional compile based on flags
+// #include <curl/curl.h>
 
 #include "roblib/string_builder.h"
 #include "roblib/char_ring_buffer.h"
@@ -2420,6 +2421,8 @@ WriteMemoryCallback(const void *contents, size_t size, size_t nmemb, void *userp
     return realsize;
 }
 
+// todo make conditionally compiled
+/*
 JsonValue * jsonp_parse_url( const char* url, JsonParseError *error, AlokArena *arena) {
     // todo (rob) curl is not installed by default. So this method should be in an API extension file that clients
     // can choose to use if they want to d/l, but otherwise have no dependency on it if not.
@@ -2428,8 +2431,8 @@ JsonValue * jsonp_parse_url( const char* url, JsonParseError *error, AlokArena *
 
     struct MemoryStruct chunk;
     // todo (rob) use arena
-    chunk.memory = malloc(1);  /* will be grown as needed by the callback */
-    chunk.size = 0;            /* no data at this point */
+    chunk.memory = malloc(1);  // will be grown as needed by the callback
+    chunk.size = 0;            // no data at this point
 
     curl_global_init(CURL_GLOBAL_ALL);
     curl_handle = curl_easy_init();
@@ -2481,6 +2484,7 @@ JsonValue * jsonp_parse_url( const char* url, JsonParseError *error, AlokArena *
     return value;
 }
 
+*/
 
 
 // -----------------------------------------------------------------
