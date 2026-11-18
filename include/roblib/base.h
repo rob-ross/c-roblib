@@ -76,6 +76,7 @@ extern "C" {
 #define BOOLIFY(x) ((x) != 0)
 #define CAT_(A, B) A##B
 #define CAT(A, B) CAT_(A, B)
+// todo trace CAT3, I don't think it works
 #define CAT3(A,B,C) CAT(CAT(A,B), C)
 #define ARRAY_COUNT(a) (sizeof(a)/sizeof(*(a)))
 #define INT_FROM_PTR(p) (unsigned long long)((char*)p - (char*)0)
