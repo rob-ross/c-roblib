@@ -19,13 +19,22 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 
-# Helpful for debugging (CLion usually does this in Debug, but explicit is fine)
+# -fsanitize=leak doesn't work on some Mac OS.... todo investigate
 # -fsanitize=address -fsanitize=leak
-# todo "-fsanitize=leak" doesn't run on Mac OS ARM, so we need to wrap this in some platform checking logic
-set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} \
+set(SAN_FLAGS "-fsanitize=address" )
+if(APPLE
+        AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
+        AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)$")
+    message(STATUS "Disabling AddressSanitizer for GCC on Apple Silicon: libasan is unavailable")
+    set(SAN_FLAGS "")
+else()
+    set(SAN_FLAGS "-fsanitize=address")
+endif()
+
+# Helpful for debugging (CMake usually does some of this in Debug, but explicit is fine)
+set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} ${SAN_FLAGS} \
 -O0 -g \
 -fno-omit-frame-pointer \
--fsanitize=address  \
 -Wall -Wpedantic -Wextra -Werror -Wshadow \
 -Wno-unknown-warning-option \
 -Wno-unknown-attributes \
