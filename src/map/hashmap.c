@@ -22,8 +22,8 @@
 
 
 
-const MapKey   NULL_MAP_KEY   = (MapKey){  .kvoid_ptr = nullptr, .key_type   = COL_TYPE_NULL};
-const MapNode  NULL_MAP_NODE  = (MapNode){ .key = NULL_MAP_KEY, .value = NULL_COL_VALUE, .hash = 0, .next = nullptr};
+const MapKey   NULL_MAP_KEY   = {  .kvoid_ptr = nullptr, .key_type   = COL_TYPE_NULL};
+const MapNode  NULL_MAP_NODE  = { .key = NULL_MAP_KEY, .value = NULL_COL_VALUE, .hash = 0, .next = nullptr};
 
 
 
@@ -148,7 +148,7 @@ static void map_policy_value_free_default(HashMap map[static 1], ColValue value)
     col_policy_value_free_default(map, value, map->data_policies.value_policy.policy_type, map->mem_policy);
 }
 
-const MapKeyPolicy   MAP_DEFAULT_KEY_POLICY = (MapKeyPolicy){
+const MapKeyPolicy   MAP_DEFAULT_KEY_POLICY = {
     .context         = nullptr,
     .policy_type     = COL_VALUE_POLICY_COPY,
     .on_add_key      = map_policy_key_add_default,
@@ -156,7 +156,7 @@ const MapKeyPolicy   MAP_DEFAULT_KEY_POLICY = (MapKeyPolicy){
     .on_free_context = nullptr,
 };
 
-const MapValuePolicy MAP_DEFAULT_VALUE_POLICY = (MapValuePolicy){
+const MapValuePolicy MAP_DEFAULT_VALUE_POLICY = {
     .context         = nullptr,
     .policy_type     = COL_VALUE_POLICY_COPY,
     .on_set_value    = map_policy_value_set_default,
@@ -164,7 +164,7 @@ const MapValuePolicy MAP_DEFAULT_VALUE_POLICY = (MapValuePolicy){
     .on_free_context = nullptr,
 };
 
-const MapDataPolicies MAP_DEFAULT_DATA_POLICIES = (MapDataPolicies){
+const MapDataPolicies MAP_DEFAULT_DATA_POLICIES = {
     .key_policy   = MAP_DEFAULT_KEY_POLICY,
     .value_policy = MAP_DEFAULT_VALUE_POLICY
 };
