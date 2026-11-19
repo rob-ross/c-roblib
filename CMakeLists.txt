@@ -34,6 +34,7 @@ if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
     -Wno-vla-parameter \
     -Wno-nonnull-compare \
     " )
+    message(STATUS "set GCC_FLAGS_DEBUG to ${GCC_FLAGS_DEBUG}")
 endif()
 
 ##############################################################
@@ -49,6 +50,7 @@ if(CMAKE_C_COMPILER_ID STREQUAL "Clang|AppleClang")
          -Wno-gnu-zero-variadic-macro-arguments \
          -Wno-unknown-attributes \
     " )
+    message(STATUS "set CLANG_FLAGS_DEBUG to ${CLANG_FLAGS_DEBUG}")
 endif()
 
 # -fsanitize=leak doesn't work on some Mac OS.... todo investigate
