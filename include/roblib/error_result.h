@@ -139,7 +139,21 @@ typedef struct ErrorFields {
     void* err_obj;
 } ErrorFields;
 
+// ISO C++ doesn't like anonymous structs, and gcc -Wpedantic makes them errors
+#if defined(__GNUC__) && !defined(__clang__)
+#define ERR_PUSH_ANON_STRUCT \
+        _Pragma("GCC diagnostic push") \
+        _Pragma("GCC diagnostic ignored \"-Wpedantic\"")
+#define ERR_POP_ANON_STRUCT \
+        _Pragma("GCC diagnostic pop")
+#else
+#define ERR_PUSH_ANON_STRUCT
+#define ERR_POP_ANON_STRUCT
+#endif
+
+
 #define ERR_FIELDS_UNION         \
+    ERR_PUSH_ANON_STRUCT         \
     union {                      \
         struct {                 \
             bool err;            \
@@ -148,7 +162,9 @@ typedef struct ErrorFields {
             void* err_obj;       \
         };                       \
         ErrorFields err_fields;  \
-    }
+    }                            \
+    ERR_POP_ANON_STRUCT
+
 
 typedef struct error_s {
     ERR_FIELDS_UNION;
