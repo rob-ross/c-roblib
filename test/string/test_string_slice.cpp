@@ -480,7 +480,6 @@ TEST(StringSlice, slice_starts_with) {
 
 TEST(StringSlice, slice_starts_with_by_case ) {
     StringSlice slice = slice_from_cstring("start middle end");
-    StringSlice upper_slice = slice_from_cstring("START MIDDLE END");
 
     EXPECT_EQ(slice_starts_with_by_case(slice, slice_from_cstring("start"), true), true);
     EXPECT_EQ(slice_starts_with_by_case(slice, slice_from_cstring("start"), false), true);
