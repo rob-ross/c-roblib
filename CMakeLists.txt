@@ -21,8 +21,9 @@ endif()
 
 # Helpful for debugging (CLion usually does this in Debug, but explicit is fine)
 # -fsanitize=address -fsanitize=leak
+# todo "-fsanitize=leak" doesn't run on Mac OS ARM, so we need to wrap this in some platform checking logic
 set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -O0 -g -fno-omit-frame-pointer \
--fsanitize=address -fsanitize=leak \
+-fsanitize=address  \
 -Wall -Wpedantic -Wextra -Werror -Wshadow \
 -Wno-unknown-attributes \
 -Wno-unused-const-variable \
