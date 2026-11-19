@@ -35,6 +35,7 @@ set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} \
 -Wno-unused-variable \
 -Wno-vla-parameter \
 -Wno-array-parameter \
+-Wno-error=format \
 -Wno-gnu-zero-variadic-macro-arguments \
 -Wno-gnu-include-next \
 -Wno-gnu-anonymous-struct \
