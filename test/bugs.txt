@@ -1,0 +1,23 @@
+Github CI
+Mac ARM Homebrew GCC 14
+arm64
+cmake version 4.5.0
+
+CMake suite maintained and supported by Kitware (kitware.com/cmake).
+/Applications/Xcode_16.4.app/Contents/Developer
+gcc-14 (Homebrew GCC 14.4.0) 14.4.0
+
+
+
+In file included from /Users/runner/work/c-roblib/c-roblib/build/_deps/googletest-src/googletest/include/gtest/gtest-param-test.h:182,
+                 from /Users/runner/work/c-roblib/c-roblib/build/_deps/googletest-src/googletest/include/gtest/gtest.h:68,
+                 from /Users/runner/work/c-roblib/c-roblib/test/json_parser/test_json_parser.cpp:6:
+/Users/runner/work/c-roblib/c-roblib/build/_deps/googletest-src/googletest/include/gtest/internal/gtest-param-util.h: In instantiation of 'testing::internal::ParameterizedTestSuiteInfo<TestCase>* testing::internal::ParameterizedTestSuiteRegistry::GetTestSuitePatternHolder(std::string, testing::internal::CodeLocation) [with TestSuite = JsonParserParamFixture<std::pair<std::__cxx11::basic_string<char>, std::__cxx11::basic_string<char> > >; std::string = std::__cxx11::basic_string<char>]':
+/Users/runner/work/c-roblib/c-roblib/test/json_parser/test_json_parser.cpp:197:1:   required from here
+  197 | TEST_P(JsonParserStrings, TestStrings) {
+      | ^~~~~~
+/Users/runner/work/c-roblib/c-roblib/build/_deps/googletest-src/googletest/include/gtest/internal/gtest-param-util.h:732:34: internal compiler error: Segmentation fault: 11
+  732 |       test_suite_infos_.push_back(typed_test_info);
+      |       ~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~
+Please submit a full bug report, with preprocessed source (by using -freport-bug).
+See <https://github.com/Homebrew/homebrew-core/issues> for instructions.
