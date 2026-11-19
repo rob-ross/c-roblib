@@ -45,14 +45,15 @@ jobs:
         if: matrix.cc == 'gcc-14'
         run: g++-14 -print-file-name=libasan.dylib
 
-      - name: Configure
+      - name: Configure Build
         run: |
           cmake -S . -B build \
             -DCMAKE_BUILD_TYPE=Debug \
             -DCMAKE_C_COMPILER="$CC" \
             -DCMAKE_CXX_COMPILER="$CXX"
 
-      - name: Build
-        run: cmake --build build --parallel 2
+      - name: Build Lib
+        run: cmake --build build --target c_roblib --parallel 2
 
-
+      - name: Run Tests
+        run: cmake --build build --target run_tests --parallel 2
