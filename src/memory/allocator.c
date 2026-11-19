@@ -286,7 +286,7 @@ void alok_arena_release_scratch(AlokArenaTemp *temp) {
 //// ------------------------------------------------------------
 
 constexpr size_t ARENA_HEAD_BLOCK_METADATA_SIZE = sizeof(BlockHeader) + sizeof(AlokArena) + sizeof(AllocatorHeader);
-void * _alok_arena_alloc(AlokArena * arena, const size_t size, size_t align_size, [[nullable]] ArenaErrResult * aer);
+void * _alok_arena_alloc(AlokArena * arena, const size_t size, size_t align_size, ALOK_NULLABLE ArenaErrResult * aer);
 size_t round_up_to_power_of_two(size_t x);
 
 // precondition: the align_size size is a power of two
@@ -294,7 +294,7 @@ size_t round_up_to_power_of_two(size_t x);
 static void * pvt_alok_arena_alloc_impl(
                             AlokArena * arena,
                             const size_t size,
-                            [[nullable]] ArenaErrResult * aer,
+                            ALOK_NULLABLE ArenaErrResult * aer,
                             size_t align_size ) {
 
     AllocatorHeader *header = arena->alloc_header;
@@ -436,7 +436,7 @@ void alok_arena_destroy( AlokArena * arena) {
 }
 
 // Returns pointer to allocated chunk in the arena, or nullptr if arena is out of memory.
-void * _alok_arena_alloc(AlokArena * arena, const size_t size, size_t align_size, [[nullable]] ArenaErrResult * aer) {
+void * _alok_arena_alloc(AlokArena * arena, const size_t size, size_t align_size, ALOK_NULLABLE ArenaErrResult * aer) {
     AllocatorHeader *header = arena->alloc_header;
     if ( ! align_size) {
         align_size = header->default_alignment;
@@ -532,7 +532,7 @@ void alok_pool_destroy(AlokPool *pool) {
     pvt_alok_dealloc(pool->head_block);
 }
 
-void * alok_pool_alloc(AlokPool * pool, [[nullable]] PoolErrResult * aer) {
+void * alok_pool_alloc(AlokPool * pool, ALOK_NULLABLE PoolErrResult * aer) {
     if (! pool->free_list ) {
         if (aer) {
             aer->err = true;
