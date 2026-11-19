@@ -16,19 +16,44 @@ set(LIB_TEST_DIR    ${LIB_ROOT_DIR}/test)
 
 # Set a default build type if none is specified
 if(NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE Release)
+    set(CMAKE_BUILD_TYPE Debug)
 endif()
 
+
+
 # Conditional compile flags
+
+##############################################################
+# GCC Debug Compile Flags
+##############################################################
 set( GCC_FLAGS_DEBUG "" )
 if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
     # todo deal with the pedantic warnings in gcc which is much more strict than clang
-    string(APPEND GCC_FLAGS_DEBUG "-Wno-error=pedantic")
+    string(APPEND GCC_FLAGS_DEBUG "\
+    -Wno-error=pedantic \
+    -Wno-vla-parameter \
+    -Wno-nonnull-compare \
+    " )
+endif()
+
+##############################################################
+# CLANG Debug Compile Flags
+##############################################################
+set( CLANG_FLAGS_DEBUG "" )
+if(CMAKE_C_COMPILER_ID STREQUAL "Clang")
+    # -Wno-unknown-warning-option
+    string(APPEND CLANG_FLAGS_DEBUG "\
+         -Wno-nested-anon-types \
+         -Wno-gnu-anonymous-struct \
+         -Wno-gnu-include-next \
+         -Wno-gnu-zero-variadic-macro-arguments \
+         -Wno-unknown-attributes \
+    " )
 endif()
 
 # -fsanitize=leak doesn't work on some Mac OS.... todo investigate
 # -fsanitize=address -fsanitize=leak
-set(SAN_FLAGS_DEBUG_DEBUG "-fsanitize=address" )
+set(SAN_FLAGS_DEBUG "-fsanitize=address" )
 if(APPLE
         AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
         AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)$")
@@ -39,28 +64,23 @@ else()
 endif()
 
 # Helpful for debugging (CMake usually does some of this in Debug, but explicit is fine)
+set(CMAKE_C_FLAGS_DEBUG "-O0 -g -fno-omit-frame-pointer -Wall -Wpedantic -Wextra -Werror")
 set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} ${SAN_FLAGS_DEBUG} \
--O0 -g \
--fno-omit-frame-pointer \
--Wall -Wpedantic -Wextra -Werror -Wshadow \
--Wno-unknown-warning-option \
--Wno-unknown-attributes \
--Wno-unused-const-variable \
--Wno-unused-parameter \
--Wno-unused-function \
--Wno-unused-variable \
--Wno-vla-parameter \
--Wno-array-parameter \
--Wno-error=format \
--Wno-gnu-zero-variadic-macro-arguments \
--Wno-gnu-include-next \
--Wno-gnu-anonymous-struct \
--Wno-nested-anon-types \
--Wno-nonnull-compare \
-${GCC_FLAGS_DEBUG}  \
+        -Wshadow \
+        -Wno-unused-const-variable \
+        -Wno-unused-parameter \
+        -Wno-unused-function \
+        -Wno-unused-variable \
+        -Wno-array-parameter \
+        -Wno-error=format \
+        ${GCC_FLAGS_DEBUG}  \
+        ${CLANG_FLAGS_DEBUG} \
 ")
 
 # Synchronize C++ flags for the test runner and set standard
+# We added -Wno-c99-extensions to the C++ compilation of the test cases because for now, the C library
+# uses Flexible Member Arrays and compound literals is ways that are not trivial to change at the moment.
+# todo revisit this : remove the flag and make the C++ compiler happy.
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -Wno-c99-extensions")
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
