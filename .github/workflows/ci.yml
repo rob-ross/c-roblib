@@ -55,5 +55,8 @@ jobs:
       - name: Build Lib
         run: cmake --build build --target c_roblib --parallel 2
 
-      - name: Run Tests
+      - name: Build Tests
         run: cmake --build build --target run_tests --parallel 2
+
+      - name: Run Tests
+        run: ./build/run_tests
