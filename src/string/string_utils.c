@@ -5,7 +5,8 @@
 
 #include "roblib/string_utils.h"
 
-#include <old_assert.h>
+
+#include <assert.h>
 #include <ctype.h>
 #include <stdarg.h>
 #include <string.h>
