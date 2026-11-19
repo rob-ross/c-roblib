@@ -122,7 +122,7 @@ const MemPolicy MEM_DEFAULT_ALLOCATOR_POLICY = {
 
 };
 
-constexpr MemPolicy NULL_MEM_POLICY = { .policy_type = MEM_POLICY_NULL };
+const MemPolicy NULL_MEM_POLICY = { .policy_type = MEM_POLICY_NULL };
 
 
 //// ------------------------------------------------------------
