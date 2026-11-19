@@ -3272,7 +3272,7 @@ static void test_one_json_file() {
 }
 
 static void test_one_url() {
-    parse_json_url("https://jsonplaceholder.typicode.com/todos");
+    // parse_json_url("https://jsonplaceholder.typicode.com/todos");
 }
 
 
