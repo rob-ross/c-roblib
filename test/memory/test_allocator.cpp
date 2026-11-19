@@ -147,7 +147,7 @@ TEST(ArenaAllocator, alok_arena_get_scratch) {
     //BlockHeader
     EXPECT_EQ(block1->next_block, nullptr ) << "initially the arena has a single block";
     // todo (rob) get these numbers dynamically
-    EXPECT_EQ(block1->block_size, alok_align_up(ALOK_DEFAULT_SCRATCH_ARENA_SIZE, 4096) )
+    EXPECT_EQ(block1->block_size, alok_align_up(ALOK_DEFAULT_SCRATCH_ARENA_SIZE, page_size) )
     << "block size for temp arena is " <<  ALOK_DEFAULT_SCRATCH_ARENA_SIZE;
     EXPECT_EQ(block1->usable_size, page_size - 80) << "usable size is block size - metadata header size ";
 
