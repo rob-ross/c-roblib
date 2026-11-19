@@ -22,7 +22,7 @@ endif()
 
 
 # Conditional compile flags
-
+message(NOTICE "CMAKE_C_COMPILER_ID ==  ${CMAKE_C_COMPILER_ID}")
 ##############################################################
 # GCC Debug Compile Flags
 ##############################################################
@@ -41,7 +41,7 @@ endif()
 # CLANG Debug Compile Flags
 ##############################################################
 set( CLANG_FLAGS_DEBUG "" )
-if(CMAKE_C_COMPILER_ID STREQUAL "Clang|AppleClang")
+if(CMAKE_C_COMPILER_ID MATCHES "Clang|AppleClang")
     # -Wno-unknown-warning-option
     string(APPEND CLANG_FLAGS_DEBUG "\
          -Wno-nested-anon-types \
