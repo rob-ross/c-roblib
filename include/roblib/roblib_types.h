@@ -10,6 +10,7 @@
 #define C_ROBLIB_ROBLIB_TYPES_H
 
 #include <stdint.h>
+#include <float.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -31,6 +32,8 @@ typedef uint64_t u64;
 typedef float    f32;
 typedef double   f64;
 
+// both of these are "long double" on Intel but max 80 bits.
+// both are just regular 64-bit doubles on ARM
 typedef long double f80;
 typedef long double f128;
 
@@ -85,13 +88,24 @@ constexpr f64 F64_MAX_SUBNORMAL     = 2.225'073'858'507'200'9e-308;
 constexpr f64 F64_MIN_POS_NORMAL    = 2.225'073'858'507'201'4e-308;
 constexpr f64 F64_MAX_NORMAL        = 1.797'693'134'862'315'7e308;
 
-// 80 bit float
+
+
+#if LDBL_MANT_DIG >= 64 && LDBL_MAX_EXP >= 16384
+/* long double has at least x87 80-bit extended range/precision */
+// 80 bit long double floating point
 constexpr f80 F80_MIN_POS_SUBNORMAL = 3.645'199'531'882'474'602'528'41e-4951L;
 constexpr f80 F80_MAX_SUBNORMAL     = 3.362'103'143'112'093'505'898'16e-4932L;
 constexpr f80 F80_MIN_POS_NORMAL    = 3.362'103'143'112'093'506'262'68e-4932L;
 constexpr f80 F80_MAX_NORMAL        = 1.189'731'495'357'231'765'021'26e4932L;
+#else
+// 64-bit long double floating point
+constexpr f80 F80_MIN_POS_SUBNORMAL = 4.940'656'458'412'465'4e-324;
+constexpr f80 F80_MAX_SUBNORMAL     = 2.225'073'858'507'200'9e-308;
+constexpr f80 F80_MIN_POS_NORMAL    = 2.225'073'858'507'201'4e-308;
+constexpr f80 F80_MAX_NORMAL        = 1.797'693'134'862'315'7e308;
+#endif
 
-#if (1)
+#if (0)
 // 128-bit float - for future use
 
 // note F128_MIN_POS_SUBNORMAL: the commented-out limit is the true limit for long double. But this number is too small
