@@ -6,18 +6,20 @@ the Arena, file IO, etc. So this currently won't build on Windows as-is.
 
 # Build
 
-> cmake -S . -B cmake-build-debug -DCMAKE_BUILD_TYPE=Debug
-> 
-> cmake --build cmake-build-debug
+    > cmake -S . -B cmake-build-debug -DCMAKE_BUILD_TYPE=Debug
+    > cmake --build cmake-build-debug --target c_roblib
 
 
 # Test
+From the project root:
 
-From the project root : 
-> ./cmake-build-debug/run_tests
+    > cmake --build cmake-build-debug --target run_tests
+    > ./cmake-build-debug/run_tests
+
 
 
 # Install
 
 To add the library and headers to your project, from the project root (of this project):
-> cmake --install cmake-build-debug --prefix .../your_project/your_libdirectory
+
+    > cmake --install cmake-build-debug --prefix .../your_project/your_libdirectory
