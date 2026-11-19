@@ -167,7 +167,7 @@ static long file_read( void *context, size_t requested_bytes)
     size_t bytes_read = fread( buf, 1, remaining, fp);
     // printf("bytes_read=%zu,", bytes_read);
 
-    if (bytes_read < 0) {
+    if (bytes_read == 0) {
         if (ferror(fp)) {
             perror("Error reading file");
         }
@@ -1845,7 +1845,7 @@ static JsonValue *  pvt_parse_literal_impl(const JsonContext *context,
     return literal;
 }
 
-static constexpr StringSlice NULL_SLICE  = (StringSlice){ .length = 4, .data = "null"};
+static const StringSlice NULL_SLICE  = { .length = 4, .data = "null" };
 
 
 
