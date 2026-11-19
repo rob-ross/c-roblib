@@ -54,7 +54,7 @@ typedef struct List {
 } List;
 
 
-constexpr ColValue LIST_NULL_LIST_VALUE = (ColValue){.vlong = 0, .value_type = COL_TYPE_NULL};
+constexpr ColValue LIST_NULL_LIST_VALUE = {.vlong = 0, .value_type = COL_TYPE_NULL};
 constexpr size_t   LIST_MIN_CAPACITY = 16;
 constexpr size_t   LIST_MAX_CAPACITY = 268'435'456; // 2^28 for now. todo tune this
 

@@ -106,7 +106,7 @@ typedef enum CollectionsError {
 
 
 
-static constexpr ColValue NULL_COL_VALUE = (ColValue){ .vvoid_ptr = nullptr, .value_type = COL_TYPE_NULL};
+static constexpr ColValue NULL_COL_VALUE = { .vvoid_ptr = nullptr, .value_type = COL_TYPE_NULL};
 static constexpr size_t MAX_POW2 = (SIZE_MAX >> 1) + 1;
 
 bool col_equals_ColValue( ColValue v1, ColValue v2);
