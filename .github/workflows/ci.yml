@@ -18,9 +18,9 @@ jobs:
           - name: Mac ARM Apple Clang 17
             cc: clang
             cxx: clang++
-          - name: Mac ARM Homebrew GCC 13
-            cc: gcc-13
-            cxx: g++-13
+          - name: Mac ARM Homebrew GCC 15
+            cc: gcc-15
+            cxx: g++-15
 
     name: Build (${{ matrix.name }})
     env:
@@ -42,8 +42,8 @@ jobs:
           fi
 
       - name: Check GCC Asan runtime
-        if: matrix.cc == 'gcc-13'
-        run: g++-14 -print-file-name=libasan.dylib
+        if: matrix.cc == 'gcc-15'
+        run: g++-15 -print-file-name=libasan.dylib
 
       - name: Configure Build
         run: |
