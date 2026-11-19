@@ -56,8 +56,9 @@ extern "C" {
 // opaque types
 typedef struct alok_arena_s AlokArena;
 typedef struct alok_pool_s  AlokPool;
-
 typedef struct stack_marker_t StackMarker;
+
+
 
 typedef struct alok_arena_temp_s{
     AlokArena *arena;
@@ -84,7 +85,7 @@ constexpr size_t ALOK_DEFAULT_SCRATCH_ARENA_SIZE = KB(1);
 
 // todo (rob) this probably belongs in a more general utilities type unit
 
-size_t alok_align_up(const size_t value, const size_t alignment);
+size_t alok_align_up( size_t value, size_t alignment);
 
 //// ------------------------------------------------------------
 ////

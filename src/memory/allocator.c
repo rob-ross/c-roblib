@@ -84,15 +84,10 @@ typedef struct block_header_err_result_s {
     BlockHeader * result;
 } BlockHeaderErrResult;
 
-typedef struct alok_arena_s {
+
+struct alok_arena_s {
     AllocatorHeader * const alloc_header;
-} AlokArena;
-
-typedef struct alok_arena_temp_s{
-    AlokArena *arena;
-    StackMarker *marker;
-} AlokArenaTemp;
-
+};
 
 typedef struct free_node_s {
     struct free_node_s *next;
