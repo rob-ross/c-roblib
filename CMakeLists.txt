@@ -100,6 +100,10 @@ set(LIB_SOURCES
 # make this a build option, i.e., http support, then curl will be required.
 #find_package(CURL REQUIRED)
 
+#############################################
+# main target
+#############################################
+
 add_library(c_roblib STATIC ${LIB_SOURCES})
 
 # Link c_roblib against libcurl
