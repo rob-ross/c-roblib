@@ -143,9 +143,12 @@ typedef struct ErrorFields {
 #if defined(__GNUC__) && !defined(__clang__)
 #define ERR_PUSH_ANON_STRUCT \
         _Pragma("GCC diagnostic push") \
-        _Pragma("GCC diagnostic ignored \"-Wpedantic\"")
+        _Pragma("GCC diagnostic ignored \"-Wpedantic\"") \
+
 #define ERR_POP_ANON_STRUCT \
+        ;                   \
         _Pragma("GCC diagnostic pop")
+
 #else
 #define ERR_PUSH_ANON_STRUCT
 #define ERR_POP_ANON_STRUCT
