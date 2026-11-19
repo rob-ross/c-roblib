@@ -102,7 +102,7 @@ void mem_mempolicy_default_allocator_free_context(void * context) {
     pool_destroy(pool);
 }
 
-const MemPolicy MEM_DEFAULT_MALLOC_POLICY = (MemPolicy){
+const MemPolicy MEM_DEFAULT_MALLOC_POLICY = {
     .context = nullptr,
     .policy_type = MEM_POLICY_MALLOC_OWN,
     .alloc = mem_mempolicy_default_malloc,
@@ -111,7 +111,7 @@ const MemPolicy MEM_DEFAULT_MALLOC_POLICY = (MemPolicy){
     .free = mem_mempolicy_default_free,
 };
 
-const MemPolicy MEM_DEFAULT_ALLOCATOR_POLICY = (MemPolicy){
+const MemPolicy MEM_DEFAULT_ALLOCATOR_POLICY = {
     .context = nullptr,  // context gets filled in by actual memory_pool
     .policy_type = MEM_POLICY_ALLOCATOR_OWN,
     .alloc = mem_mempolicy_default_allocator_alloc,
@@ -122,7 +122,7 @@ const MemPolicy MEM_DEFAULT_ALLOCATOR_POLICY = (MemPolicy){
 
 };
 
-constexpr MemPolicy NULL_MEM_POLICY = (MemPolicy){ .policy_type = MEM_POLICY_NULL };
+constexpr MemPolicy NULL_MEM_POLICY = { .policy_type = MEM_POLICY_NULL };
 
 
 //// ------------------------------------------------------------
