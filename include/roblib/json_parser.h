@@ -289,7 +289,7 @@ extern char const * const    JSON_WHITESPACE_CHARS_DEFAULT;
 Error (jsonp_init)(jp_bitset_t config_flags, uint32_t max_depth, char const * whitespace_chars);
 
 // call when done with parsing module, frees up resources acquired in init().
-void jsonp_destroy(void);
+void jsonp_destroy();
 
 // -----------------------------------------------------------------
 //      PARSING
