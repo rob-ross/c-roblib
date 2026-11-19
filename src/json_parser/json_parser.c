@@ -2422,6 +2422,9 @@ WriteMemoryCallback(const void *contents, size_t size, size_t nmemb, void *userp
 }
 
 // todo make conditionally compiled
+JsonValue * jsonp_parse_url( const char* url, JsonParseError *error, AlokArena *arena) {
+    return nullptr;
+}
 /*
 JsonValue * jsonp_parse_url( const char* url, JsonParseError *error, AlokArena *arena) {
     // todo (rob) curl is not installed by default. So this method should be in an API extension file that clients
@@ -3081,7 +3084,6 @@ static void parse_json_file(char const *filename) {
 
     JsonParseError err = {};
     printf("\nParsing json file '%s': \n", filename);
-    // JsonValue *jval = jsonp_parse(str, &err, &arena);
     JsonValue *jval = jsonp_parse_file(filename, &err, arena);
 
     if (!jval) {
