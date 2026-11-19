@@ -19,20 +19,26 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 
+# Conditional compile flags
+set( GCC_FLAGS_DEBUG "" )
+if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+    string(APPEND GCC_FLAGS_DEBUG " -Wno-extra-semi")
+endif()
+
 # -fsanitize=leak doesn't work on some Mac OS.... todo investigate
 # -fsanitize=address -fsanitize=leak
-set(SAN_FLAGS "-fsanitize=address" )
+set(SAN_FLAGS_DEBUG_DEBUG "-fsanitize=address" )
 if(APPLE
         AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
         AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)$")
     message(STATUS "Disabling AddressSanitizer for GCC on Apple Silicon: libasan is unavailable")
-    set(SAN_FLAGS "")
+    set(SAN_FLAGS_DEBUG "")
 else()
-    set(SAN_FLAGS "-fsanitize=address")
+    set(SAN_FLAGS_DEBUG "-fsanitize=address")
 endif()
 
 # Helpful for debugging (CMake usually does some of this in Debug, but explicit is fine)
-set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} ${SAN_FLAGS} \
+set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} ${SAN_FLAGS_DEBUG}  ${GCC_FLAGS_DEBUG}\
 -O0 -g \
 -fno-omit-frame-pointer \
 -Wall -Wpedantic -Wextra -Werror -Wshadow \
