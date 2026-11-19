@@ -136,7 +136,7 @@ static constexpr double DEFAULT_FILL_FACTOR = 0.75;
 static constexpr size_t MIN_NUM_BUCKETS = 16;
 static constexpr size_t MAX_NUM_BUCKETS = 268'435'456;
 static constexpr size_t MIN_CAPACITY  = 12;
-static constexpr size_t MAX_CAPACITY = (size_t)(MAX_NUM_BUCKETS * DEFAULT_FILL_FACTOR);  // currently 201,326,592
+static constexpr size_t MAX_CAPACITY = (MAX_NUM_BUCKETS * 3) / 4;  // currently 201,326,592
 
 extern const MapKey          NULL_MAP_KEY;
 extern const MapNode         NULL_MAP_NODE;
