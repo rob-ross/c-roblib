@@ -13,7 +13,7 @@
 #include <string.h>
 
 
-const ListValuePolicy LIST_DEFAULT_VALUE_POLICY = (ListValuePolicy){
+const ListValuePolicy LIST_DEFAULT_VALUE_POLICY = {
     .policy_type     = COL_VALUE_POLICY_NONE,
     .on_add_value    = nullptr,
     .on_free_value   = nullptr,
