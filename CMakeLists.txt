@@ -22,7 +22,8 @@ endif()
 # Conditional compile flags
 set( GCC_FLAGS_DEBUG "" )
 if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
-    string(APPEND GCC_FLAGS_DEBUG " -Wno-extra-semi")
+    # todo deal with the pedantic warnings in gcc which is much more strict than clang
+    string(APPEND GCC_FLAGS_DEBUG "-Wno-error=pedantic")
 endif()
 
 # -fsanitize=leak doesn't work on some Mac OS.... todo investigate
@@ -38,7 +39,7 @@ else()
 endif()
 
 # Helpful for debugging (CMake usually does some of this in Debug, but explicit is fine)
-set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} ${SAN_FLAGS_DEBUG}  ${GCC_FLAGS_DEBUG}\
+set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} ${SAN_FLAGS_DEBUG} \
 -O0 -g \
 -fno-omit-frame-pointer \
 -Wall -Wpedantic -Wextra -Werror -Wshadow \
@@ -56,6 +57,7 @@ set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} ${SAN_FLAGS_DEBUG}  ${GCC_FLAGS_
 -Wno-gnu-anonymous-struct \
 -Wno-nested-anon-types \
 -Wno-nonnull-compare \
+${GCC_FLAGS_DEBUG}  \
 ")
 
 # Synchronize C++ flags for the test runner and set standard
