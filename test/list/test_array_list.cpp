@@ -98,7 +98,7 @@ void ArrayListTest::TearDown() {
 
 TEST_F(ArrayListTest, test_append) {
 
-    CollectionsError result = list_append(list, (ColValue){.vlong = 1, .value_type = COL_TYPE_LONG});
+    CollectionsError result = list_append(list, {.vlong = 1, .value_type = COL_TYPE_LONG} );
     EXPECT_EQ(COL_OK, result) << "result code is COL_OK";
     EXPECT_EQ(list_size(list), 1) << "list size after adding 1 item is 1";
 
@@ -106,8 +106,8 @@ TEST_F(ArrayListTest, test_append) {
     ColValue v = list_get(list, 0);
     EXPECT_EQ(v.vlong, 1) << "value at index 0 is 1";
 
-    result = list_append(list, (ColValue){.vlong = 2, .value_type = COL_TYPE_LONG});
-    result = list_append(list, (ColValue){.vlong = 3, .value_type = COL_TYPE_LONG});
+    result = list_append(list, {.vlong = 2, .value_type = COL_TYPE_LONG});
+    result = list_append(list, {.vlong = 3, .value_type = COL_TYPE_LONG});
     EXPECT_EQ(list_size(list), 3) << "list size after adding 2 more items is 3";
 
     v = list_get(list, 1);
@@ -119,11 +119,11 @@ TEST_F(ArrayListTest, test_append) {
 TEST_F(ArrayListTest, test_clear) {
 
     CollectionsError result;
-    result = list_append(list, (ColValue){.vlong = 1, .value_type = COL_TYPE_LONG});
+    result = list_append(list, {.vlong = 1, .value_type = COL_TYPE_LONG});
     EXPECT_EQ(COL_OK, result) << "result code is COL_OK";
-    result = list_append(list, (ColValue){.vlong = 2, .value_type = COL_TYPE_LONG});
+    result = list_append(list, {.vlong = 2, .value_type = COL_TYPE_LONG});
     EXPECT_EQ(COL_OK, result) << "result code is COL_OK";
-    result = list_append(list, (ColValue){.vlong = 3, .value_type = COL_TYPE_LONG});
+    result = list_append(list,  {.vlong = 3, .value_type = COL_TYPE_LONG});
     EXPECT_EQ(COL_OK, result) << "result code is COL_OK";
 
     EXPECT_EQ(list_size(list), 3) << "list size after appending 3 items is 3";
@@ -137,22 +137,22 @@ TEST_F(ArrayListTest, test_clear) {
 TEST_F(ArrayListTest, test_contains) {
 
     CollectionsError result;
-    result = list_append(list, (ColValue){.vlong = 1, .value_type = COL_TYPE_LONG});
+    result = list_append(list, {.vlong = 1, .value_type = COL_TYPE_LONG});
     EXPECT_EQ(COL_OK, result) << "result code is COL_OK";
-    result = list_append(list, (ColValue){.vlong = 2, .value_type = COL_TYPE_LONG});
+    result = list_append(list, {.vlong = 2, .value_type = COL_TYPE_LONG});
     EXPECT_EQ(COL_OK, result) << "result code is COL_OK";
-    result = list_append(list, (ColValue){.vlong = 3, .value_type = COL_TYPE_LONG});
+    result = list_append(list, {.vlong = 3, .value_type = COL_TYPE_LONG});
     EXPECT_EQ(COL_OK, result) << "result code is COL_OK";
 
-    EXPECT_TRUE(list_contains(list, (ColValue){.vlong = 2L, .value_type = COL_TYPE_LONG}))
+    EXPECT_TRUE(list_contains(list, {.vlong = 2L, .value_type = COL_TYPE_LONG}))
     << "list_contains() returns true for value 2";
 }
 
 TEST_F(ArrayListTest, test_get) {
     CollectionsError result;
-    result = list_append(list, (ColValue){.vlong = 1, .value_type = COL_TYPE_LONG});
-    result = list_append(list, (ColValue){.vlong = 2, .value_type = COL_TYPE_LONG});
-    result = list_append(list, (ColValue){.vlong = 3, .value_type = COL_TYPE_LONG});
+    result = list_append(list, {.vlong = 1, .value_type = COL_TYPE_LONG});
+    result = list_append(list, {.vlong = 2, .value_type = COL_TYPE_LONG});
+    result = list_append(list, {.vlong = 3, .value_type = COL_TYPE_LONG});
     EXPECT_EQ(COL_OK, result) << "result code is COL_OK";
 
     EXPECT_EQ( list_size(list), 3 ) << "size after adding 3 elements is 3";
@@ -167,12 +167,12 @@ TEST_F(ArrayListTest, test_get) {
 
 TEST_F(ArrayListTest, test_insert) {
     for (size_t i = 0; i < 9; ++i) {
-        list_append(list, (ColValue){.vlong = static_cast<long>(i), .value_type = COL_TYPE_LONG});
+        list_append(list, {.vlong = static_cast<long>(i), .value_type = COL_TYPE_LONG});
     }
     EXPECT_EQ( list_size(list), 9 ) << "size after adding 9 elements is 9";
     EXPECT_EQ( list_get(list, 4).vlong, 4 ) << "value of index 4 is 4";
 
-    list_insert(list, 4, (ColValue){.vlong = 99, .value_type = COL_TYPE_LONG } );
+    list_insert(list, 4, {.vlong = 99, .value_type = COL_TYPE_LONG } );
     EXPECT_EQ( list_get(list, 4).vlong, 99 ) << "value of index 4 is now 99 after list_insert()";
 
     for (int i = 5; i < 10; ++i) {
@@ -187,7 +187,7 @@ TEST_F(ArrayListTest, test_is_empty) {
 
 TEST_F(ArrayListTest, test_remove) {
     for (size_t i = 0; i < 10; ++i) {
-        list_append(list, (ColValue){.vlong = static_cast<long>(i), .value_type = COL_TYPE_LONG});
+        list_append(list, {.vlong = static_cast<long>(i), .value_type = COL_TYPE_LONG});
     }
     EXPECT_EQ(list_size(list), 10) << "list size after appending 10 items is 10";
 
