@@ -40,6 +40,7 @@ set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} \
 -Wno-gnu-include-next \
 -Wno-gnu-anonymous-struct \
 -Wno-nested-anon-types \
+-Wno-nonnull-compare \
 ")
 
 # Synchronize C++ flags for the test runner and set standard
