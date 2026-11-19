@@ -53,6 +53,8 @@
 extern "C" {
 #endif
 
+#define ALOK_NULLABLE /* argument may be null */
+
 // opaque types
 typedef struct alok_arena_s AlokArena;
 typedef struct alok_pool_s  AlokPool;
@@ -143,7 +145,7 @@ void alok_arena_destroy( AlokArena * arena);
  * to align the memory location at which the allocation is made.
  * - `arena_alloc( arena, size_t size)`
  * - `arena_alloc( arena, size_t size, size_t align_size)`
- * - `arena_alloc( arena, size_t size, size_t align_size, [[nullable]] ArenaErrResult * aer)`
+ * - `arena_alloc( arena, size_t size, size_t align_size, ALOK_NULLABLE ArenaErrResult * aer)`
  * @returns void * to the newly allocated memory
  */
 #define alok_arena_alloc(_1, _2, ...) \
@@ -158,7 +160,7 @@ void alok_arena_destroy( AlokArena * arena);
 #define _alok_arena_alloc_4(_1, _2, _3, _4)(_alok_arena_alloc)(_1, _2, _3,     _4 )
 #define _alok_arena_alloc_SELECT_(_1, _2, NAME, ...) NAME
 
-void * _alok_arena_alloc(AlokArena * arena, size_t size, size_t align_size, [[nullable]] ArenaErrResult * aer);  // NOLINT(*-reserved-identifier)
+void * _alok_arena_alloc(AlokArena * arena, size_t size, size_t align_size, ALOK_NULLABLE ArenaErrResult * aer);  // NOLINT(*-reserved-identifier)
 
 
 StackMarker * alok_arena_marker(AlokArena * arena);
