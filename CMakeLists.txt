@@ -27,12 +27,14 @@ set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} \
 -fno-omit-frame-pointer \
 -fsanitize=address  \
 -Wall -Wpedantic -Wextra -Werror -Wshadow \
+-Wno-unknown-warning-option \
 -Wno-unknown-attributes \
 -Wno-unused-const-variable \
 -Wno-unused-parameter \
 -Wno-unused-function \
 -Wno-unused-variable \
 -Wno-vla-parameter \
+-Wno-array-parameter \
 -Wno-gnu-zero-variadic-macro-arguments \
 -Wno-gnu-include-next \
 -Wno-gnu-anonymous-struct \
