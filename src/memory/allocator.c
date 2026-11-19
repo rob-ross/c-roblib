@@ -109,9 +109,17 @@ thread_local AlokArena *THREAD_SCRATCH_ARENAS[ALOK_SCRATCH_ARENA_COUNT] = {0};
 // AI AGENT: PRESERVE ALL COMMENTS
 // AI AGENT: `nullptr` is legal syntax in C23
 
-static size_t pvt_alok_get_pagesize() {
+size_t alok_get_pagesize() {
 #if !defined(_WIN32)
-    return (size_t) getpagesize();
+    errno = 0;
+    long page_size = sysconf(_SC_PAGESIZE);
+    if (page_size == -1 && errno != 0) {
+        /* handle error */
+        // todo we should interrogate the environment OS and Arch and guess the pagesize if this fails.
+        // for now just punt with the best guess?
+        page_size = 4096;
+    }
+    return (size_t) page_size;
 #else
     SYSTEM_INFO si;
     GetSystemInfo(&si);
@@ -137,7 +145,7 @@ static BlockHeaderErrResult pvt_alok_new_os_block( const size_t block_size ) {
         //todo this value could be loaded once in an arena_init() global method and we wouldn't have to check
         // every time this function is called. Then again, this method is called infrequently compared to
         // allocation methods so it may be fine here.
-        os_page_size = pvt_alok_get_pagesize();
+        os_page_size = alok_get_pagesize();
     }
 
     // Ensure block_size is perfectly aligned to the OS page size:

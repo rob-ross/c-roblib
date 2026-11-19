@@ -40,6 +40,8 @@ typedef struct stack_marker_t {
 TEST(ArenaAllocator, alok_arena_create1) {
     ArenaErrResult aer = alok_arena_create(100);
 
+    size_t page_size = alok_get_pagesize();
+
     ASSERT_FALSE(aer.err) << "alok_arena_create returns err=false on success";
     ASSERT_NE(aer.result, nullptr) << "alok_arena_create returns new AlokArea*";
     AlokArena * arena = aer.result;
@@ -50,14 +52,15 @@ TEST(ArenaAllocator, alok_arena_create1) {
     //BlockHeader
     EXPECT_EQ(block1->next_block, nullptr ) << "initially the arena has a single block";
     // todo (rob) get these numbers dynamically
-    EXPECT_EQ(block1->block_size, alok_align_up(100, 4096) ) << "block size for 100 byte arena is platform pagesize ";
-    EXPECT_EQ(block1->usable_size, 4016) << "usable size is block size - metadata header size ";
+    EXPECT_EQ(block1->block_size, alok_align_up(100, page_size) )
+        << "block size for 100 byte arena is platform pagesize " << page_size;
+    EXPECT_EQ(block1->usable_size, page_size - 80) << "usable size is block size - metadata header size ";
 
     //AllocatorHeader
     EXPECT_EQ(header->current_block, (byte*)block1) << "initial current block is first block " ;
-    EXPECT_EQ(header->default_block_size, 4096) << "default blocksize for 100 byte arena is platform pagesize" ;
+    EXPECT_EQ(header->default_block_size, page_size) << "default blocksize for 100 byte arena is platform pagesize " << page_size ;
     EXPECT_EQ(header->default_alignment, DEFAULT_ALIGNMENT) << "default alignment size used when not explicitly specified" ;
-    EXPECT_EQ(header->offset, 80) << "initial offset is 80" ;
+    EXPECT_EQ(header->offset, 80) << "initial offset is 80" ; // todo formalize this '80' somewhere
     EXPECT_EQ(header->auto_grow, true) << "default grow value is true when not explicitly specified" ;
 
     alok_arena_destroy(arena);
@@ -132,6 +135,9 @@ TEST(ArenaAllocator, alok_arena_get_scratch) {
     AlokArenaTemp scratch_arena = alok_arena_get_scratch(nullptr, 0);
     AlokArena * arena = scratch_arena.arena;
 
+    size_t page_size = alok_get_pagesize();
+
+
     ASSERT_NE(arena, nullptr) << "alok_arena_get_scratch returns a valid arena";
 
     AllocatorHeader *header = arena->alloc_header;
@@ -143,14 +149,15 @@ TEST(ArenaAllocator, alok_arena_get_scratch) {
     // todo (rob) get these numbers dynamically
     EXPECT_EQ(block1->block_size, alok_align_up(ALOK_DEFAULT_SCRATCH_ARENA_SIZE, 4096) )
     << "block size for temp arena is " <<  ALOK_DEFAULT_SCRATCH_ARENA_SIZE;
-    EXPECT_EQ(block1->usable_size, 4016) << "usable size is block size - metadata header size ";
+    EXPECT_EQ(block1->usable_size, page_size - 80) << "usable size is block size - metadata header size ";
 
     //AllocatorHeader
     size_t start_offset = 80; // fragile!
     size_t aligned_marker_start = alok_align_up(start_offset  , alignof(StackMarker) ) ;
     size_t marker_padding = aligned_marker_start - start_offset;
     EXPECT_EQ(header->current_block, (byte*)block1) << "initial current block is first block " ;
-    EXPECT_EQ(header->default_block_size, alok_align_up(ALOK_DEFAULT_SCRATCH_ARENA_SIZE, 4096)) << "default blocksize for scratch arena is platform pagesize" ;
+    EXPECT_EQ(header->default_block_size, alok_align_up(ALOK_DEFAULT_SCRATCH_ARENA_SIZE, page_size))
+        << "default blocksize for scratch arena is platform pagesize " << page_size ;
     EXPECT_EQ(header->default_alignment, DEFAULT_ALIGNMENT) << "default alignment size used when not explicitly specified" ;
     EXPECT_EQ(header->offset, aligned_marker_start + sizeof(StackMarker) ) << "initial offset is 140" ;
     EXPECT_EQ(header->auto_grow, true) << "default grow value is true when not explicitly specified" ;

@@ -89,6 +89,9 @@ constexpr size_t ALOK_DEFAULT_SCRATCH_ARENA_SIZE = KB(1);
 
 size_t alok_align_up( size_t value, size_t alignment);
 
+// system page size
+size_t alok_get_pagesize();
+
 //// ------------------------------------------------------------
 ////
 ////    MONOTONIC (Arena, Bump, Linear)  ALLOCATOR
