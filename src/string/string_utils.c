@@ -5,6 +5,7 @@
 
 #include "roblib/string_utils.h"
 
+#include <old_assert.h>
 #include <ctype.h>
 #include <stdarg.h>
 #include <string.h>
@@ -13,7 +14,6 @@
 #include <limits.h>
 
 
-#include <assert.h>
 
 
 [[maybe_unused]] static inline size_t min_size(const size_t a, const size_t b) {
