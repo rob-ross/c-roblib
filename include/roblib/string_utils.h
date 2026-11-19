@@ -18,7 +18,7 @@ extern "C" {
 
 
 
-static const size_t SUTIL_MAX_ARGS = 1024;  // max number of variadic arguments supported in a var args list
+constexpr size_t SUTIL_MAX_ARGS = 1024;  // max number of variadic arguments supported in a var args list
 
 static const char  * const SUTIL_WHITESPACE = " \t\n\r\v\f";
 
