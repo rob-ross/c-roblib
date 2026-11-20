@@ -2425,6 +2425,8 @@ WriteMemoryCallback(const void *contents, size_t size, size_t nmemb, void *userp
 JsonValue * jsonp_parse_url( const char* url, JsonParseError *error, AlokArena *arena) {
     return nullptr;
 }
+
+// DO NOT DELETE jsonp_parse_url!! It works, it's just not well tested. And it needs to be part of an "extension" branch
 /*
 JsonValue * jsonp_parse_url( const char* url, JsonParseError *error, AlokArena *arena) {
     // todo (rob) curl is not installed by default. So this method should be in an API extension file that clients
