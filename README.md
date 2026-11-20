@@ -1,3 +1,4 @@
+[![CI](https://github.com/rob-ross/c-roblib/actions/workflows/ci.yml/badge.svg)](https://github.com/rob-ross/c-roblib/actions/workflows/ci.yml)
 # roblib
 
 My slowly-evolving library of useful (to me) C functions. See project_info.txt for environment details.
