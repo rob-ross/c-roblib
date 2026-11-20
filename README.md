@@ -10,6 +10,7 @@ the Arena, file IO, etc. So this currently won't build on Windows as-is.
 - A C23 compiler for the C library code
 - C++23 compiler for the gtest test cases
 - macOS or Linux
+- uses googletest v1.18.0 (automatically downloaded)
 - not Windows
 
 ## Build
@@ -22,7 +23,7 @@ the Arena, file IO, etc. So this currently won't build on Windows as-is.
 
 
 ## Test
-From the project root:
+Uses googletest v1.18.0. From the project root:
 
     > cmake --build cmake-build-debug --target run_tests
     > ./cmake-build-debug/run_tests
