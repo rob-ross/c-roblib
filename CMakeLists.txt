@@ -226,20 +226,38 @@ target_compile_options(powers_of_two PRIVATE -DPOWERS_OF_TWO_MAIN -Wno-unused-fu
 # ./cmake-build-debug/run_tests
 
 
-# 1. Automatically download and "install" GoogleTest into the project
+# Automatically download and "install" GoogleTest into the project
+
+# Load CMake's dependency-fetching support.
 include(FetchContent)
+# Keep dependency download progress visible during configuration.
+set(FETCHCONTENT_QUIET OFF)
+# Build Google Test with the static runtime on supported platforms.
+set(gtest_force_shared_crt OFF CACHE BOOL "" FORCE)
+# Prevent GoogleTest from installing its own binaries even if EXCLUDE_FROM_ALL is missed
+set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+# Disable Google Mock because the test suite does not use it.
+set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
+# Prevent Google Test's own test targets from being built.
+set(gtest_build_tests OFF CACHE BOOL "" FORCE)
+# Declare the Google Test source repository and requested version.
+#FetchContent_Declare(
+#        googletest
+#        URL https://github.com/google/googletest/archive/refs/heads/main.zip
+#        # This is the modern (CMake 3.28+) way to keep it out of your 'install' command
+#        EXCLUDE_FROM_ALL
+#)
+
+# Declare the Google Test source repository and requested version.
 FetchContent_Declare(
         googletest
-        URL https://github.com/google/googletest/archive/refs/heads/main.zip
-        # This is the modern (CMake 3.28+) way to keep it out of your 'install' command
+        GIT_REPOSITORY https://github.com/google/googletest.git
+        GIT_TAG v1.18.0
+        GIT_SHALLOW TRUE
         EXCLUDE_FROM_ALL
 )
 
-# Prevent GoogleTest from installing its own binaries even if EXCLUDE_FROM_ALL is missed
-set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
-# Since you only link 'gtest', we can disable 'gmock' to speed up the build and avoid its install rules
-set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
-
+# Download and make Google Test available to the test targets.
 FetchContent_MakeAvailable(googletest)
 
 # 2. Find all test source files recursively in the test directory
