@@ -6,7 +6,7 @@ This has only been tested on my Mac. It's mostly C23 but I do use a few POSIX ca
 the Arena, file IO, etc. So this currently won't build on Windows as-is.
 
 ## Requirements
-- CMake 3.25 or newer
+- CMake 3.28 or newer
 - A C23 compiler for the C library code
 - C++23 compiler for the gtest test cases
 - macOS or Linux
